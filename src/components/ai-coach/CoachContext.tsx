@@ -154,11 +154,9 @@ export function CoachProvider({ children }: CoachProviderProps) {
     async (userMessage: string): Promise<CoachMessage> => {
       const lowerMessage = userMessage.toLowerCase();
 
-      // Detect intent from user message
-      let responseContent;
+      // Detect mode from user message
       let responseMode: CoachMode = mode;
 
-      // Explain/Teach intent
       if (
         lowerMessage.includes("explain") ||
         lowerMessage.includes("what is") ||
@@ -166,126 +164,100 @@ export function CoachProvider({ children }: CoachProviderProps) {
         lowerMessage.includes("teach me")
       ) {
         responseMode = "teach";
-        const concept = extractConcept(userMessage);
-        responseContent = explainConcept({
-          concept,
-          depth: context.difficultyLevel === "beginner" ? "simple" : "standard",
-          includeVisual: true,
-        });
-      }
-      // Draw/Diagram intent
-      else if (
+      } else if (
         lowerMessage.includes("draw") ||
         lowerMessage.includes("diagram") ||
         lowerMessage.includes("show me")
       ) {
         responseMode = "draw";
-        const diagram = drawPlay({
-          formation: "shotgun-spread",
-          coverage: "cover-3",
-        });
-        responseContent = [
-          {
-            type: "text" as const,
-            text: "Here's the diagram you requested:",
-          },
-          {
-            type: "diagram" as const,
-            diagram,
-          },
-        ];
-      }
-      // Quiz intent
-      else if (
+      } else if (
         lowerMessage.includes("quiz") ||
         lowerMessage.includes("test me")
       ) {
         responseMode = "quiz";
-        const flashcards = generateFlashcards("all", 1);
-        if (flashcards.length > 0) {
-          responseContent = [
-            {
-              type: "flashcard" as const,
-              flashcard: flashcards[0],
-            },
-          ];
-        } else {
-          responseContent = [
-            {
-              type: "text" as const,
-              text: "Let me find a quiz question for you...",
-            },
-          ];
-        }
-      }
-      // Route learning intent
-      else if (
-        lowerMessage.includes("route") &&
-        (lowerMessage.includes("run") || lowerMessage.includes("technique"))
+      } else if (
+        lowerMessage.includes("coverage") ||
+        lowerMessage.includes("defense") ||
+        lowerMessage.includes("analyze")
       ) {
-        responseMode = "teach";
-        const routeName = extractRouteName(userMessage);
-        if (routeName) {
-          responseContent = routeTeach({
-            routeId: routeName as RouteId,
-            includeVariations: true,
-          });
-        } else {
-          responseContent = [
-            {
-              type: "text" as const,
-              text: "Which route would you like me to teach? I can cover slants, outs, curls, posts, and more.",
-            },
-          ];
-        }
-      }
-      // Game assist intent
-      else if (
+        responseMode = "analyze";
+      } else if (
         lowerMessage.includes("help") ||
         lowerMessage.includes("hint")
       ) {
         responseMode = "assist";
-        responseContent = gameAssist({
-          gameName: activeTab === "games" ? "coverage-id" : "general",
-          needsHint: lowerMessage.includes("hint"),
-          needsExplanation: true,
-        });
-      }
-      // Coverage analysis intent
-      else if (
-        lowerMessage.includes("coverage") ||
-        lowerMessage.includes("defense")
-      ) {
-        responseMode = "analyze";
-        const analysis = analyzeCoverage({});
-        responseContent = [
-          {
-            type: "text" as const,
-            text: `Based on what I can see, this looks like **${analysis.coverageGuess.name}**.\n\n${analysis.coachingNotes.join("\n\n")}`,
-          },
-        ];
-      }
-      // Default response
-      else {
-        responseContent = [
-          {
-            type: "text" as const,
-            text: getCoachResponse(userMessage),
-          },
-        ];
       }
 
       setMode(responseMode);
 
-      const suggestedActions: SuggestedAction[] = [
-        { id: "explain-more", label: "Explain More", action: "ask" },
-        { id: "show-diagram", label: "Show Diagram", action: "diagram" },
-        { id: "quiz-me", label: "Quiz Me", action: "quiz" },
-      ];
+      try {
+        // Build conversation history from messages (last 6 messages for context)
+        const conversationHistory = messages
+          .slice(-6)
+          .map((msg) => ({
+            role: msg.role === "user" ? "user" : "assistant",
+            content: Array.isArray(msg.content)
+              ? msg.content.map(c => c.type === "text" ? c.text : "").join("\n")
+              : msg.content,
+          }));
 
-      return createCoachMessage(responseContent, responseMode, suggestedActions);
+        // Call the Netlify function
+        const response = await fetch('/.netlify/functions/coach', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: userMessage,
+            conversationHistory,
+            mode: responseMode,
+            context: {
+              module: context.module,
+              difficultyLevel: context.difficultyLevel,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to get response from coach');
+        }
+
+        const data = await response.json();
+
+        // Create response content
+        const responseContent = [
+          {
+            type: "text" as const,
+            text: data.response,
+          },
+        ];
+
+        const suggestedActions: SuggestedAction[] = [
+          { id: "explain-more", label: "Explain More", action: "ask" },
+          { id: "show-diagram", label: "Show Diagram", action: "diagram" },
+          { id: "quiz-me", label: "Quiz Me", action: "quiz" },
+        ];
+
+        return createCoachMessage(responseContent, responseMode, suggestedActions);
+      } catch (error) {
+        console.error('Error processing message:', error);
+
+        // Fallback response if API fails
+        const responseContent = [
+          {
+            type: "text" as const,
+            text: "I'm having trouble connecting right now. Let me give you some general guidance:\n\nFootball is all about preparation and execution. Study your playbook, understand your assignments, and trust your training. What specific area would you like to focus on?",
+          },
+        ];
+
+        const suggestedActions: SuggestedAction[] = [
+          { id: "try-again", label: "Try Again", action: "ask" },
+        ];
+
+        return createCoachMessage(responseContent, responseMode, suggestedActions);
+      }
     },
-    [mode, context.difficultyLevel, activeTab]
+    [mode, context.difficultyLevel, context.module, messages]
   );
 
   const sendMessage = useCallback(

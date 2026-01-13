@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const navItems = [
-  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon },
-  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon },
-  { name: "GAMES", href: "/games", icon: GamesIcon },
-  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon },
-  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon },
+  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon, disabled: false },
+  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
+  { name: "GAMES", href: "/games", icon: GamesIcon, disabled: true },
+  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon, disabled: false },
+  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: false },
 ];
 
 export default function PlayerNavbar() {
@@ -73,6 +73,22 @@ export default function PlayerNavbar() {
               (item.href === "/playbook" && pathname === "/") ||
               (item.href === "/games" && pathname === "/games") ||
               (item.href === "/games/assignment" && pathname === "/games/assignment");
+
+            if (item.disabled) {
+              return (
+                <div
+                  key={item.name}
+                  className="group relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold uppercase tracking-wide cursor-not-allowed opacity-50"
+                  title="Coming Soon"
+                >
+                  <item.icon className="h-4 w-4 text-slate-600" />
+                  {item.name}
+                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block whitespace-nowrap rounded-md bg-[#1B1E20] px-3 py-1.5 text-xs font-medium text-slate-300 shadow-lg">
+                    Coming Soon
+                  </span>
+                </div>
+              );
+            }
 
             return (
               <Link
