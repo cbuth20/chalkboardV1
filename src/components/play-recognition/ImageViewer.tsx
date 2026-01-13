@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { PlayAnalysisResults } from './PlayAnalysisResults';
+import { getAnalyzePlaysApiUrl } from '@/lib/api-config';
 
 interface ImageViewerProps {
   imageUrl: string;
@@ -7,6 +9,48 @@ interface ImageViewerProps {
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, fileName, onBack }) => {
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAnalyzePlay = async () => {
+    setIsAnalyzing(true);
+    setError(null);
+
+    try {
+      const apiUrl = getAnalyzePlaysApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageUrl,
+          fileName,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze play');
+      }
+
+      const data = await response.json();
+
+      // Check if GPT returned an error
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setAnalysis(data);
+    } catch (err: any) {
+      console.error('Error analyzing play:', err);
+      setError(err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <div className="relative h-full w-full bg-[#0A0F12] overflow-hidden flex flex-col">
       {/* Top Bar */}
@@ -50,13 +94,41 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, fileName, on
           Download
         </button>
 
-        <button className="flex items-center gap-2 bg-[var(--neon-teal)] text-black font-bold px-6 py-3 rounded-lg hover:bg-[#00d4c5] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)]">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-          </svg>
-          Analyze Play
+        <button
+          onClick={handleAnalyzePlay}
+          disabled={isAnalyzing}
+          className="flex items-center gap-2 bg-[var(--neon-teal)] text-black font-bold px-6 py-3 rounded-lg hover:bg-[#00d4c5] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isAnalyzing ? (
+            <>
+              <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+              </svg>
+              Analyze Play
+            </>
+          )}
         </button>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 bg-red-500/90 backdrop-blur-md text-white px-6 py-3 rounded-lg shadow-lg z-30">
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Analysis Results Modal */}
+      {analysis && (
+        <PlayAnalysisResults
+          analysis={analysis}
+          onClose={() => setAnalysis(null)}
+        />
+      )}
     </div>
   );
 };

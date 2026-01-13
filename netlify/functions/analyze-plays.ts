@@ -51,27 +51,30 @@ export const handler: Handler = async (event, context) => {
   // POST - Analyze a specific play image
   if (httpMethod === 'POST') {
     try {
-      const { fileName } = JSON.parse(event.body || '{}');
+      const { imageUrl, fileName } = JSON.parse(event.body || '{}');
 
-      if (!fileName) {
+      if (!imageUrl) {
         return {
           statusCode: 400,
-          body: JSON.stringify({ error: 'fileName is required' }),
+          body: JSON.stringify({ error: 'imageUrl is required' }),
         };
       }
 
-      const filePath = path.join(process.cwd(), 'public', 'playbooks', fileName);
-
-      if (!fs.existsSync(filePath)) {
+      // Fetch the image from the URL (Supabase Storage)
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
         return {
           statusCode: 404,
-          body: JSON.stringify({ error: 'File not found' }),
+          body: JSON.stringify({ error: 'Failed to fetch image from URL' }),
         };
       }
 
-      const imageBuffer = fs.readFileSync(filePath);
-      const base64Image = imageBuffer.toString('base64');
-      const mimeType = fileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const imageBuffer = await imageResponse.arrayBuffer();
+      const base64Image = Buffer.from(imageBuffer).toString('base64');
+
+      // Determine mime type from file extension or content-type header
+      const contentType = imageResponse.headers.get('content-type');
+      const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
 
       const openaiApiKey = process.env.GPT_KEY;
       if (!openaiApiKey) {
@@ -146,7 +149,7 @@ export const handler: Handler = async (event, context) => {
         body: JSON.stringify({
           ...playData,
           fileName,
-          imageUrl: `/playbooks/${fileName}`,
+          imageUrl,
           analyzedAt: new Date().toISOString(),
         }),
       };

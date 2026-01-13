@@ -43,28 +43,30 @@ export async function GET() {
 // POST endpoint to analyze a specific play image
 export async function POST(request: NextRequest) {
   try {
-    const { fileName, imageUrl } = await request.json();
+    const { imageUrl, fileName } = await request.json();
 
-    if (!fileName) {
+    if (!imageUrl) {
       return NextResponse.json(
-        { error: 'fileName is required' },
+        { error: 'imageUrl is required' },
         { status: 400 }
       );
     }
 
-    // Read the image file as base64
-    const filePath = path.join(process.cwd(), 'public', 'playbooks', fileName);
-
-    if (!fs.existsSync(filePath)) {
+    // Fetch the image from the URL (Supabase Storage)
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
       return NextResponse.json(
-        { error: 'File not found' },
+        { error: 'Failed to fetch image from URL' },
         { status: 404 }
       );
     }
 
-    const imageBuffer = fs.readFileSync(filePath);
-    const base64Image = imageBuffer.toString('base64');
-    const mimeType = fileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const base64Image = Buffer.from(imageBuffer).toString('base64');
+
+    // Determine mime type from file extension or content-type header
+    const contentType = imageResponse.headers.get('content-type');
+    const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
 
     // Call ChatGPT Vision API
     const openaiApiKey = process.env.GPT_KEY;
@@ -139,7 +141,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...playData,
       fileName,
-      imageUrl: `/playbooks/${fileName}`,
+      imageUrl,
       analyzedAt: new Date().toISOString(),
     });
   } catch (error: any) {
