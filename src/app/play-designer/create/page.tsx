@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { RoutePicker } from "@/components/play-designer/RoutePicker";
-import { AssignedRoute, ROUTE_LIBRARY, getDepthForLevel } from "@/domain/football/routes";
+import { AssignedRoute, ROUTE_LIBRARY, getDepthForLevel } from "@/types/football";
 import { 
   getRoutePoints, 
   routePointsToSvgString, 
@@ -446,7 +446,7 @@ export default function PlayDesignerCreatePage() {
       </div>
 
       {/* Route Picker */}
-      <RoutePicker
+      {/* <RoutePicker
         isOpen={isRoutePickerOpen && !!selectedPlayerId}
         onClose={() => setIsRoutePickerOpen(false)}
         playerLabel={players.find(p => p.id === selectedPlayerId)?.label}
@@ -454,7 +454,7 @@ export default function PlayDesignerCreatePage() {
         currentRouteId={selectedPlayerId ? playerRoutes[selectedPlayerId]?.routeId : undefined}
         currentDepth={selectedPlayerId ? playerRoutes[selectedPlayerId]?.depth : undefined}
         level={level}
-      />
+      /> */}
     </div>
   );
 }

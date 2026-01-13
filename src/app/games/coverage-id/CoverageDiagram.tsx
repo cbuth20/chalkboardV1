@@ -10,7 +10,7 @@ import {
   CoverageDiagram as SharedCoverageDiagram,
   GameDiagramWrapper 
 } from "@/components/football";
-import { getCoverageByLegacyId, FORMATIONS, type LegacyCoverageId } from "@/domain/football";
+import { getCoverageByLegacyId, FORMATIONS, type LegacyCoverageId } from "@/types/football";
 
 interface CoverageDiagramProps {
   // Legacy prop for backward compatibility

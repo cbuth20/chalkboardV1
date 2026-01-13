@@ -9,9 +9,7 @@ import {
   type SkillPosition,
   type AssignmentCategory,
   type AssignmentQuestion,
-  getPositionAssignment,
-} from "@/domain/football";
-import { getFormationById } from "@/domain/football";
+} from "@/types/football";
 import { getPlaybooksApiUrl, getAnalyzePlaysApiUrl } from "@/lib/api-config";
 import {
   convertGPTPlayToDefinition,
@@ -197,9 +195,11 @@ export default function AssignmentTrackerPage() {
             });
 
             if (analyzeResponse.ok) {
-              const gptAnalysis: GPTPlayAnalysis = await analyzeResponse.json();
-              const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
-              analyzedPlays.push(playDef);
+              const gptAnalysis: GPTPlayAnalysis | undefined = await analyzeResponse.json();
+              if(gptAnalysis) {
+                const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
+                analyzedPlays.push(playDef);
+              }
             } else {
               console.error(`Failed to analyze ${playbook.fileName}`);
             }
@@ -853,20 +853,20 @@ export default function AssignmentTrackerPage() {
             <div className="glass-card overflow-hidden">
               <div className="border-b border-[#1B1E20] px-4 py-3 flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                  Formation: {getFormationById(selectedPlay.formation)?.name || selectedPlay.formation}
+                  Formation: {selectedPlay.formation}
                 </span>
                 <span className="text-xs text-slate-500">Tap a position to start</span>
               </div>
               <div className="p-4">
-                <PlayDiagram
+                {/* <PlayDiagram
                   play={selectedPlay}
                   onPositionSelect={handlePositionSelect}
-                />
+                /> */}
               </div>
             </div>
 
             {/* Position Grid */}
-            <div className="glass-card p-6">
+            {/* <div className="glass-card p-6">
               <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-400">
                 Select Your Position
               </h3>
@@ -879,7 +879,7 @@ export default function AssignmentTrackerPage() {
                   />
                 ))}
               </div>
-            </div>
+            </div> */}
           </div>
         )}
 
@@ -1158,127 +1158,127 @@ function PositionButton({
   );
 }
 
-function PlayDiagram({ 
-  play, 
-  onPositionSelect 
-}: { 
-  play: PlayDefinition; 
-  onPositionSelect: (pos: SkillPosition) => void;
-}) {
-  // Get formation for positioning
-  const formation = getFormationById(play.formation);
+// function PlayDiagram({ 
+//   play, 
+//   onPositionSelect 
+// }: { 
+//   play: PlayDefinition; 
+//   onPositionSelect: (pos: SkillPosition) => void;
+// }) {
+//   // Get formation for positioning
+//   const formation = getFormationById(play.formation);
   
-  // Position coordinates on the diagram (percentages)
-  const getPositionCoords = (pos: SkillPosition): { x: number; y: number } => {
-    const coords: Record<SkillPosition, { x: number; y: number }> = {
-      QB: { x: 50, y: 55 },
-      RB: { x: 50, y: 75 },
-      FB: { x: 50, y: 65 },
-      X: { x: 10, y: 40 },
-      Z: { x: 90, y: 40 },
-      H: { x: 30, y: 40 },
-      Y: { x: 70, y: 40 },
-      TE: { x: 75, y: 40 },
-    };
-    return coords[pos] || { x: 50, y: 50 };
-  };
+//   // Position coordinates on the diagram (percentages)
+//   const getPositionCoords = (pos: SkillPosition): { x: number; y: number } => {
+//     const coords: Record<SkillPosition, { x: number; y: number }> = {
+//       QB: { x: 50, y: 55 },
+//       RB: { x: 50, y: 75 },
+//       FB: { x: 50, y: 65 },
+//       X: { x: 10, y: 40 },
+//       Z: { x: 90, y: 40 },
+//       H: { x: 30, y: 40 },
+//       Y: { x: 70, y: 40 },
+//       TE: { x: 75, y: 40 },
+//     };
+//     return coords[pos] || { x: 50, y: 50 };
+//   };
 
-  const positions = getPositionsForPlay(play.id);
+//   // const positions = getPositionsForPlay(play.id);
 
-  return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-gradient-to-b from-[#0c1612] to-[#0a0f0c] border border-slate-800">
-      {/* Field markings */}
-      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid slice">
-        {/* Line of scrimmage */}
-        <line x1="5" y1="38" x2="95" y2="38" stroke="rgba(0, 246, 229, 0.5)" strokeWidth="0.5" />
+//   return (
+//     <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-gradient-to-b from-[#0c1612] to-[#0a0f0c] border border-slate-800">
+//       {/* Field markings */}
+//       <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid slice">
+//         {/* Line of scrimmage */}
+//         <line x1="5" y1="38" x2="95" y2="38" stroke="rgba(0, 246, 229, 0.5)" strokeWidth="0.5" />
         
-        {/* Yard lines */}
-        {[20, 28, 46, 54].map((y) => (
-          <line key={y} x1="10" y1={y} x2="90" y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="0.2" strokeDasharray="2 1" />
-        ))}
+//         {/* Yard lines */}
+//         {[20, 28, 46, 54].map((y) => (
+//           <line key={y} x1="10" y1={y} x2="90" y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="0.2" strokeDasharray="2 1" />
+//         ))}
         
-        {/* Hash marks */}
-        {[20, 28, 38, 46, 54].map((y) => (
-          <g key={`hash-${y}`}>
-            <line x1="35" y1={y - 0.5} x2="35" y2={y + 0.5} stroke="rgba(255,255,255,0.15)" strokeWidth="0.2" />
-            <line x1="65" y1={y - 0.5} x2="65" y2={y + 0.5} stroke="rgba(255,255,255,0.15)" strokeWidth="0.2" />
-          </g>
-        ))}
+//         {/* Hash marks */}
+//         {[20, 28, 38, 46, 54].map((y) => (
+//           <g key={`hash-${y}`}>
+//             <line x1="35" y1={y - 0.5} x2="35" y2={y + 0.5} stroke="rgba(255,255,255,0.15)" strokeWidth="0.2" />
+//             <line x1="65" y1={y - 0.5} x2="65" y2={y + 0.5} stroke="rgba(255,255,255,0.15)" strokeWidth="0.2" />
+//           </g>
+//         ))}
 
-        {/* Offensive line placeholders */}
-        {[35, 42, 50, 58, 65].map((x) => (
-          <rect key={x} x={x - 2} y="37" width="4" height="3" rx="0.5" fill="rgba(100,116,139,0.3)" stroke="rgba(100,116,139,0.5)" strokeWidth="0.2" />
-        ))}
-      </svg>
+//         {/* Offensive line placeholders */}
+//         {[35, 42, 50, 58, 65].map((x) => (
+//           <rect key={x} x={x - 2} y="37" width="4" height="3" rx="0.5" fill="rgba(100,116,139,0.3)" stroke="rgba(100,116,139,0.5)" strokeWidth="0.2" />
+//         ))}
+//       </svg>
 
-      {/* Position markers */}
-      {positions.map((pos) => {
-        const coords = getPositionCoords(pos);
-        const assignment = getPositionAssignment(play.id, pos);
+//       {/* Position markers */}
+//       {positions.map((pos) => {
+//         const coords = getPositionCoords(pos);
+//         const assignment = getPositionAssignment(play.id, pos);
         
-        // Color based on position group
-        const getColor = (p: SkillPosition) => {
-          if (p === "QB") return "#F5C253";
-          if (p === "RB" || p === "FB") return "#FF6A3D";
-          if (p === "X" || p === "Z") return "#00F6E5";
-          return "#3DF3FF";
-        };
+//         // Color based on position group
+//         const getColor = (p: SkillPosition) => {
+//           if (p === "QB") return "#F5C253";
+//           if (p === "RB" || p === "FB") return "#FF6A3D";
+//           if (p === "X" || p === "Z") return "#00F6E5";
+//           return "#3DF3FF";
+//         };
         
-        return (
-          <button
-            key={pos}
-            onClick={() => onPositionSelect(pos)}
-            className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
-            style={{ left: `${coords.x}%`, top: `${coords.y}%` }}
-          >
-            {/* Pulse ring */}
-            <div 
-              className="absolute inset-0 rounded-full animate-ping opacity-30"
-              style={{ 
-                backgroundColor: getColor(pos),
-                animationDuration: "2s",
-              }}
-            />
+//         return (
+//           <button
+//             key={pos}
+//             onClick={() => onPositionSelect(pos)}
+//             className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
+//             style={{ left: `${coords.x}%`, top: `${coords.y}%` }}
+//           >
+//             {/* Pulse ring */}
+//             <div 
+//               className="absolute inset-0 rounded-full animate-ping opacity-30"
+//               style={{ 
+//                 backgroundColor: getColor(pos),
+//                 animationDuration: "2s",
+//               }}
+//             />
             
-            {/* Main circle */}
-            <div 
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all group-hover:scale-110 group-hover:shadow-lg"
-              style={{ 
-                backgroundColor: `${getColor(pos)}20`,
-                borderColor: getColor(pos),
-                boxShadow: `0 0 15px ${getColor(pos)}40`,
-              }}
-            >
-              <span className="text-xs font-black" style={{ color: getColor(pos) }}>
-                {pos}
-              </span>
-            </div>
+//             {/* Main circle */}
+//             <div 
+//               className="relative flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all group-hover:scale-110 group-hover:shadow-lg"
+//               style={{ 
+//                 backgroundColor: `${getColor(pos)}20`,
+//                 borderColor: getColor(pos),
+//                 boxShadow: `0 0 15px ${getColor(pos)}40`,
+//               }}
+//             >
+//               <span className="text-xs font-black" style={{ color: getColor(pos) }}>
+//                 {pos}
+//               </span>
+//             </div>
             
-            {/* Route indicator (for pass plays) */}
-            {play.playType === "pass" && assignment?.routeId && (
-              <div 
-                className="absolute -top-6 left-1/2 transform -translate-x-1/2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase whitespace-nowrap"
-                style={{ 
-                  backgroundColor: `${getColor(pos)}20`,
-                  color: getColor(pos),
-                }}
-              >
-                {assignment.routeId}
-              </div>
-            )}
-          </button>
-        );
-      })}
+//             {/* Route indicator (for pass plays) */}
+//             {play.playType === "pass" && assignment?.routeId && (
+//               <div 
+//                 className="absolute -top-6 left-1/2 transform -translate-x-1/2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase whitespace-nowrap"
+//                 style={{ 
+//                   backgroundColor: `${getColor(pos)}20`,
+//                   color: getColor(pos),
+//                 }}
+//               >
+//                 {assignment.routeId}
+//               </div>
+//             )}
+//           </button>
+//         );
+//       })}
 
-      {/* Legend */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-2 rounded-lg bg-[#0A0A0A]/80 px-2 py-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-          Tap position to start
-        </span>
-      </div>
-    </div>
-  );
-}
+//       {/* Legend */}
+//       <div className="absolute bottom-2 right-2 flex items-center gap-2 rounded-lg bg-[#0A0A0A]/80 px-2 py-1">
+//         <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+//           Tap position to start
+//         </span>
+//       </div>
+//     </div>
+//   );
+// }
 
 function RecentResults() {
   const [results, setResults] = useState<AssignmentResults[]>([]);

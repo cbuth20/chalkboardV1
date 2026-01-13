@@ -7,7 +7,7 @@
 
 import { FieldCanvas } from "./FieldCanvas";
 import { FIELD, OFFENSE } from "./fieldCoordinates";
-import type { Formation, PlayerPosition } from "@/domain/football";
+import type { Formation, PlayerPosition } from "@/types/football";
 
 interface FormationDiagramProps {
   formation: Formation;

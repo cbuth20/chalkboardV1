@@ -5,6 +5,7 @@ import PlayerNavbar from "@/components/PlayerNavbar";
 import { PlayList, PlayMetadata, FieldEditor, ToastProvider, useToast } from "@/components/playbook-builder";
 import { DemoPlay, DemoPlayer, DemoRoute } from "@/lib/playbook/demo-types";
 import PlaybookStore from "@/lib/playbook/store";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PLAYBOOK PAGE — Main container component
@@ -12,9 +13,11 @@ import PlaybookStore from "@/lib/playbook/store";
 
 export default function PlaybookPage() {
   return (
-    <ToastProvider>
-      <PlaybookBuilder />
-    </ToastProvider>
+    <ProtectedRoute>
+      <ToastProvider>
+        <PlaybookBuilder />
+      </ToastProvider>
+    </ProtectedRoute>
   );
 }
 

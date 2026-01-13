@@ -7,7 +7,7 @@
 
 import { FieldCanvas } from "./FieldCanvas";
 import { FIELD } from "./fieldCoordinates";
-import type { Protection } from "@/domain/football";
+import type { Protection } from "@/types/football";
 
 interface BlitzDiagramProps {
   blitzType: BlitzScenario;

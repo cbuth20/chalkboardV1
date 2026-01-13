@@ -4,16 +4,17 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, AnswerButton, ResultsModal } from "@/components/games";
-import {
-  type FormationId,
-  FORMATIONS,
-  getFormationById,
-} from "@/domain/football";
-import { FormationDiagram, GameDiagramWrapper } from "@/components/football";
+import { type FormationId } from "@/types/football";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
+
+interface Formation {
+  id: FormationId;
+  name: string;
+  description: string;
+}
 
 interface FormationPrompt {
   id: string;
@@ -26,20 +27,57 @@ interface FormationPrompt {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GAME PROMPTS — Generated from shared formations
+// FORMATION DATA
 // ═══════════════════════════════════════════════════════════════════════════
 
-const FORMATION_PROMPTS: FormationPrompt[] = FORMATIONS.map((formation) => ({
-  id: `form-${formation.id}`,
-  formationId: formation.id,
-  label: formation.shortName,
-  description: formation.description,
-  correctAnswer: formation.name,
-  personnel: formation.personnelLabel,
-  hint: formation.keyFeatures[0],
-}));
+const FORMATION_PROMPTS: FormationPrompt[] = [
+  {
+    id: "form-shotgun-spread",
+    formationId: "shotgun-spread",
+    label: "Spread",
+    description: "QB in shotgun, 4-5 WRs spread across formation",
+    correctAnswer: "Shotgun Spread",
+    hint: "Wide receiver spacing",
+  },
+  {
+    id: "form-trips-right",
+    formationId: "trips-right",
+    label: "Trips Right",
+    description: "Three receivers to the right side, creates numbers advantage",
+    correctAnswer: "Trips Right",
+    hint: "3 to one side",
+  },
+  {
+    id: "form-twins",
+    formationId: "shotgun-twins",
+    label: "Twins",
+    description: "Two receivers on each side in shotgun",
+    correctAnswer: "Shotgun Twins",
+    hint: "Balanced 2x2",
+  },
+  {
+    id: "form-singleback",
+    formationId: "singleback",
+    label: "Singleback",
+    description: "One RB in backfield, balanced attack",
+    correctAnswer: "Singleback",
+    hint: "One back",
+  },
+  {
+    id: "form-i-formation",
+    formationId: "i-formation",
+    label: "I-Formation",
+    description: "FB and RB stacked behind QB, power run formation",
+    correctAnswer: "I-Formation",
+    hint: "Two backs in line",
+  },
+];
 
-const FORMATION_OPTIONS: string[] = FORMATIONS.map((f) => f.name);
+const FORMATION_OPTIONS: string[] = FORMATION_PROMPTS.map((f) => f.correctAnswer);
+
+function getFormationById(id: FormationId) {
+  return FORMATION_PROMPTS.find(f => f.formationId === id);
+}
 
 const GAME_TIME = 90; // Slightly longer for formation memory
 
@@ -254,13 +292,13 @@ export default function FormationGame() {
           <div className="glass-card overflow-hidden">
             <div className="border-b border-[#1B1E20] p-6">
               {/* Code-drawn Formation Diagram - Large & Readable */}
-              {currentFormation && (
+              {/* {currentFormation && (
                 <div className="mb-6">
                   <GameDiagramWrapper variant="formation" scale={1.4}>
                     <FormationDiagram formation={currentFormation} scalable={true} />
                   </GameDiagramWrapper>
                 </div>
-              )}
+              )} */}
 
               {/* Text Description */}
               <div className="rounded-xl border border-[#F5C253]/20 bg-[#F5C253]/5 p-4">

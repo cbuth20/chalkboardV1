@@ -7,7 +7,7 @@
 
 import { FieldCanvas } from "./FieldCanvas";
 import { FIELD, OFFENSE, DEFENSE } from "./fieldCoordinates";
-import type { CoverageShell, Formation } from "@/domain/football";
+import type { CoverageShell, Formation } from "@/types/football";
 
 interface CoverageDiagramProps {
   shell: CoverageShell;

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { Point, DemoPlayer } from "./demo-types";
-import { RouteDef, getDepthForLevel } from "@/domain/football/routes";
+import { RouteDef, getDepthForLevel } from "@/types/football";
 
 // Field center for reference
 const CENTER_X = 26.67;

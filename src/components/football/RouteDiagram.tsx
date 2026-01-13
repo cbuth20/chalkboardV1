@@ -7,7 +7,7 @@
 
 import { FieldCanvas } from "./FieldCanvas";
 import { FIELD, OFFENSE } from "./fieldCoordinates";
-import type { Route, RouteConcept, Formation, PlayerPosition } from "@/domain/football";
+import type { Route, RouteConcept, Formation, PlayerPosition } from "@/types/football";
 
 interface RouteDiagramProps {
   route?: Route;

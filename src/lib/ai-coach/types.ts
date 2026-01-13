@@ -2,9 +2,9 @@
 // CHALK TALK TYPES — Type definitions for the Chalk Talk system
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type { CoverageId, CoverageShell } from "@/domain/football/coverageShells";
-import type { FormationId, Formation } from "@/domain/football/formations";
-import type { RouteId, Route, ConceptId, RouteConcept, ProtectionId, Protection } from "@/domain/football/playConcepts";
+import type { CoverageId, CoverageShell } from "@/types/football";
+import type { FormationId, Formation } from "@/types/football";
+import type { RouteId, Route, ConceptId, RouteConcept, ProtectionId, Protection } from "@/types/football";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COACH MODES & PERSONAS

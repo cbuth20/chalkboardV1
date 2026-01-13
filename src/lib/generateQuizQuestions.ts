@@ -3,7 +3,7 @@
 // Takes play data from GPT Vision API and generates assignment tracker questions
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type { PlayDefinition, PositionAssignment, AssignmentQuestion, SkillPosition, AssignmentCategory } from '@/domain/football/playAssignments';
+import type { PlayDefinition, PositionAssignment, AssignmentQuestion, SkillPosition, AssignmentCategory } from '@/types/football';
 
 // GPT Vision API returns position data in this format
 interface GPTPositionData {

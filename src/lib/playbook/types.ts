@@ -4,9 +4,9 @@
 // Type definitions for the Playbook system as specified in PLAYBOOK_SPEC.md
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-import type { FormationId } from "@/domain/football/formations";
-import type { RouteId } from "@/domain/football/playConcepts";
-import type { CoverageId } from "@/domain/football/coverageShells";
+import type { FormationId } from "@/types/football";
+import type { RouteId } from "@/types/football";
+import type { CoverageId } from "@/types/football";
 import type { DiagramData } from "@/lib/ai-coach/types";
 
 // ───────────────────────────────────────────────────────────────────────────────────────────

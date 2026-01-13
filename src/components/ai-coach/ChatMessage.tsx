@@ -7,7 +7,7 @@
 import { useState } from "react";
 import type { CoachMessage, MessageContent, SuggestedAction } from "@/lib/ai-coach/types";
 import { CoverageDiagram, FormationDiagram, RouteDiagram } from "@/components/football";
-import { getCoverageById, getFormationById } from "@/domain/football";
+// import { getCoverageById, getFormationById } from "@/types/football";
 
 interface ChatMessageProps {
   message: CoachMessage;
@@ -272,8 +272,9 @@ function DiagramRenderer({
   data: NonNullable<MessageContent["diagram"]>;
 }) {
   // Look up full objects from IDs
-  const coverage = data.coverageId ? getCoverageById(data.coverageId) : undefined;
-  const formation = data.formationId ? getFormationById(data.formationId) : undefined;
+  // const coverage = data.coverageId ? getCoverageById(data.coverageId) : undefined;
+  // const formation = data.formationId ? getFormationById(data.formationId) : undefined;
+
 
   return (
     <div className="w-full">
@@ -281,12 +282,12 @@ function DiagramRenderer({
         {data.type.replace("-", " ")} Diagram
       </div>
       <div className="bg-[#0A0A0A] rounded-lg overflow-hidden border border-slate-800">
-        {data.type === "coverage" && coverage && (
+        {/* {data.type === "coverage" && coverage && (
           <CoverageDiagram shell={coverage} />
         )}
         {data.type === "formation" && formation && (
           <FormationDiagram formation={formation} />
-        )}
+        )} */}
         {data.type === "route" && data.routes && data.routes.length > 0 && (
           <RouteDiagram />
         )}

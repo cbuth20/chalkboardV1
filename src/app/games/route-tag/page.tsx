@@ -4,15 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, AnswerButton, ResultsModal } from "@/components/games";
-import {
-  type RouteId,
-  type ConceptId,
-  ROUTES,
-  ROUTE_CONCEPTS,
-  getRouteById,
-  getConceptById,
-} from "@/domain/football";
-import { RouteDiagram, GameDiagramWrapper } from "@/components/football";
+import { type RouteId, type ConceptId } from "@/types/football";
 
 interface RoutePrompt {
   id: string;
@@ -25,34 +17,76 @@ interface RoutePrompt {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GAME PROMPTS — Using shared route and concept data
+// GAME PROMPTS — Route and concept identification
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Convert routes to prompts
-const ROUTE_PROMPTS_FROM_ROUTES: RoutePrompt[] = ROUTES.slice(0, 7).map((route) => ({
-  id: `route-${route.id}`,
-  routeId: route.id,
-  label: route.shortName,
-  description: route.description,
-  correctAnswer: route.name,
-  hint: `${route.breakDirection} break at ${route.depth} depth`,
-}));
-
-// Convert concepts to prompts
-const CONCEPT_PROMPTS_FROM_CONCEPTS: RoutePrompt[] = ROUTE_CONCEPTS.map((concept) => ({
-  id: `concept-${concept.id}`,
-  conceptId: concept.id,
-  label: concept.name,
-  description: concept.description,
-  correctAnswer: concept.name,
-  hint: concept.keyReads[0],
-}));
-
-// Combine and create the full prompts array
 const ROUTE_PROMPTS: RoutePrompt[] = [
-  ...ROUTE_PROMPTS_FROM_ROUTES,
-  ...CONCEPT_PROMPTS_FROM_CONCEPTS,
+  {
+    id: "route-slant",
+    routeId: "slant",
+    label: "Slant",
+    description: "45-degree angle cut inside, quick timing route",
+    correctAnswer: "Slant",
+    hint: "Inside break at 5-6 yards",
+  },
+  {
+    id: "route-out",
+    routeId: "out",
+    label: "Out",
+    description: "90-degree break to sideline, used to attack flat",
+    correctAnswer: "Out",
+    hint: "Outside break at 10-12 yards",
+  },
+  {
+    id: "route-corner",
+    routeId: "corner",
+    label: "Corner",
+    description: "Vertical stem then 45-degree break to corner",
+    correctAnswer: "Corner",
+    hint: "Outside break at 12-15 yards",
+  },
+  {
+    id: "route-post",
+    routeId: "post",
+    label: "Post",
+    description: "Deep route breaking to the post/goal posts",
+    correctAnswer: "Post",
+    hint: "Inside break at 15+ yards",
+  },
+  {
+    id: "route-go",
+    routeId: "go",
+    label: "Go",
+    description: "Straight vertical route, take the top off",
+    correctAnswer: "Go",
+    hint: "Vertical route, no break",
+  },
+  {
+    id: "concept-mesh",
+    conceptId: "mesh",
+    label: "Mesh",
+    description: "Two crossing routes at 5-6 yards creating natural picks",
+    correctAnswer: "Mesh",
+    hint: "Crossers mesh tight against man coverage",
+  },
+  {
+    id: "concept-flood",
+    conceptId: "flood",
+    label: "Flood",
+    description: "Three-level route concept stretching zone vertically",
+    correctAnswer: "Flood",
+    hint: "High-low-flat progression",
+  },
 ];
+
+// Helper functions
+function getRouteById(id: RouteId) {
+  return ROUTE_PROMPTS.find(p => p.routeId === id);
+}
+
+function getConceptById(id: ConceptId) {
+  return ROUTE_PROMPTS.find(p => p.conceptId === id);
+}
 
 // Create route/concept options - combine routes and concepts for answers
 const ROUTE_OPTIONS: string[] = [
@@ -286,7 +320,7 @@ export default function RouteTagGame() {
           <div className="glass-card overflow-hidden">
             <div className="border-b border-[#1B1E20] p-6">
               {/* Code-drawn Route/Concept Diagram - Large & Readable */}
-              <div className="mb-6">
+              {/* <div className="mb-6">
                 <GameDiagramWrapper variant="route" scale={1.4}>
                   <RouteDiagram
                     route={currentRoute}
@@ -294,7 +328,7 @@ export default function RouteTagGame() {
                     scalable={true}
                   />
                 </GameDiagramWrapper>
-              </div>
+              </div> */}
 
               {/* Text Description */}
               <div className="rounded-xl border border-[#3DF3FF]/20 bg-[#3DF3FF]/5 p-4">

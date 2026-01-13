@@ -4,16 +4,17 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, AnswerButton, ResultsModal } from "@/components/games";
-import {
-  type ProtectionId,
-  PROTECTIONS,
-  getProtectionById,
-} from "@/domain/football";
-import { BlitzDiagram, getBlitzScenarioForPrompt, GameDiagramWrapper } from "@/components/football";
+import { type ProtectionId } from "@/types/football";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
+
+interface Protection {
+  id: ProtectionId;
+  name: string;
+  description?: string;
+}
 
 interface BlitzPrompt {
   id: string;
@@ -22,6 +23,25 @@ interface BlitzPrompt {
   description: string;
   correctAnswer: string; // Display name
   hint?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROTECTION DATA
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PROTECTIONS: Protection[] = [
+  { id: "slide", name: "Slide Left" },
+  { id: "slide", name: "Slide Right" },
+  { id: "big-on-big", name: "BOB" },
+  { id: "half-slide", name: "Half Slide" },
+  { id: "max-protect", name: "Max Protect" },
+  { id: "rb-check", name: "RB Scan" },
+  { id: "slide", name: "Full Slide" },
+  { id: "slide", name: "Screen" },
+];
+
+function getProtectionById(id: ProtectionId): Protection | undefined {
+  return PROTECTIONS.find((p) => p.id === id);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -329,7 +349,7 @@ export default function BlitzIdGame() {
           <div className="glass-card overflow-hidden">
             <div className="border-b border-[#1B1E20] p-6">
               {/* Code-drawn Blitz/Pressure Diagram - Large & Readable */}
-              <div className="mb-6">
+              {/* <div className="mb-6">
                 <GameDiagramWrapper variant="blitz" scale={1.4}>
                   <BlitzDiagram
                     blitzType={getBlitzScenarioForPrompt(currentPrompt.label)}
@@ -337,7 +357,7 @@ export default function BlitzIdGame() {
                     scalable={true}
                   />
                 </GameDiagramWrapper>
-              </div>
+              </div> */}
 
               {/* Text Description */}
               <div className="rounded-xl border border-[#FF6A3D]/20 bg-[#FF6A3D]/5 p-4">

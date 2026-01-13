@@ -8,10 +8,10 @@ import {
   type CoverageShell,
   getCoverageByLegacyId,
   getCoverageLabelFromLegacyId,
-} from "@/domain/football";
+} from "@/types/football";
 
 // Re-export types for backward compatibility
-export type { LegacyCoverageId as CoverageId } from "@/domain/football";
+export type { LegacyCoverageId as CoverageId } from "@/types/football";
 
 /**
  * Coverage question definition

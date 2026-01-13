@@ -72,6 +72,6 @@ pids
 # Netlify
 .netlify/
 
-# User uploads
-/public/playbooks/*
-!/public/playbooks/.gitkeep
+# User uploads (temporarily disabled to allow sample images)
+# /public/playbooks/*
+# !/public/playbooks/.gitkeep

@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { DemoPlay, DemoPlayer, DemoRoute, Point, generateId } from "@/lib/playbook/demo-types";
 import { RoutePicker } from "@/components/play-designer/RoutePicker";
-import { ROUTE_LIBRARY, RouteDef } from "@/domain/football/routes";
+// import { ROUTE_LIBRARY, RouteDef } from "@/types/football";
 import { generateRoutePoints, getRouteColor } from "@/lib/playbook/routeGenerator";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -148,29 +148,29 @@ export function FieldEditor({ play, onUpdatePlayers, onUpdateRoutes }: FieldEdit
     }
   };
 
-  // Handle route selection from RoutePicker
-  const handleRouteSelect = useCallback((routeId: string, customDepth?: number) => {
-    if (!routePickerPlayer || !play) return;
+  // // Handle route selection from RoutePicker
+  // const handleRouteSelect = useCallback((routeId: string, customDepth?: number) => {
+  //   if (!routePickerPlayer || !play) return;
     
-    const routeDef = ROUTE_LIBRARY.find(r => r.id === routeId);
-    if (!routeDef) return;
+  //   const routeDef = ROUTE_LIBRARY.find(r => r.id === routeId);
+  //   if (!routeDef) return;
     
-    // Generate route points based on route definition
-    const points = generateRoutePoints(routePickerPlayer, routeDef, customDepth);
-    const color = getRouteColor(routeDef, false);
+  //   // Generate route points based on route definition
+  //   const points = generateRoutePoints(routePickerPlayer, routeDef, customDepth);
+  //   const color = getRouteColor(routeDef, false);
     
-    const newRoute: DemoRoute = {
-      id: generateId(),
-      playerId: routePickerPlayer.id,
-      points,
-      color,
-    };
+  //   const newRoute: DemoRoute = {
+  //     id: generateId(),
+  //     playerId: routePickerPlayer.id,
+  //     points,
+  //     color,
+  //   };
     
-    onUpdateRoutes([...play.routes, newRoute]);
-    setShowRoutePicker(false);
-    setRoutePickerPlayer(null);
-    setMode("select");
-  }, [routePickerPlayer, play, onUpdateRoutes]);
+  //   onUpdateRoutes([...play.routes, newRoute]);
+  //   setShowRoutePicker(false);
+  //   setRoutePickerPlayer(null);
+  //   setMode("select");
+  // }, [routePickerPlayer, play, onUpdateRoutes]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -511,7 +511,7 @@ export function FieldEditor({ play, onUpdatePlayers, onUpdateRoutes }: FieldEdit
       </div>
 
       {/* Route Picker Modal */}
-      <RoutePicker
+      {/* <RoutePicker
         isOpen={showRoutePicker}
         onClose={() => {
           setShowRoutePicker(false);
@@ -520,7 +520,7 @@ export function FieldEditor({ play, onUpdatePlayers, onUpdateRoutes }: FieldEdit
         playerLabel={routePickerPlayer?.label}
         onSelect={handleRouteSelect}
         level="nfl"
-      />
+      /> */}
     </div>
   );
 }
