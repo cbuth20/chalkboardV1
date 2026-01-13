@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, ResultsModal } from "@/components/games";
 import {
   PLAYS,
@@ -378,7 +378,7 @@ export default function AssignmentTrackerPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <Navbar />
+      <PlayerNavbar />
 
       {/* Flash overlay for transitions */}
       {showFlash && (

@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect } from 'react';
-import Navbar from '@/components/Navbar';
+import PlayerNavbar from '@/components/PlayerNavbar';
 import {
   FilmRoomProvider,
   useFilmRoom,
@@ -122,7 +122,7 @@ function FilmRoomContent() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
-      <Navbar />
+      <PlayerNavbar />
 
       <main className="flex h-[calc(100vh-64px)]">
         {/* ═══════════════════════════════════════════════════════════════════

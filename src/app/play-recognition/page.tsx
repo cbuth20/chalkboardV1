@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { ScanPlayScreen } from '../../components/play-recognition/ScanPlayScreen';
 import { DetectionPreview } from '../../components/play-recognition/DetectionPreview';
 import { DigitalPlayPreview } from '../../components/play-recognition/DigitalPlayPreview';
@@ -69,7 +69,7 @@ export default function PlayRecognitionPage() {
       default:
         return (
           <>
-            <Navbar />
+            <PlayerNavbar />
             <div className="h-[calc(100vh-64px)] overflow-hidden">
               <SavedPlayLibrary 
                 onSelectPlay={(id) => setCurrentView('DIGITAL')} 

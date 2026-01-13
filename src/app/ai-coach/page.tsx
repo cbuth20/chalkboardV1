@@ -7,7 +7,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import {
   CoachAvatar,
   ChatMessage,
@@ -468,7 +468,7 @@ export default function AICoachPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] holographic-grid flex flex-col">
-      <Navbar />
+      <PlayerNavbar />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col lg:flex-row max-w-[1600px] mx-auto w-full">

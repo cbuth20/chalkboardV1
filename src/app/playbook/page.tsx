@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { PlayList, PlayMetadata, FieldEditor, ToastProvider, useToast } from "@/components/playbook-builder";
 import { DemoPlay, DemoPlayer, DemoRoute } from "@/lib/playbook/demo-types";
 import PlaybookStore from "@/lib/playbook/store";
@@ -210,7 +210,7 @@ function PlaybookBuilder() {
   if (!isLoaded) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] text-white">
-        <Navbar />
+        <PlayerNavbar />
         <div className="flex h-[calc(100vh-64px)] items-center justify-center">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
@@ -227,7 +227,7 @@ function PlaybookBuilder() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <Navbar />
+      <PlayerNavbar />
       <main className="flex h-[calc(100vh-64px)]">
         {/* Left Sidebar: Play List */}
         <PlayList

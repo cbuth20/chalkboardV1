@@ -1,6 +1,6 @@
 "use client";
 
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -177,7 +177,7 @@ export default function GamesPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <Navbar />
+      <PlayerNavbar />
 
       <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-6">
         {/* ═══════════════════════════════════════════════════════════════════

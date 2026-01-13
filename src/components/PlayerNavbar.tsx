@@ -5,15 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const navItems = [
-  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon, disabled: false },
-  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
-  { name: "GAMES", href: "/games", icon: GamesIcon, disabled: true },
-  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon, disabled: false },
-  { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon, disabled: false },
-  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: false },
+  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon },
+  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon },
+  { name: "GAMES", href: "/games", icon: GamesIcon },
+  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon },
+  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon },
 ];
 
-export default function Navbar() {
+export default function PlayerNavbar() {
   const pathname = usePathname();
   const [currentTime, setCurrentTime] = useState<string>("");
 
@@ -75,23 +74,6 @@ export default function Navbar() {
               (item.href === "/games" && pathname === "/games") ||
               (item.href === "/games/assignment" && pathname === "/games/assignment");
 
-            if (item.disabled) {
-              return (
-                <div
-                  key={item.name}
-                  className="group relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold uppercase tracking-wide cursor-not-allowed opacity-50"
-                  title="Coming soon"
-                >
-                  <item.icon className="h-4 w-4 text-slate-600" />
-                  <span className="text-slate-600">{item.name}</span>
-                  {/* Tooltip */}
-                  <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#1B1E20] px-3 py-1.5 text-xs font-medium text-slate-300 opacity-0 transition-opacity duration-200 group-hover:opacity-100 pointer-events-none border border-[#2A2D30] shadow-lg">
-                    Coming soon
-                  </span>
-                </div>
-              );
-            }
-
             return (
               <Link
                 key={item.name}
@@ -118,19 +100,6 @@ export default function Navbar() {
 
         {/* Right Section: Actions */}
         <div className="flex items-center gap-2">
-          {/* Search */}
-          <button className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-[#1B1E20] hover:text-white">
-            <SearchIcon className="h-5 w-5" />
-          </button>
-
-          {/* Notifications */}
-          <button className="relative flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-[#1B1E20] hover:text-white">
-            <BellIcon className="h-5 w-5" />
-            <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#F5C253] text-[10px] font-bold text-[#0A0A0A]">
-              3
-            </span>
-          </button>
-
           {/* User Avatar */}
           <button className="ml-1 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#00F6E5] to-[#3DF3FF] text-sm font-bold text-[#0A0A0A] shadow-lg shadow-[#00F6E5]/20 transition-shadow hover:shadow-[#00F6E5]/40">
             DF

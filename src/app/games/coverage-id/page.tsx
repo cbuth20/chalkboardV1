@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { CoverageDiagram } from "./CoverageDiagram";
 import {
   COVERAGE_CHOICES,
@@ -162,7 +162,7 @@ export default function CoverageIdGame() {
   if (gameState === 'idle') {
     return (
       <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-        <Navbar />
+        <PlayerNavbar />
         <main className="mx-auto max-w-2xl px-4 py-12">
           <div className="glass-card overflow-hidden">
             {/* Header */}
@@ -259,7 +259,7 @@ export default function CoverageIdGame() {
 
     return (
       <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-        <Navbar />
+        <PlayerNavbar />
         <main className="mx-auto max-w-2xl px-4 py-8">
           <div className="glass-card overflow-hidden">
             {/* Header */}
@@ -377,7 +377,7 @@ export default function CoverageIdGame() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <Navbar />
+      <PlayerNavbar />
       
       <main className="mx-auto max-w-3xl px-4 py-6">
         {/* Game HUD */}

@@ -212,7 +212,7 @@ export default function LandingPage() {
           </div>
 
           <Link 
-            href="/waitlist" 
+            href="/playbook" 
             className="btn-primary text-sm text-[#0A0A0A]"
           >
             Start Training
@@ -242,7 +242,7 @@ export default function LandingPage() {
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row items-start gap-4">
                 <Link 
-                  href="/waitlist" 
+                  href="/playbook" 
                   className="group inline-flex items-center gap-2 px-6 py-3.5 rounded-lg bg-gradient-to-r from-neon-teal to-ice-blue text-[#0A0A0A] font-bold text-sm uppercase tracking-wide transition-all hover:shadow-[0_0_30px_rgba(0,246,229,0.3)]"
                 >
                   Start Training
@@ -569,7 +569,7 @@ export default function LandingPage() {
           </p>
 
           <Link 
-            href="/waitlist" 
+            href="/playbook" 
             className="group inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-gradient-to-r from-neon-teal to-ice-blue text-[#0A0A0A] font-bold text-base uppercase tracking-wide transition-all hover:shadow-[0_0_40px_rgba(0,246,229,0.4)]"
           >
             Start Training Now

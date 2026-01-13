@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
+import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, AnswerButton, ResultsModal } from "@/components/games";
 import {
   type ProtectionId,
@@ -237,7 +237,7 @@ export default function BlitzIdGame() {
   if (!gameStarted) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-        <Navbar />
+        <PlayerNavbar />
         <main className="mx-auto max-w-2xl px-4 py-12">
           <div className="glass-card overflow-hidden">
             <div className="border-b border-[#1B1E20] px-6 py-8 text-center">
@@ -310,7 +310,7 @@ export default function BlitzIdGame() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <Navbar />
+      <PlayerNavbar />
       
       <main className="mx-auto max-w-3xl px-4 py-6">
         <div className="mb-6 space-y-4">
