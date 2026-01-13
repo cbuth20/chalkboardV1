@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Rajdhani, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { CoachProvider, CoachDrawer, CoachFAB } from "@/components/ai-coach";
+import { ModeProvider } from "@/contexts/ModeContext";
 
 const rajdhani = Rajdhani({
   weight: ["300", "400", "500", "600", "700"],
@@ -34,12 +35,14 @@ export default function RootLayout({
       <body
         className={`${rajdhani.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <CoachProvider>
-          {children}
-          {/* Global AI Coach Floating Button & Drawer */}
-          <CoachFAB />
-          <CoachDrawer />
-        </CoachProvider>
+        <ModeProvider>
+          <CoachProvider>
+            {children}
+            {/* Global AI Coach Floating Button & Drawer */}
+            <CoachFAB />
+            <CoachDrawer />
+          </CoachProvider>
+        </ModeProvider>
       </body>
     </html>
   );

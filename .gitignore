@@ -71,3 +71,7 @@ pids
 
 # Netlify
 .netlify/
+
+# User uploads
+/public/playbooks/*
+!/public/playbooks/.gitkeep

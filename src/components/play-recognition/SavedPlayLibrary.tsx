@@ -1,20 +1,68 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { getPlaybooksApiUrl } from '@/lib/api-config';
+
+interface Play {
+  id: string;
+  name: string;
+  fileName: string;
+  type: string;
+  uploadedAt: string;
+  tags: string[];
+  playType: string;
+  url: string;
+}
 
 interface SavedPlayLibraryProps {
-  onSelectPlay: (id: string) => void;
+  onSelectPlay: (url: string, fileName: string, type: 'pdf' | 'image') => void;
   onNewScan: () => void;
 }
 
 export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onNewScan }) => {
-  // Mock plays
-  const plays = [
-    { id: '1', name: 'Trips Right Mesh', date: '2 mins ago', tags: ['Pass', 'Short', 'Man Beater'], type: 'Pass' },
-    { id: '2', name: 'Bunch Left Spot', date: 'Yesterday', tags: ['Pass', 'Redzone'], type: 'Pass' },
-    { id: '3', name: 'I-Form Iso Lead', date: '2 days ago', tags: ['Run', 'Power'], type: 'Run' },
-    { id: '4', name: 'Empty Stick Nod', date: 'Last week', tags: ['Pass', '3rd Down'], type: 'Pass' },
-    { id: '5', name: 'Spread 4 Verts', date: 'Last week', tags: ['Pass', 'Deep'], type: 'Pass' },
-    { id: '6', name: 'Split Zone Read', date: '2 weeks ago', tags: ['Run', 'RPO'], type: 'Run' },
-  ];
+  const [plays, setPlays] = useState<Play[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch plays from API
+  useEffect(() => {
+    const fetchPlays = async () => {
+      try {
+        setIsLoading(true);
+        const apiUrl = getPlaybooksApiUrl();
+        const response = await fetch(apiUrl);
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch playbooks');
+        }
+
+        const data = await response.json();
+        setPlays(data);
+      } catch (err: any) {
+        console.error('Error fetching plays:', err);
+        setError(err.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPlays();
+  }, []);
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 60) return `${minutes} mins ago`;
+    if (hours < 24) return `${hours} hours ago`;
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days} days ago`;
+    if (days < 14) return 'Last week';
+    return `${Math.floor(days / 7)} weeks ago`;
+  };
 
   return (
     <div className="h-full w-full bg-[#0A0F12] p-8 overflow-y-auto">
@@ -43,33 +91,56 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         </div>
       </div>
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-slate-400">Loading playbooks...</div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-red-400">Error: {error}</div>
+        </div>
+      )}
+
       {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {plays.map((play) => (
-          <div 
-            key={play.id} 
-            onClick={() => onSelectPlay(play.id)}
+      {!isLoading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {plays.map((play) => (
+          <div
+            key={play.id}
+            onClick={() => onSelectPlay(play.url, play.fileName, play.type as 'pdf' | 'image')}
             className="group bg-gradient-to-b from-[#151a1e] to-[#0f1215] border border-white/5 rounded-2xl overflow-hidden hover:border-[var(--neon-teal)]/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.5)] transition-all cursor-pointer relative"
           >
-            {/* AI Badge */}
+            {/* File Type Badge */}
             <div className="absolute top-3 right-3 z-10">
-              <span className="bg-[var(--neon-teal)]/10 border border-[var(--neon-teal)]/30 text-[var(--neon-teal)] text-[10px] font-bold px-2 py-0.5 rounded backdrop-blur-sm">
-                AI IMPORT
+              <span className="bg-[var(--neon-teal)]/10 border border-[var(--neon-teal)]/30 text-[var(--neon-teal)] text-[10px] font-bold px-2 py-0.5 rounded backdrop-blur-sm uppercase">
+                {play.type === 'pdf' ? 'PDF' : 'IMAGE'}
               </span>
             </div>
 
             {/* Thumbnail Preview Area */}
-            <div className="aspect-video bg-[#0D1117] relative p-4 group-hover:bg-[#11161d] transition-colors">
-              {/* Abstract Play Lines */}
-              <div className="w-full h-full opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-full h-full" viewBox="0 0 100 60">
+            <div className="aspect-video bg-[#0D1117] relative overflow-hidden group-hover:bg-[#11161d] transition-colors">
+              {/* Image Preview for image files */}
+              {play.type === 'image' ? (
+                <img
+                  src={play.url}
+                  alt={play.name}
+                  className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
+                />
+              ) : (
+                /* Abstract Play Lines for PDF files */
+                <div className="w-full h-full opacity-60 group-hover:opacity-100 transition-opacity p-4">
+                  <svg className="w-full h-full" viewBox="0 0 100 60">
                   {/* Field Lines */}
                   <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
                   <line x1="0" y1="30" x2="100" y2="30" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
                   <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
                   
                   {/* Play Art */}
-                  {play.type === 'Pass' ? (
+                  {play.playType === 'Pass' ? (
                      <>
                       <path d="M 50 45 L 50 40 L 45 40" fill="none" stroke={play.id === '1' ? '#00F6E5' : '#3DF3FF'} strokeWidth="1" strokeLinecap="round" />
                       <path d="M 20 40 L 20 20 L 40 10" fill="none" stroke={play.id === '1' ? '#00F6E5' : '#3DF3FF'} strokeWidth="1" strokeDasharray="2 1" strokeLinecap="round" />
@@ -87,7 +158,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   <circle cx="20" cy="40" r="1.5" fill="#fff" />
                   <circle cx="80" cy="40" r="1.5" fill="#fff" />
                 </svg>
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Content */}
@@ -105,26 +177,27 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               </div>
 
               <div className="flex justify-between items-center text-xs text-slate-500">
-                <span>{play.date}</span>
+                <span>{formatDate(play.uploadedAt)}</span>
                 <span className="group-hover:translate-x-1 transition-transform">View Play →</span>
               </div>
             </div>
           </div>
         ))}
 
-        {/* Create New Card */}
-        <button 
-            onClick={onNewScan}
-            className="group border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center min-h-[260px] hover:border-[var(--neon-teal)]/30 hover:bg-white/5 transition-all"
-        >
-          <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400 group-hover:text-[var(--neon-teal)]">
-              <path d="M5 12h14"/><path d="M12 5v14"/>
-            </svg>
-          </div>
-          <span className="text-slate-400 font-bold group-hover:text-white">Import New Play</span>
-        </button>
-      </div>
+          {/* Create New Card */}
+          <button
+              onClick={onNewScan}
+              className="group border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center min-h-[260px] hover:border-[var(--neon-teal)]/30 hover:bg-white/5 transition-all"
+          >
+            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400 group-hover:text-[var(--neon-teal)]">
+                <path d="M5 12h14"/><path d="M12 5v14"/>
+              </svg>
+            </div>
+            <span className="text-slate-400 font-bold group-hover:text-white">Import New Play</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

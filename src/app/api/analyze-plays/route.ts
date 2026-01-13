@@ -1,0 +1,198 @@
+import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
+
+// This endpoint analyzes playbook files and generates dynamic content for the assignment tracker
+export async function GET() {
+  try {
+    const playbooksDir = path.join(process.cwd(), 'public', 'playbooks');
+
+    if (!fs.existsSync(playbooksDir)) {
+      return NextResponse.json([]);
+    }
+
+    // Get all image files
+    const files = fs.readdirSync(playbooksDir);
+    const imageFiles = files.filter(file => {
+      const ext = path.extname(file).toLowerCase();
+      return ['.png', '.jpg', '.jpeg'].includes(ext);
+    });
+
+    // For now, return placeholder data structure
+    // We'll implement actual GPT Vision analysis in the next step
+    const plays = imageFiles.map((file, index) => ({
+      id: `play-${index}`,
+      name: file.replace(/\.[^/.]+$/, ''),
+      shortName: file.replace(/\.[^/.]+$/, '').substring(0, 20),
+      fileName: file,
+      imageUrl: `/playbooks/${file}`,
+      analyzed: false,
+      playType: 'pass' as const,
+    }));
+
+    return NextResponse.json(plays);
+  } catch (error: any) {
+    console.error('Error analyzing plays:', error);
+    return NextResponse.json(
+      { error: 'Failed to analyze plays', message: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+// POST endpoint to analyze a specific play image
+export async function POST(request: NextRequest) {
+  try {
+    const { fileName, imageUrl } = await request.json();
+
+    if (!fileName) {
+      return NextResponse.json(
+        { error: 'fileName is required' },
+        { status: 400 }
+      );
+    }
+
+    // Read the image file as base64
+    const filePath = path.join(process.cwd(), 'public', 'playbooks', fileName);
+
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json(
+        { error: 'File not found' },
+        { status: 404 }
+      );
+    }
+
+    const imageBuffer = fs.readFileSync(filePath);
+    const base64Image = imageBuffer.toString('base64');
+    const mimeType = fileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+    // Call ChatGPT Vision API
+    const openaiApiKey = process.env.GPT_KEY;
+    if (!openaiApiKey) {
+      return NextResponse.json(
+        { error: 'OpenAI API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: PLAY_ANALYSIS_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Analyze this football play image and extract the play information, formations, routes, and position assignments.',
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`,
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 4000,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('OpenAI API error:', error);
+      return NextResponse.json(
+        { error: 'Failed to analyze image with GPT', details: error },
+        { status: 500 }
+      );
+    }
+
+    const data = await response.json();
+    const analysisText = data.choices[0].message.content;
+
+    // Parse the JSON response from GPT
+    let playData;
+    try {
+      // Extract JSON from markdown code blocks if present
+      const jsonMatch = analysisText.match(/```json\n([\s\S]*?)\n```/);
+      const jsonString = jsonMatch ? jsonMatch[1] : analysisText;
+      playData = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error('Failed to parse GPT response:', analysisText);
+      return NextResponse.json(
+        { error: 'Failed to parse analysis result', rawResponse: analysisText },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ...playData,
+      fileName,
+      imageUrl: `/playbooks/${fileName}`,
+      analyzedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('Error analyzing play:', error);
+    return NextResponse.json(
+      { error: 'Failed to analyze play', message: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+const PLAY_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach and analyst. Your job is to analyze football play diagrams and extract structured information about the play.
+
+When analyzing a play diagram, identify:
+1. The play name and formation
+2. The play type (pass, run, RPO, screen)
+3. The concept being used (e.g., Mesh, Flood, Power, Zone, etc.)
+4. Position assignments for each skill position (QB, RB, FB, X, Z, H, Y, TE)
+
+For each position assignment, extract:
+- alignment: Where they line up (e.g., "Slot left", "Split right 12 yards", "Pistol")
+- landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
+- assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
+- read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
+- adjustments: How they adjust vs different coverages
+  - vsMan: What to do vs man coverage
+  - vsZone: What to do vs zone coverage
+  - vsBlitz: What to do vs blitz (if applicable)
+- routeId: The route name if it's a passing play (e.g., "go", "out", "slant", "post", "corner", "dig", "curl", "seam")
+- depth: Route depth in yards (if applicable)
+
+Return your analysis as a JSON object with this structure:
+{
+  "name": "Full play name",
+  "shortName": "Short name (max 20 chars)",
+  "formation": "Formation name",
+  "playType": "pass" | "run" | "rpo" | "screen",
+  "concept": "Play concept",
+  "description": "Brief description of the play",
+  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
+  "bestAgainst": ["Coverage 1", "Coverage 2"],
+  "positions": {
+    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
+    "RB": { ... },
+    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
+    ... (include all visible positions)
+  }
+}
+
+If the image is unclear or doesn't contain a football play, return:
+{
+  "error": "Unable to identify a football play in this image",
+  "suggestion": "Please provide a clear football play diagram"
+}
+
+Only return valid JSON, no additional text or markdown.`;

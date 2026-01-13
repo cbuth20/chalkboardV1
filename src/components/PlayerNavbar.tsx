@@ -3,19 +3,23 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-
-const navItems = [
-  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon, disabled: false },
-  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
-  { name: "GAMES", href: "/games", icon: GamesIcon, disabled: true },
-  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon, disabled: false },
-  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: false },
-];
+import { UserActions } from "./UserActions";
+import { useMode } from "@/contexts/ModeContext";
 
 export default function PlayerNavbar() {
   const pathname = usePathname();
   const [currentTime, setCurrentTime] = useState<string>("");
-
+  const { mode } = useMode();
+  const navItems = [
+  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon, disabled: false },
+  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
+  { name: "GAMES", href: "/games", icon: GamesIcon, disabled: true },
+  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon, disabled: false },
+  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: true },
+  ...(mode === "coach"
+    ? [{ name: "SCANNER", href: "/play-recognition", icon: ScannerIcon }]
+    : []),
+];
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -46,23 +50,6 @@ export default function PlayerNavbar() {
               CHALKBOARD
             </span>
           </Link>
-
-          {/* Status + Time */}
-          <div className="hidden items-center gap-3 rounded-full border border-[#1B1E20] bg-[#1B1E20]/50 px-4 py-1.5 md:flex">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00F6E5] opacity-75"></span>
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00F6E5]"></span>
-              </span>
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                System Online
-              </span>
-            </div>
-            <div className="h-4 w-px bg-[#1B1E20]"></div>
-            <span className="font-mono text-sm font-medium text-slate-300">
-              {currentTime}
-            </span>
-          </div>
         </div>
 
         {/* Center Section: Navigation */}
@@ -116,10 +103,7 @@ export default function PlayerNavbar() {
 
         {/* Right Section: Actions */}
         <div className="flex items-center gap-2">
-          {/* User Avatar */}
-          <button className="ml-1 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#00F6E5] to-[#3DF3FF] text-sm font-bold text-[#0A0A0A] shadow-lg shadow-[#00F6E5]/20 transition-shadow hover:shadow-[#00F6E5]/40">
-            DF
-          </button>
+          <UserActions />
         </div>
       </div>
     </header>

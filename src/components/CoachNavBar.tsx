@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { UserActions } from "./UserActions";
 
 const navItems = [
   { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
@@ -96,10 +97,7 @@ export default function CoachNavbar() {
 
         {/* Right Section: Actions */}
         <div className="flex items-center gap-2">
-          {/* User Avatar */}
-          <button className="ml-1 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#00F6E5] to-[#3DF3FF] text-sm font-bold text-[#0A0A0A] shadow-lg shadow-[#00F6E5]/20 transition-shadow hover:shadow-[#00F6E5]/40">
-            DF
-          </button>
+          <UserActions />
         </div>
       </div>
     </header>

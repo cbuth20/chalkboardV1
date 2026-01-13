@@ -1,79 +1,109 @@
 'use client';
 
 import React, { useState } from 'react';
-import PlayerNavbar from "@/components/PlayerNavbar";
-import { ScanPlayScreen } from '../../components/play-recognition/ScanPlayScreen';
-import { DetectionPreview } from '../../components/play-recognition/DetectionPreview';
-import { DigitalPlayPreview } from '../../components/play-recognition/DigitalPlayPreview';
+import { FileUploadScreen } from '../../components/play-recognition/FileUploadScreen';
+import { ImageViewer } from '../../components/play-recognition/ImageViewer';
+import { PDFViewer } from '../../components/play-recognition/PDFViewer';
 import { SavedPlayLibrary } from '../../components/play-recognition/SavedPlayLibrary';
+import { getPlaybooksApiUrl } from '@/lib/api-config';
+import PlayerNavbar from '@/components/PlayerNavbar';
 
-type ViewState = 'LIBRARY' | 'SCAN' | 'DETECTION' | 'DIGITAL';
+type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER';
+
+interface SelectedFile {
+  url: string;
+  fileName: string;
+  type: 'pdf' | 'image';
+}
 
 export default function PlayRecognitionPage() {
   const [currentView, setCurrentView] = useState<ViewState>('LIBRARY');
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Handlers for state transitions
-  const handleStartScan = () => {
-    setCurrentView('SCAN');
+  const handleStartUpload = () => {
+    setCurrentView('UPLOAD');
   };
 
-  const handleScanComplete = (image: string) => {
-    setCapturedImage(image);
-    setCurrentView('DETECTION');
+  const handleUploadComplete = async (fileData: string, fileName: string, fileType: string) => {
+    // Upload to API
+    try {
+      const apiUrl = getPlaybooksApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName,
+          fileData,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload file');
+      }
+
+      // Refresh library and go back to it
+      setRefreshKey(prev => prev + 1);
+      setCurrentView('LIBRARY');
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Failed to upload file. Please try again.');
+    }
   };
 
-  const handleRetake = () => {
-    setCapturedImage(null);
-    setCurrentView('SCAN');
-  };
-
-  const handleConfirmDetection = () => {
-    setCurrentView('DIGITAL');
-  };
-
-  const handleSavePlay = () => {
-    // Logic to save would go here
-    setCurrentView('LIBRARY');
+  const handleSelectFile = (url: string, fileName: string, type: 'pdf' | 'image') => {
+    setSelectedFile({ url, fileName, type });
+    setCurrentView('VIEWER');
   };
 
   const handleBackToLibrary = () => {
+    setSelectedFile(null);
     setCurrentView('LIBRARY');
-  };
-
-  const handleBackToDetection = () => {
-    setCurrentView('DETECTION');
   };
 
   // Render the current view
   const renderView = () => {
     switch (currentView) {
-      case 'SCAN':
-        return <ScanPlayScreen onScanComplete={handleScanComplete} onBack={handleBackToLibrary} />;
-      case 'DETECTION':
-        return (
-          <DetectionPreview 
-            image={capturedImage || ''} 
-            onRetake={handleRetake} 
-            onConfirm={handleConfirmDetection} 
-          />
-        );
-      case 'DIGITAL':
-        return (
-          <DigitalPlayPreview 
-            onSave={handleSavePlay} 
-            onBack={handleBackToDetection} 
-          />
-        );
+      case 'UPLOAD':
+        return <FileUploadScreen onUploadComplete={handleUploadComplete} onBack={handleBackToLibrary} />;
+
+      case 'VIEWER':
+        if (!selectedFile) {
+          setCurrentView('LIBRARY');
+          return null;
+        }
+
+        if (selectedFile.type === 'pdf') {
+          return (
+            <PDFViewer
+              pdfUrl={selectedFile.url}
+              fileName={selectedFile.fileName}
+              onBack={handleBackToLibrary}
+            />
+          );
+        } else {
+          return (
+            <ImageViewer
+              imageUrl={selectedFile.url}
+              fileName={selectedFile.fileName}
+              onBack={handleBackToLibrary}
+            />
+          );
+        }
+
       case 'LIBRARY':
       default:
         return (
           <>
             <PlayerNavbar />
             <div className="h-[calc(100vh-64px)] overflow-hidden">
-              <SavedPlayLibrary 
-                onSelectPlay={(id) => setCurrentView('DIGITAL')} 
-                onNewScan={handleStartScan} 
+              <SavedPlayLibrary
+                key={refreshKey}
+                onSelectPlay={handleSelectFile}
+                onNewScan={handleStartUpload}
               />
             </div>
           </>

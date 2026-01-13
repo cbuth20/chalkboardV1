@@ -5,16 +5,20 @@ import { useRouter } from "next/navigation";
 import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, ResultsModal } from "@/components/games";
 import {
-  PLAYS,
   type PlayDefinition,
   type SkillPosition,
   type AssignmentCategory,
   type AssignmentQuestion,
-  getPositionsForPlay,
   getPositionAssignment,
-  generateQuestionsForPosition,
 } from "@/domain/football";
 import { getFormationById } from "@/domain/football";
+import { getPlaybooksApiUrl, getAnalyzePlaysApiUrl } from "@/lib/api-config";
+import {
+  convertGPTPlayToDefinition,
+  generateQuestionsForPosition,
+  getPositionsForPlay,
+  type GPTPlayAnalysis
+} from "@/lib/generateQuizQuestions";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES & CONSTANTS
@@ -110,6 +114,11 @@ function getResults(): AssignmentResults[] {
 export default function AssignmentTrackerPage() {
   const router = useRouter();
 
+  // Dynamic plays state
+  const [plays, setPlays] = useState<PlayDefinition[]>([]);
+  const [isLoadingPlays, setIsLoadingPlays] = useState(true);
+  const [playsError, setPlaysError] = useState<string | null>(null);
+
   // Game state
   const [mode, setMode] = useState<GameMode>("learn");
   const [phase, setPhase] = useState<GamePhase>("select-play");
@@ -142,6 +151,74 @@ export default function AssignmentTrackerPage() {
 
   // Current question
   const currentQuestion = questions[currentQuestionIndex];
+
+  // Load and analyze playbooks on mount
+  useEffect(() => {
+    const loadPlays = async () => {
+      try {
+        setIsLoadingPlays(true);
+        setPlaysError(null);
+
+        // Fetch playbook files
+        const playbooksApiUrl = getPlaybooksApiUrl();
+        const playbooksResponse = await fetch(playbooksApiUrl);
+
+        if (!playbooksResponse.ok) {
+          throw new Error('Failed to fetch playbooks');
+        }
+
+        const playbooks = await playbooksResponse.json();
+
+        // Filter for image files only (PDFs not supported yet for vision analysis)
+        const imagePlaybooks = playbooks.filter(
+          (pb: any) => pb.type === 'image'
+        );
+
+        if (imagePlaybooks.length === 0) {
+          setPlays([]);
+          setIsLoadingPlays(false);
+          return;
+        }
+
+        // Analyze each playbook image with GPT Vision
+        const analyzePlaysApiUrl = getAnalyzePlaysApiUrl();
+        const analyzedPlays: PlayDefinition[] = [];
+
+        for (const playbook of imagePlaybooks) {
+          try {
+            const analyzeResponse = await fetch(analyzePlaysApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                fileName: playbook.fileName,
+              }),
+            });
+
+            if (analyzeResponse.ok) {
+              const gptAnalysis: GPTPlayAnalysis = await analyzeResponse.json();
+              const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
+              analyzedPlays.push(playDef);
+            } else {
+              console.error(`Failed to analyze ${playbook.fileName}`);
+            }
+          } catch (err) {
+            console.error(`Error analyzing ${playbook.fileName}:`, err);
+          }
+        }
+
+        setPlays(analyzedPlays);
+      } catch (error: any) {
+        console.error('Error loading plays:', error);
+        setPlaysError(error.message || 'Failed to load plays');
+      } finally {
+        setIsLoadingPlays(false);
+      }
+    };
+
+    loadPlays();
+  }, []);
 
   // Timer effect for test mode
   useEffect(() => {
@@ -284,13 +361,13 @@ export default function AssignmentTrackerPage() {
   // Generate custom test questions
   const generateCustomTest = () => {
     const allQuestions: AssignmentQuestion[] = [];
-    
+
     // Get questions for each selected play/position combination
     for (const playId of testConfig.selectedPlays) {
-      const play = PLAYS.find(p => p.id === playId);
+      const play = plays.find(p => p.id === playId);
       if (!play) continue;
-      
-      const playPositions = getPositionsForPlay(playId);
+
+      const playPositions = getPositionsForPlay(play);
       const positionsToUse = testConfig.selectedPositions.length > 0
         ? testConfig.selectedPositions.filter(pos => playPositions.includes(pos))
         : playPositions;
@@ -325,11 +402,11 @@ export default function AssignmentTrackerPage() {
   // Generate random quick test
   const generateQuickTest = () => {
     // Select 3 random plays
-    const shuffledPlays = [...PLAYS].sort(() => Math.random() - 0.5).slice(0, 3);
+    const shuffledPlays = [...plays].sort(() => Math.random() - 0.5).slice(0, 3);
     const allQuestions: AssignmentQuestion[] = [];
-    
+
     for (const play of shuffledPlays) {
-      const positions = getPositionsForPlay(play.id);
+      const positions = getPositionsForPlay(play);
       // Pick 1-2 random positions per play
       const randomPositions = [...positions].sort(() => Math.random() - 0.5).slice(0, 2);
       
@@ -497,15 +574,41 @@ export default function AssignmentTrackerPage() {
               <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-400">
                 Or Select a Single Play to Study
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {PLAYS.map((play) => (
-                  <PlayCard
-                    key={play.id}
-                    play={play}
-                    onClick={() => handlePlaySelect(play)}
-                  />
-                ))}
-              </div>
+
+              {isLoadingPlays && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#00F6E5] border-r-transparent mb-4"></div>
+                    <p className="text-slate-400 text-sm">Analyzing playbooks with AI...</p>
+                  </div>
+                </div>
+              )}
+
+              {playsError && (
+                <div className="text-center py-12">
+                  <p className="text-red-400 mb-2">Failed to load plays</p>
+                  <p className="text-slate-500 text-sm">{playsError}</p>
+                </div>
+              )}
+
+              {!isLoadingPlays && !playsError && plays.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-slate-400 mb-2">No plays available</p>
+                  <p className="text-slate-500 text-sm">Upload playbook images to get started</p>
+                </div>
+              )}
+
+              {!isLoadingPlays && !playsError && plays.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {plays.map((play) => (
+                    <PlayCard
+                      key={play.id}
+                      play={play}
+                      onClick={() => handlePlaySelect(play)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Recent Results */}
@@ -565,15 +668,15 @@ export default function AssignmentTrackerPage() {
                 <button
                   onClick={() => setTestConfig(prev => ({
                     ...prev,
-                    selectedPlays: prev.selectedPlays.length === PLAYS.length ? [] : PLAYS.map(p => p.id)
+                    selectedPlays: prev.selectedPlays.length === plays.length ? [] : plays.map(p => p.id)
                   }))}
                   className="text-xs font-semibold text-[#00F6E5] hover:text-[#3DF3FF] transition-colors"
                 >
-                  {testConfig.selectedPlays.length === PLAYS.length ? "Deselect All" : "Select All"}
+                  {testConfig.selectedPlays.length === plays.length ? "Deselect All" : "Select All"}
                 </button>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {PLAYS.map((play) => {
+                {plays.map((play) => {
                   const isSelected = testConfig.selectedPlays.includes(play.id);
                   return (
                     <button

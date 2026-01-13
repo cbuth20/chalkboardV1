@@ -1,6 +1,7 @@
 export * from './ScanPlayScreen';
-export * from './DetectionPreview';
-export * from './DigitalPlayPreview';
+export * from './FileUploadScreen';
+export * from './ImageViewer';
+export * from './PDFViewer';
 export * from './SavedPlayLibrary';
 
 
