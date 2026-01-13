@@ -1,0 +1,1669 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHALKBOARD VIBE — GLOBAL STYLES
+   Futuristic Football Intelligence Platform
+   Theme: Madden × F1 × Apple
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Primary Colors - Futuristic Gridiron */
+  --neon-teal: #00F6E5;
+  --ice-blue: #3DF3FF;
+  --deep-space-black: #0A0A0A;
+  --graphite-steel: #1B1E20;
+  
+  /* Accent Colors */
+  --victory-gold: #F5C253;
+  --warning-orange: #FF6A3D;
+  
+  /* Neutral Shades */
+  --slate-900: #0f172a;
+  --slate-800: #1e293b;
+  --slate-700: #334155;
+  --slate-600: #475569;
+  --slate-500: #64748b;
+  --slate-400: #94a3b8;
+  --slate-300: #cbd5e1;
+  
+  /* Glow Effects */
+  --glow-teal: 0 0 20px rgba(0, 246, 229, 0.3);
+  --glow-teal-strong: 0 0 30px rgba(0, 246, 229, 0.5);
+  --glow-gold: 0 0 20px rgba(245, 194, 83, 0.3);
+  --glow-orange: 0 0 20px rgba(255, 106, 61, 0.3);
+  
+  /* Backgrounds */
+  --background: var(--deep-space-black);
+  --foreground: #ffffff;
+  --card-bg: linear-gradient(135deg, rgba(27, 30, 32, 0.8) 0%, rgba(15, 23, 42, 0.6) 100%);
+  --card-border: rgba(0, 246, 229, 0.15);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-neon-teal: var(--neon-teal);
+  --color-ice-blue: var(--ice-blue);
+  --color-victory-gold: var(--victory-gold);
+  --color-warning-orange: var(--warning-orange);
+  --color-graphite-steel: var(--graphite-steel);
+  --color-deep-space: var(--deep-space-black);
+}
+
+/* Base Body Styles */
+body {
+  background: var(--deep-space-black);
+  color: var(--foreground);
+  font-family: var(--font-rajdhani), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Holographic Grid Background */
+.holographic-grid {
+  background-color: var(--deep-space-black);
+  background-image: 
+    /* Subtle radial gradient for depth */
+    radial-gradient(ellipse at 50% 0%, rgba(0, 246, 229, 0.03) 0%, transparent 50%),
+    /* Grid lines */
+    linear-gradient(rgba(0, 246, 229, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 246, 229, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 40px 40px, 40px 40px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+/* Glassmorphism Card */
+.glass-card {
+  background: linear-gradient(135deg, rgba(27, 30, 32, 0.9) 0%, rgba(15, 23, 42, 0.7) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 246, 229, 0.15);
+  border-radius: 12px;
+  box-shadow: 
+    0 4px 24px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.glass-card:hover {
+  border-color: rgba(0, 246, 229, 0.35);
+  box-shadow: 
+    0 4px 24px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(0, 246, 229, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* Neon Glow Text */
+.text-glow-teal {
+  text-shadow: 0 0 10px rgba(0, 246, 229, 0.5);
+}
+
+.text-glow-gold {
+  text-shadow: 0 0 10px rgba(245, 194, 83, 0.5);
+}
+
+/* Button Styles */
+.btn-primary {
+  background: linear-gradient(135deg, var(--neon-teal) 0%, #00d4c5 100%);
+  color: var(--deep-space-black);
+  font-weight: 700;
+  padding: 0.625rem 1.5rem;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 246, 229, 0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 246, 229, 0.35);
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(0, 246, 229, 0.3);
+}
+
+.btn-secondary {
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+  font-weight: 600;
+  padding: 0.625rem 1.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.btn-secondary:hover {
+  background: rgba(51, 65, 85, 0.8);
+  border-color: rgba(100, 116, 139, 0.6);
+  color: #ffffff;
+}
+
+/* Progress Bar Animation */
+@keyframes progress-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 246, 229, 0.4); }
+  50% { box-shadow: 0 0 8px rgba(0, 246, 229, 0.6); }
+}
+
+.progress-bar {
+  animation: progress-glow 2s ease-in-out infinite;
+}
+
+/* Accent Line Animation */
+@keyframes accent-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.accent-line {
+  animation: accent-pulse 3s ease-in-out infinite;
+}
+
+/* Badge Styles */
+.badge-teal {
+  background: rgba(0, 246, 229, 0.1);
+  border: 1px solid rgba(0, 246, 229, 0.3);
+  color: var(--neon-teal);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.badge-gold {
+  background: rgba(245, 194, 83, 0.1);
+  border: 1px solid rgba(245, 194, 83, 0.3);
+  color: var(--victory-gold);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.badge-orange {
+  background: rgba(255, 106, 61, 0.15);
+  border: 1px solid rgba(255, 106, 61, 0.3);
+  color: var(--warning-orange);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--deep-space-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--graphite-steel);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 246, 229, 0.3);
+}
+
+/* Selection Color */
+::selection {
+  background: rgba(0, 246, 229, 0.3);
+  color: #ffffff;
+}
+
+/* Focus States */
+*:focus-visible {
+  outline: 2px solid var(--neon-teal);
+  outline-offset: 2px;
+}
+
+/* Slide-in Animation (for toast notifications) */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+/* Slide-in Right Animation (for AI Coach drawer) */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Fade In Animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Scale In Animation (for modals and dialogs) */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+/* Pulse Glow Animation (for AI Coach avatar) */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 246, 229, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 246, 229, 0.6);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Typing Indicator Animation */
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-typing-dot {
+  animation: typing-dot 1.4s ease-in-out infinite;
+}
+
+.animate-typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.animate-typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GAMES SECTION ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Card Hover Glow Effects */
+.game-card-glow-teal {
+  transition: all 0.3s ease;
+}
+
+.game-card-glow-teal:hover {
+  box-shadow: 
+    0 8px 32px rgba(0, 246, 229, 0.15),
+    0 0 0 1px rgba(0, 246, 229, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.game-card-glow-gold:hover {
+  box-shadow: 
+    0 8px 32px rgba(245, 194, 83, 0.15),
+    0 0 0 1px rgba(245, 194, 83, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.game-card-glow-orange:hover {
+  box-shadow: 
+    0 8px 32px rgba(255, 106, 61, 0.15),
+    0 0 0 1px rgba(255, 106, 61, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* XP Bar Shimmer Animation */
+@keyframes xp-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.xp-bar-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.xp-bar-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.15),
+    transparent
+  );
+  animation: xp-shimmer 2s ease-in-out infinite;
+}
+
+/* Streak Fire Animation */
+@keyframes flame-flicker {
+  0%, 100% { 
+    transform: scaleY(1) rotate(-2deg);
+    opacity: 1;
+  }
+  25% { 
+    transform: scaleY(1.1) rotate(1deg);
+    opacity: 0.9;
+  }
+  50% { 
+    transform: scaleY(0.95) rotate(-1deg);
+    opacity: 1;
+  }
+  75% { 
+    transform: scaleY(1.05) rotate(2deg);
+    opacity: 0.95;
+  }
+}
+
+.flame-icon {
+  animation: flame-flicker 0.8s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+/* Daily Challenge Pulse Border */
+@keyframes challenge-pulse {
+  0%, 100% { 
+    border-color: rgba(255, 106, 61, 0.3);
+    box-shadow: 0 0 20px rgba(255, 106, 61, 0.1);
+  }
+  50% { 
+    border-color: rgba(255, 106, 61, 0.6);
+    box-shadow: 0 0 30px rgba(255, 106, 61, 0.2);
+  }
+}
+
+.challenge-card {
+  animation: challenge-pulse 3s ease-in-out infinite;
+}
+
+/* Leaderboard Rank Badges */
+.rank-gold {
+  background: linear-gradient(135deg, #F5C253 0%, #ffd97a 50%, #F5C253 100%);
+  box-shadow: 0 2px 10px rgba(245, 194, 83, 0.4);
+}
+
+.rank-silver {
+  background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #94a3b8 100%);
+  box-shadow: 0 2px 10px rgba(148, 163, 184, 0.3);
+}
+
+.rank-bronze {
+  background: linear-gradient(135deg, #cd7f32 0%, #dda15e 50%, #cd7f32 100%);
+  box-shadow: 0 2px 10px rgba(205, 127, 50, 0.3);
+}
+
+/* Mode Toggle Transition */
+.mode-toggle-bg {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Game Card Entrance Animation */
+@keyframes card-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.game-card-animate {
+  animation: card-entrance 0.5s ease-out forwards;
+}
+
+.game-card-animate:nth-child(1) { animation-delay: 0.05s; }
+.game-card-animate:nth-child(2) { animation-delay: 0.1s; }
+.game-card-animate:nth-child(3) { animation-delay: 0.15s; }
+.game-card-animate:nth-child(4) { animation-delay: 0.2s; }
+.game-card-animate:nth-child(5) { animation-delay: 0.25s; }
+.game-card-animate:nth-child(6) { animation-delay: 0.3s; }
+.game-card-animate:nth-child(7) { animation-delay: 0.35s; }
+.game-card-animate:nth-child(8) { animation-delay: 0.4s; }
+
+/* Accuracy Ring */
+@keyframes accuracy-ring-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.6; }
+}
+
+.accuracy-ring {
+  animation: accuracy-ring-pulse 2s ease-in-out infinite;
+}
+
+/* Hot Badge Glow */
+@keyframes hot-glow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(255, 106, 61, 0.4);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(255, 106, 61, 0.6);
+  }
+}
+
+.hot-badge {
+  animation: hot-glow 1.5s ease-in-out infinite;
+}
+
+/* Countdown Timer Animation */
+@keyframes countdown-tick {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.countdown-timer {
+  animation: countdown-tick 1s ease-in-out infinite;
+}
+
+/* Level Up Celebration */
+@keyframes level-up-burst {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.7);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(0, 246, 229, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0);
+  }
+}
+
+.level-up-celebration {
+  animation: level-up-burst 0.6s ease-out;
+}
+
+/* Smooth Number Counter */
+.counter-animate {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Line Clamp Utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Gradient Text */
+.gradient-text-teal {
+  background: linear-gradient(135deg, #00F6E5 0%, #3DF3FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-gold {
+  background: linear-gradient(135deg, #F5C253 0%, #ffd97a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* HUD Panel Style */
+.hud-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(27, 30, 32, 0.95) 0%,
+    rgba(15, 23, 42, 0.85) 100%
+  );
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 246, 229, 0.1);
+  box-shadow: 
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Scanline Effect (Optional) */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Hover Scale Effect */
+.hover-scale {
+  transition: transform 0.2s ease;
+}
+
+.hover-scale:hover {
+  transform: scale(1.02);
+}
+
+/* Active Press Effect */
+.press-effect:active {
+  transform: scale(0.98);
+}
+
+/* Mobile Bottom Nav Safe Area */
+.mobile-nav-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GAME DIAGRAM WRAPPER STYLES
+   Ensures large, readable, centered diagrams across all four games
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Base wrapper for all game diagrams */
+.diagram-wrapper {
+  box-sizing: border-box;
+}
+
+.diagram-inner {
+  transform-origin: top center;
+}
+
+/* Smooth transitions for diagram scaling */
+.diagram-inner > * {
+  transition: transform 0.2s ease-out;
+}
+
+/* Ensure diagrams don't cause horizontal scroll */
+@media (max-width: 768px) {
+  .diagram-wrapper {
+    overflow-x: hidden;
+    height: auto !important;
+    min-height: 320px;
+  }
+  
+  /* Slightly reduce scale on smaller screens */
+  .diagram-inner {
+    transform: scale(1.1) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .diagram-wrapper {
+    min-height: 280px;
+  }
+  
+  .diagram-inner {
+    transform: scale(1.0) !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FILM ROOM STYLES
+   Pro-level video player, telestrator, and HUD styling
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Video Player Glow Effect */
+.film-player-glow {
+  box-shadow: 
+    0 0 60px rgba(0, 246, 229, 0.1),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Telestrator Canvas Cursor */
+.telestrator-active {
+  cursor: crosshair;
+}
+
+.telestrator-eraser {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%23FF6A3D" stroke-width="2"><path d="M20 20H9l-7-7 5-5 7 7"/></svg>') 12 12, auto;
+}
+
+/* Drawing Animation */
+@keyframes draw-path {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-draw {
+  stroke-dasharray: 1000;
+  animation: draw-path 1s ease-out forwards;
+}
+
+/* Pulse Animation for Drawing Points */
+@keyframes drawing-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+.drawing-point-pulse {
+  animation: drawing-pulse 0.5s ease-out;
+}
+
+/* HUD Panel Animation */
+@keyframes hud-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hud-animate-in {
+  animation: hud-slide-in 0.3s ease-out;
+}
+
+/* Timeline Scrubber Glow */
+.timeline-glow {
+  box-shadow: 0 0 12px rgba(0, 246, 229, 0.4);
+}
+
+/* Clip Card Hover Effect */
+.clip-card-hover {
+  transition: all 0.2s ease;
+}
+
+.clip-card-hover:hover {
+  background: linear-gradient(135deg, rgba(0, 246, 229, 0.05) 0%, transparent 100%);
+  transform: translateX(4px);
+}
+
+/* AI Analysis Progress Ring */
+@keyframes analysis-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.analysis-spinner {
+  animation: analysis-spin 1s linear infinite;
+}
+
+/* Tag Badge Hover */
+.tag-badge-glow:hover {
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Playback Speed Indicator Flash */
+@keyframes speed-flash {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.speed-indicator-flash {
+  animation: speed-flash 0.3s ease-out;
+}
+
+/* Frame Step Animation */
+@keyframes frame-step {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.frame-step-animate {
+  animation: frame-step 0.15s ease-out;
+}
+
+/* Zoom Indicator */
+@keyframes zoom-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(0, 246, 229, 0);
+  }
+}
+
+.zoom-indicator-pulse {
+  animation: zoom-pulse 0.5s ease-out;
+}
+
+/* Panel Slide Animation */
+@keyframes panel-slide {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.panel-slide-in {
+  animation: panel-slide 0.25s ease-out;
+}
+
+/* Coach Note Highlight */
+@keyframes note-highlight {
+  0% {
+    background-color: rgba(245, 194, 83, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.note-highlight {
+  animation: note-highlight 1s ease-out;
+}
+
+/* Film Room Scrollbar */
+.film-room-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.film-room-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.film-room-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 246, 229, 0.2);
+  border-radius: 2px;
+}
+
+.film-room-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 246, 229, 0.4);
+}
+
+/* Video Control Button Ripple */
+@keyframes control-ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.control-ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  animation: control-ripple 0.6s ease-out;
+  pointer-events: none;
+}
+
+/* AI Confidence Meter */
+.confidence-meter {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 106, 61, 1) 0%,
+    rgba(245, 194, 83, 1) 50%,
+    rgba(0, 246, 229, 1) 100%
+  );
+}
+
+/* Route Path Animation */
+@keyframes route-draw {
+  from {
+    stroke-dashoffset: 500;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.route-animate {
+  stroke-dasharray: 500;
+  animation: route-draw 0.8s ease-out forwards;
+}
+
+/* Player Spot Bounce */
+@keyframes spot-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.spot-bounce {
+  animation: spot-bounce 0.3s ease-out;
+}
+
+/* Study Progress Ring Animation */
+@keyframes progress-ring {
+  from {
+    stroke-dashoffset: 251.2;
+  }
+}
+
+.progress-ring-animate {
+  animation: progress-ring 1s ease-out forwards;
+}
+
+/* Film Room Keyboard Shortcut Hint */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--graphite-steel);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--slate-400);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ASSIGNMENT TRACKER — Madden Pre-Snap HUD Animations
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Pre-snap scanner effect */
+@keyframes scanner-line {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.scanner-effect::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-teal), transparent);
+  animation: scanner-line 2s ease-in-out infinite;
+}
+
+/* HUD reveal animation */
+@keyframes hud-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+    clip-path: inset(100% 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.hud-reveal {
+  animation: hud-reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Position highlight pulse */
+@keyframes position-highlight {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 15px rgba(0, 246, 229, 0);
+  }
+}
+
+.position-highlight {
+  animation: position-highlight 1.5s ease-out infinite;
+}
+
+/* Route trace animation */
+@keyframes route-trace {
+  0% {
+    stroke-dashoffset: 200;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.route-trace {
+  stroke-dasharray: 200;
+  animation: route-trace 1s ease-out forwards;
+}
+
+/* Snap count pulse */
+@keyframes snap-count-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.snap-count-pulse {
+  animation: snap-count-pulse 0.5s ease-out;
+}
+
+/* Category card entrance */
+@keyframes category-entrance {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.category-entrance {
+  animation: category-entrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.category-entrance:nth-child(1) { animation-delay: 0s; }
+.category-entrance:nth-child(2) { animation-delay: 0.05s; }
+.category-entrance:nth-child(3) { animation-delay: 0.1s; }
+.category-entrance:nth-child(4) { animation-delay: 0.15s; }
+.category-entrance:nth-child(5) { animation-delay: 0.2s; }
+
+/* Answer option reveal */
+@keyframes answer-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.answer-reveal {
+  animation: answer-reveal 0.3s ease-out forwards;
+}
+
+/* Correct answer celebration */
+@keyframes correct-celebration {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.05);
+  }
+  50% {
+    transform: scale(1);
+  }
+  75% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.correct-celebration {
+  animation: correct-celebration 0.4s ease-out;
+}
+
+/* Wrong answer shake */
+@keyframes wrong-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-5px);
+  }
+  40%, 80% {
+    transform: translateX(5px);
+  }
+}
+
+.wrong-shake {
+  animation: wrong-shake 0.4s ease-out;
+}
+
+/* Streak fire glow */
+@keyframes streak-fire-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(245, 194, 83, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(245, 194, 83, 0.9));
+  }
+}
+
+.streak-fire-glow {
+  animation: streak-fire-glow 0.8s ease-in-out infinite;
+}
+
+/* Play card hover glow */
+@keyframes play-card-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 20px 5px rgba(0, 246, 229, 0);
+  }
+}
+
+.play-card-glow {
+  animation: play-card-glow 1s ease-out;
+}
+
+/* Position marker blink */
+@keyframes position-blink {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0.5;
+  }
+}
+
+.position-blink {
+  animation: position-blink 1s ease-in-out infinite;
+}
+
+/* Progress bar fill */
+@keyframes progress-fill {
+  from {
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  to {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+}
+
+.progress-fill {
+  animation: progress-fill 0.5s ease-out forwards;
+}
+
+/* Quiz transition wipe */
+@keyframes quiz-wipe {
+  0% {
+    clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
+  }
+  100% {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  }
+}
+
+.quiz-wipe {
+  animation: quiz-wipe 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Madden-style data readout */
+@keyframes data-readout {
+  0% {
+    opacity: 0;
+    letter-spacing: 0.5em;
+  }
+  100% {
+    opacity: 1;
+    letter-spacing: 0.1em;
+  }
+}
+
+.data-readout {
+  animation: data-readout 0.3s ease-out forwards;
+}
+
+/* Mode switch transition */
+@keyframes mode-switch {
+  0% {
+    transform: rotateY(90deg);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateY(0);
+    opacity: 1;
+  }
+}
+
+.mode-switch {
+  animation: mode-switch 0.3s ease-out forwards;
+  perspective: 1000px;
+}
+
+/* Field grid pulse */
+@keyframes field-grid-pulse {
+  0%, 100% {
+    opacity: 0.03;
+  }
+  50% {
+    opacity: 0.08;
+  }
+}
+
+.field-grid-pulse {
+  animation: field-grid-pulse 3s ease-in-out infinite;
+}
+
+/* Score counter bounce */
+@keyframes score-bounce {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.score-bounce {
+  animation: score-bounce 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Flash transition overlay */
+@keyframes flash-overlay {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-flash {
+  animation: flash-overlay 0.3s ease-out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROUTE PICKER / BOTTOM SHEET ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Slide Up Animation for Bottom Sheet */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Slide Down Animation (for closing) */
+@keyframes slide-down {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.25s cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Route Item Entrance Animation */
+@keyframes route-item-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.route-item-animate {
+  animation: route-item-enter 0.2s ease-out forwards;
+}
+
+/* Staggered delays for route items */
+.route-item-animate:nth-child(1) { animation-delay: 0.02s; }
+.route-item-animate:nth-child(2) { animation-delay: 0.04s; }
+.route-item-animate:nth-child(3) { animation-delay: 0.06s; }
+.route-item-animate:nth-child(4) { animation-delay: 0.08s; }
+.route-item-animate:nth-child(5) { animation-delay: 0.1s; }
+.route-item-animate:nth-child(6) { animation-delay: 0.12s; }
+.route-item-animate:nth-child(7) { animation-delay: 0.14s; }
+.route-item-animate:nth-child(8) { animation-delay: 0.16s; }
+
+/* Route Selection Glow */
+@keyframes route-select-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 15px 3px rgba(0, 246, 229, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0);
+  }
+}
+
+.route-select-glow {
+  animation: route-select-glow 0.5s ease-out;
+}
+
+/* Depth Counter Bounce */
+@keyframes depth-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.depth-bounce {
+  animation: depth-bounce 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Safe area bottom for mobile */
+.h-safe-area-bottom {
+  height: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hide scrollbar for filter chips */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin scrollbar for route list */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 246, 229, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE ANIMATIONS
+   Epic hero and feature section effects
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Slow pulse for ambient glow orbs */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 6s ease-in-out infinite;
+}
+
+/* Floating animation for player markers */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Route trace animation for hero diagram */
+@keyframes route-trace-landing {
+  0% {
+    stroke-dashoffset: 200;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.animate-route-trace {
+  stroke-dasharray: 200;
+  animation: route-trace-landing 1.5s ease-out forwards;
+}
+
+/* Radial gradient background */
+.bg-gradient-radial {
+  background: radial-gradient(ellipse at center, var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to));
+}
+
+/* Text gradient utilities */
+.gradient-text-gold {
+  background: linear-gradient(135deg, #F5C253 0%, #ffd97a 50%, #FFE5A3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Staggered reveal animation */
+@keyframes stagger-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-stagger-reveal {
+  animation: stagger-reveal 0.6s ease-out forwards;
+}
+
+/* Hero text reveal */
+@keyframes hero-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+    filter: blur(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.animate-hero-reveal {
+  animation: hero-reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Shimmer effect for buttons */
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Glow pulse for CTA buttons */
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 246, 229, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 246, 229, 0.5), 0 0 60px rgba(0, 246, 229, 0.2);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Counter number animation */
+@keyframes count-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-count-up {
+  animation: count-up 0.5s ease-out forwards;
+}
+
+/* Feature card hover lift */
+@keyframes card-lift {
+  0% {
+    transform: translateY(0);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  }
+  100% {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Typing cursor blink */
+@keyframes cursor-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* Scroll indicator bounce */
+@keyframes scroll-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(10px);
+  }
+  60% {
+    transform: translateY(5px);
+  }
+}
+
+.animate-scroll-bounce {
+  animation: scroll-bounce 2s infinite;
+}
+
+/* Grid line animation */
+@keyframes grid-flow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 40px;
+  }
+}
+
+.animate-grid-flow {
+  animation: grid-flow 20s linear infinite;
+}
+
+/* Spotlight sweep effect */
+@keyframes spotlight-sweep {
+  0% {
+    transform: translateX(-100%) rotate(45deg);
+  }
+  100% {
+    transform: translateX(100%) rotate(45deg);
+  }
+}
+
+.animate-spotlight-sweep::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: spotlight-sweep 3s ease-in-out infinite;
+}
+
+/* Badge shimmer */
+@keyframes badge-shimmer {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(0, 246, 229, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 246, 229, 0);
+  }
+}
+
+.animate-badge-shimmer {
+  animation: badge-shimmer 2s infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PLAYFIELD REGULATION STYLES
+   Ensures proper rendering of regulation football field diagrams
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.playfield-container {
+  transform: none !important;
+  zoom: 1 !important;
+  aspect-ratio: unset !important;
+}
+
+/* Ensure SVG field renders at proper scale */
+.playfield-container svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Field editor specific overrides */
+.field-editor-container {
+  transform: none !important;
+  zoom: 1 !important;
+}
+
+/* Playbook stage - scrollable container for field */
+.playbook-stage {
+  overflow: auto;
+}
