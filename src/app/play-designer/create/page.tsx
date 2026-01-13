@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { RoutePicker } from "@/components/play-designer/RoutePicker";
-import { AssignedRoute, ROUTE_LIBRARY, getDepthForLevel } from "@/types/football";
+// import { AssignedRoute, ROUTE_LIBRARY, getDepthForLevel } from "@/types/football";
 import { 
   getRoutePoints, 
   routePointsToSvgString, 
@@ -299,32 +299,6 @@ export default function PlayDesignerCreatePage() {
     } else {
       setIsRoutePickerOpen(false);
     }
-  };
-
-  const handleRouteSelect = (routeId: string, customDepth?: number) => {
-    if (!selectedPlayerId) return;
-
-    // Save current state before change
-    saveToUndoHistory();
-
-    // Find the route definition to get the default depth if no custom depth provided
-    const routeDef = ROUTE_LIBRARY.find(r => r.id === routeId);
-    const defaultDepth = routeDef ? getDepthForLevel(routeDef, level).min : 5;
-    const depth = customDepth ?? defaultDepth;
-
-    // Create the full PlayerRouteAssignment object
-    setPlayerRoutes((prev) => ({
-      ...prev,
-      [selectedPlayerId]: {
-        playerId: selectedPlayerId,
-        routeId,
-        depth,
-        level,
-        direction: 'auto', // Default to auto, user can change
-      },
-    }));
-    
-    setIsRoutePickerOpen(false);
   };
 
   const handleToggleRouteDirection = (playerId: string) => {
@@ -966,7 +940,8 @@ function PlayFieldCanvas({
         const routePoints = getRoutePoints(assignment, player.position);
         const pointsString = routePointsToSvgString(routePoints);
         const endpoint = getRouteEndpoint(routePoints);
-        const routeDef = ROUTE_LIBRARY.find(r => r.id === assignment.routeId);
+        // const routeDef = ROUTE_LIBRARY.find(r => r.id === assignment.routeId);
+        const routeDef = {label: 'n', id: 1};
         const isOffense = player.side === "offense";
         const routeColor = isOffense ? "#00F6E5" : "#FF6A3D";
         
@@ -1080,7 +1055,8 @@ function PlayerToken({
 
   const getRouteLabel = () => {
     if (!assignedRoute) return null;
-    const routeDef = ROUTE_LIBRARY.find(r => r.id === assignedRoute.routeId);
+    // const routeDef = ROUTE_LIBRARY.find(r => r.id === assignedRoute.routeId);
+    const routeDef = {label: 'n', id: 1};
     if (!routeDef) return null;
     
     // Use the depth from the assignment (already includes custom depth)

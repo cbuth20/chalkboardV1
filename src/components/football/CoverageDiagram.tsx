@@ -7,11 +7,11 @@
 
 import { FieldCanvas } from "./FieldCanvas";
 import { FIELD, OFFENSE, DEFENSE } from "./fieldCoordinates";
-import type { CoverageShell, Formation } from "@/types/football";
+// import type { CoverageShell, Formation } from "@/types/football";
 
 interface CoverageDiagramProps {
-  shell: CoverageShell;
-  formation?: Formation;
+  shell: any;
+  formation?: any;
   className?: string;
   showLabels?: boolean;
   showZones?: boolean;
@@ -48,7 +48,7 @@ const COLORS = {
 /**
  * Map coverage shell data to realistic field positions
  */
-function getDefensivePositions(shell: CoverageShell) {
+function getDefensivePositions(shell: any) {
   const positions: Array<{
     x: number;
     y: number;

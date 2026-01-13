@@ -453,7 +453,7 @@ function GameCard({ game }: { game: typeof GAMES[0] }) {
   
   // Map game IDs to their routes
   const gameRoutes: Record<string, string> = {
-    "coverage-recognition": "/games/coverage-id",
+    // "coverage-recognition": "/games/coverage-id",
     "blitz-id": "/games/blitz-id",
     "route-matching": "/games/route-tag",
     "formation-memory": "/games/formation",
