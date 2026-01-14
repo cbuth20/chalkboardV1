@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { Rajdhani, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { CoachDrawer, CoachFAB } from "@/components/ai-coach";
+import { AssignmentStatusFAB } from "@/components/assignment-generation";
 import { ModeProvider } from "@/contexts/ModeContext";
 import { CoachProvider } from "@/components/ai-coach/CoachContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PlaysProvider } from "@/contexts/PlaysContext";
+import { AssignmentGenerationProvider } from "@/contexts/AssignmentGenerationContext";
 
 const rajdhani = Rajdhani({
   weight: ["300", "400", "500", "600", "700"],
@@ -40,13 +42,16 @@ export default function RootLayout({
       >
         <AuthProvider>
           <PlaysProvider>
-            <ModeProvider>
-              <CoachProvider>
-                {children}
-                <CoachFAB />
-                <CoachDrawer />
-              </CoachProvider>
-            </ModeProvider>
+            <AssignmentGenerationProvider>
+              <ModeProvider>
+                <CoachProvider>
+                  {children}
+                  <CoachFAB />
+                  <CoachDrawer />
+                  <AssignmentStatusFAB />
+                </CoachProvider>
+              </ModeProvider>
+            </AssignmentGenerationProvider>
           </PlaysProvider>
         </AuthProvider>
       </body>

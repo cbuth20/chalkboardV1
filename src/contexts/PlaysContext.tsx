@@ -6,6 +6,7 @@ import { PlayDefinition } from '@/types/football';
 interface PlaysContextType {
   analyzedPlays: Map<string, PlayDefinition>;
   getAnalyzedPlay: (id: string) => PlayDefinition | undefined;
+  getAllAnalyzedPlays: () => PlayDefinition[];
   addAnalyzedPlay: (id: string, play: PlayDefinition) => void;
   addAnalyzedPlays: (plays: PlayDefinition[]) => void;
   clearAnalyzedPlays: () => void;
@@ -70,6 +71,10 @@ export function PlaysProvider({ children }: { children: React.ReactNode }) {
     return analyzedPlays.get(id);
   }, [analyzedPlays]);
 
+  const getAllAnalyzedPlays = useCallback((): PlayDefinition[] => {
+    return Array.from(analyzedPlays.values());
+  }, [analyzedPlays]);
+
   const addAnalyzedPlay = useCallback((id: string, play: PlayDefinition) => {
     setAnalyzedPlays(prev => {
       const newMap = new Map(prev);
@@ -104,6 +109,7 @@ export function PlaysProvider({ children }: { children: React.ReactNode }) {
   const value: PlaysContextType = {
     analyzedPlays,
     getAnalyzedPlay,
+    getAllAnalyzedPlays,
     addAnalyzedPlay,
     addAnalyzedPlays,
     clearAnalyzedPlays,

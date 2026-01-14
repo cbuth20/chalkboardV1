@@ -37,10 +37,25 @@ export function getPlaybookMetadataApiUrl(): string {
                        window.location.hostname === '127.0.0.1';
 
     if (isLocalhost) {
-      return '/.netlify/functions/playbook-metadata';
+      return '/api/playbook-metadata';
     }
   }
 
   // Use Netlify functions for production
   return '/.netlify/functions/playbook-metadata';
+}
+
+export function getGenerateInsightsApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/generate-insights';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/generate-insights';
 }

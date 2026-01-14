@@ -10,14 +10,13 @@ import {
   type AssignmentCategory,
   type AssignmentQuestion,
 } from "@/types/football";
-import { getPlaybooksApiUrl, getAnalyzePlaysApiUrl } from "@/lib/api-config";
+import { getPlaybooksApiUrl } from "@/lib/api-config";
 import {
-  convertGPTPlayToDefinition,
   generateQuestionsForPosition,
   getPositionsForPlay,
-  type GPTPlayAnalysis
 } from "@/lib/generateQuizQuestions";
 import { usePlays } from "@/contexts/PlaysContext";
+import { useAssignmentGeneration } from "@/contexts/AssignmentGenerationContext";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES & CONSTANTS
@@ -112,15 +111,12 @@ function getResults(): AssignmentResults[] {
 
 export default function AssignmentTrackerPage() {
   const router = useRouter();
-  const { getAnalyzedPlay, addAnalyzedPlay, hasAnalyzedPlay } = usePlays();
-
-  // Track if we've already loaded plays to prevent duplicate loads
-  const hasLoadedPlays = useRef(false);
+  const { getAllAnalyzedPlays, clearAnalyzedPlays } = usePlays();
+  const { startGeneration, isGenerating } = useAssignmentGeneration();
 
   // Dynamic plays state
   const [plays, setPlays] = useState<PlayDefinition[]>([]);
-  const [isLoadingPlays, setIsLoadingPlays] = useState(true);
-  const [playsError, setPlaysError] = useState<string | null>(null);
+  const [isLoadingPlaybooks, setIsLoadingPlaybooks] = useState(false);
 
   // Game state
   const [mode, setMode] = useState<GameMode>("learn");
@@ -155,116 +151,69 @@ export default function AssignmentTrackerPage() {
   // Current question
   const currentQuestion = questions[currentQuestionIndex];
 
-  // Load and analyze playbooks on mount
+  // Load cached plays on mount and when generation completes
   useEffect(() => {
-    const loadPlays = async () => {
-      // Ensure context functions are available
-      if (!getAnalyzedPlay || !hasAnalyzedPlay || !addAnalyzedPlay) {
-        console.log('Waiting for PlaysContext to initialize...');
+    const cachedPlays = getAllAnalyzedPlays();
+    if (cachedPlays.length > 0) {
+      console.log(`Loaded ${cachedPlays.length} plays from cache`);
+      setPlays(cachedPlays);
+    }
+  }, [getAllAnalyzedPlays]);
+
+  // Reload plays when generation completes
+  useEffect(() => {
+    if (!isGenerating) {
+      const cachedPlays = getAllAnalyzedPlays();
+      if (cachedPlays.length > 0) {
+        setPlays(cachedPlays);
+      }
+    }
+  }, [isGenerating, getAllAnalyzedPlays]);
+
+  // Handle generate assignments button
+  const handleGenerateAssignments = async (forceRegenerate = false) => {
+    setIsLoadingPlaybooks(true);
+    try {
+      // If regenerating, clear the cache first
+      if (forceRegenerate) {
+        console.log('Clearing cache for regeneration...');
+        clearAnalyzedPlays();
+        setPlays([]); // Clear UI immediately
+      }
+
+      // Fetch playbook files
+      const playbooksApiUrl = getPlaybooksApiUrl();
+      const playbooksResponse = await fetch(playbooksApiUrl);
+
+      if (!playbooksResponse.ok) {
+        throw new Error('Failed to fetch playbooks');
+      }
+
+      const playbooks = await playbooksResponse.json();
+
+      // Filter for image files only (PDFs not supported yet for vision analysis)
+      const imagePlaybooks = playbooks.filter(
+        (pb: any) => pb.type === 'image'
+      );
+
+      if (imagePlaybooks.length === 0) {
+        alert('No image playbooks found to analyze');
         return;
       }
 
-      // Only load once
-      if (hasLoadedPlays.current) {
-        console.log('Plays already loaded, skipping');
-        return;
-      }
+      // Start background generation (pass forceRegenerate flag)
+      await startGeneration(imagePlaybooks, forceRegenerate);
 
-      hasLoadedPlays.current = true;
-
-      try {
-        setIsLoadingPlays(true);
-        setPlaysError(null);
-
-        // Fetch playbook files
-        const playbooksApiUrl = getPlaybooksApiUrl();
-        const playbooksResponse = await fetch(playbooksApiUrl);
-
-        if (!playbooksResponse.ok) {
-          throw new Error('Failed to fetch playbooks');
-        }
-
-        const playbooks = await playbooksResponse.json();
-
-        // Filter for image files only (PDFs not supported yet for vision analysis)
-        const imagePlaybooks = playbooks.filter(
-          (pb: any) => pb.type === 'image'
-        );
-
-        if (imagePlaybooks.length === 0) {
-          setPlays([]);
-          setIsLoadingPlays(false);
-          return;
-        }
-
-        // Check which plays are already analyzed in cache
-        const analyzedPlays: PlayDefinition[] = [];
-        const playsToAnalyze: any[] = [];
-
-        for (const playbook of imagePlaybooks) {
-          // Check if we already have this play analyzed
-          if (hasAnalyzedPlay(playbook.id)) {
-            const cachedPlay = getAnalyzedPlay(playbook.id);
-            if (cachedPlay) {
-              console.log(`Using cached analysis for ${playbook.fileName}`);
-              analyzedPlays.push(cachedPlay);
-            }
-          } else {
-            // Need to analyze this one
-            playsToAnalyze.push(playbook);
-          }
-        }
-
-        // Only analyze plays that aren't cached
-        if (playsToAnalyze.length > 0) {
-          console.log(`Analyzing ${playsToAnalyze.length} new play(s)...`);
-          const analyzePlaysApiUrl = getAnalyzePlaysApiUrl();
-
-          for (const playbook of playsToAnalyze) {
-            try {
-              const analyzeResponse = await fetch(analyzePlaysApiUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  fileName: playbook.fileName,
-                  imageUrl: playbook.url,
-                  metadata: playbook.metadata, // Pass metadata for better context
-                }),
-              });
-
-              if (analyzeResponse.ok) {
-                const gptAnalysis: GPTPlayAnalysis | undefined = await analyzeResponse.json();
-                if(gptAnalysis) {
-                  const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
-                  analyzedPlays.push(playDef);
-                  // Cache the newly analyzed play
-                  addAnalyzedPlay(playbook.id, playDef);
-                  console.log(`Cached analysis for ${playbook.fileName}`);
-                }
-              } else {
-                console.error(`Failed to analyze ${playbook.fileName}`);
-              }
-            } catch (err) {
-              console.error(`Error analyzing ${playbook.fileName}:`, err);
-            }
-          }
-        } else {
-          console.log('All plays already analyzed, using cache');
-        }
-
-        setPlays(analyzedPlays);
-      } catch (error: any) {
-        console.error('Error loading plays:', error);
-        setPlaysError(error.message || 'Failed to load plays');
-      } finally {
-        setIsLoadingPlays(false);
-      }
-    };
-
-    loadPlays();
-  }, [getAnalyzedPlay, hasAnalyzedPlay, addAnalyzedPlay]); // Re-run if context becomes available
+      // Reload plays from cache after generation starts
+      const cachedPlays = getAllAnalyzedPlays();
+      setPlays(cachedPlays);
+    } catch (error: any) {
+      console.error('Error fetching playbooks:', error);
+      alert('Failed to fetch playbooks: ' + error.message);
+    } finally {
+      setIsLoadingPlaybooks(false);
+    }
+  };
 
   // Timer effect for test mode
   useEffect(() => {
@@ -630,39 +579,83 @@ export default function AssignmentTrackerPage() {
                 Or Select a Single Play to Study
               </h2>
 
-              {isLoadingPlays && (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#00F6E5] border-r-transparent mb-4"></div>
-                    <p className="text-slate-400 text-sm">Analyzing playbooks with AI...</p>
+              {/* Generate Assignments Button - Show when no plays */}
+              {plays.length === 0 && !isGenerating && (
+                <div className="text-center py-8">
+                  <div className="flex justify-center mb-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00F6E5]/20 to-[#00d4c5]/10 border border-[#00F6E5]/30">
+                      <svg className="h-8 w-8 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
                   </div>
+                  <h3 className="text-lg font-bold text-white mb-2">Ready to Generate Assignments?</h3>
+                  <p className="text-slate-400 mb-6 text-sm max-w-md mx-auto">
+                    Analyze your playbook images with AI to generate position assignments.
+                    You can navigate away while it completes.
+                  </p>
+                  <button
+                    onClick={handleGenerateAssignments}
+                    disabled={isLoadingPlaybooks}
+                    className="inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-[#00F6E5] to-[#00d4c5] px-6 py-3 font-bold text-[#0A0A0A] shadow-lg shadow-[#00F6E5]/30 transition-all hover:scale-105 hover:shadow-xl hover:shadow-[#00F6E5]/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoadingPlaybooks ? (
+                      <>
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#0A0A0A] border-t-transparent" />
+                        <span>Fetching Playbooks...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <span>Generate AI Assignments</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
 
-              {playsError && (
+              {/* Generation in Progress */}
+              {isGenerating && plays.length === 0 && (
                 <div className="text-center py-12">
-                  <p className="text-red-400 mb-2">Failed to load plays</p>
-                  <p className="text-slate-500 text-sm">{playsError}</p>
+                  <div className="flex justify-center mb-4">
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#00F6E5] border-t-transparent" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">Generating Assignments...</h3>
+                  <p className="text-slate-400 text-sm mb-4">
+                    This is running in the background. Check the floating indicator for progress.
+                  </p>
                 </div>
               )}
 
-              {!isLoadingPlays && !playsError && plays.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-slate-400 mb-2">No plays available</p>
-                  <p className="text-slate-500 text-sm">Upload playbook images to get started</p>
-                </div>
-              )}
-
-              {!isLoadingPlays && !playsError && plays.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {plays.map((play) => (
-                    <PlayCard
-                      key={play.id}
-                      play={play}
-                      onClick={() => handlePlaySelect(play)}
-                    />
-                  ))}
-                </div>
+              {/* Play Selection Grid */}
+              {plays.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs text-slate-500">{plays.length} plays available</span>
+                    <button
+                      onClick={() => handleGenerateAssignments(true)}
+                      disabled={isLoadingPlaybooks || isGenerating}
+                      className="flex items-center gap-2 rounded-lg bg-[#00F6E5]/10 border border-[#00F6E5]/30 px-3 py-1.5 text-xs font-semibold text-[#00F6E5] transition-all hover:bg-[#00F6E5]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path d="M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 005 0" />
+                      </svg>
+                      Regenerate
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {plays.map((play) => (
+                      <PlayCard
+                        key={play.id}
+                        play={play}
+                        onClick={() => handlePlaySelect(play)}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
@@ -1213,9 +1206,8 @@ function PlayCard({ play, onClick }: { play: PlayDefinition; onClick: () => void
     rpo: { bg: "bg-[#FF6A3D]/10", border: "border-[#FF6A3D]/30", text: "text-[#FF6A3D]" },
     screen: { bg: "bg-[#3DF3FF]/10", border: "border-[#3DF3FF]/30", text: "text-[#3DF3FF]" },
   };
-  console.log(play, "play");
-  const colors = typeColors[play.playType];
-
+  const colors = typeColors[play.playType] ?? typeColors.pass;
+  console.log(play, 'p');
   return (
     <button
       onClick={onClick}

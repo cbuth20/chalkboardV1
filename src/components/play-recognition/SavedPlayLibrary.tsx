@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getPlaybooksApiUrl } from '@/lib/api-config';
+import { getPlaybooksApiUrl, getPlaybookMetadataApiUrl, getAnalyzePlaysApiUrl } from '@/lib/api-config';
+import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 
 interface Play {
   id: string;
@@ -10,6 +11,7 @@ interface Play {
   tags: string[];
   playType: string;
   url: string;
+  metadata?: PlaybookMetadataInput & { id: string };
 }
 
 interface SavedPlayLibraryProps {
@@ -19,8 +21,13 @@ interface SavedPlayLibraryProps {
 
 export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onNewScan }) => {
   const [plays, setPlays] = useState<Play[]>([]);
+  const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [updateSuccess, setUpdateSuccess] = useState(false);
+
+  const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
 
   // Fetch plays from API
   useEffect(() => {
@@ -36,6 +43,11 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
         const data = await response.json();
         setPlays(data);
+
+        // Select first play by default
+        if (data.length > 0) {
+          setSelectedPlayId(data[0].id);
+        }
       } catch (err: any) {
         console.error('Error fetching plays:', err);
         setError(err.message);
@@ -47,160 +59,430 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     fetchPlays();
   }, []);
 
+  // Update metadata
+  const handleUpdateMetadata = async (updates: Partial<PlaybookMetadataInput>) => {
+    if (!selectedPlay?.metadata?.id) return;
+
+    try {
+      const apiUrl = getPlaybookMetadataApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedPlay.metadata.id,
+          ...updates,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update metadata');
+      }
+
+      // Update local state
+      setPlays((prev) =>
+        prev.map((p) =>
+          p.id === selectedPlayId && p.metadata
+            ? { ...p, metadata: { ...p.metadata, ...updates } }
+            : p
+        )
+      );
+
+      setUpdateSuccess(true);
+      setTimeout(() => setUpdateSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+      alert('Failed to update metadata');
+    }
+  };
+
+  // Analyze play with GPT
+  const handleAnalyzePlay = async () => {
+    if (!selectedPlay) return;
+
+    setIsAnalyzing(true);
+    try {
+      const apiUrl = getAnalyzePlaysApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: selectedPlay.fileName,
+          imageUrl: selectedPlay.url,
+          metadata: selectedPlay.metadata,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze play');
+      }
+
+      const analysis = await response.json();
+
+      // Navigate to the play with analysis
+      onSelectPlay(selectedPlay.url, selectedPlay.fileName, selectedPlay.type as 'pdf' | 'image');
+    } catch (err) {
+      console.error('Failed to analyze play:', err);
+      alert('Failed to analyze play');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Delete play
+  const handleDeletePlay = async () => {
+    if (!selectedPlay) return;
+    if (!confirm('Delete this play? This cannot be undone.')) return;
+
+    try {
+      const apiUrl = getPlaybooksApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: selectedPlay.fileName }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete play');
+      }
+
+      setPlays((prev) => {
+        const newPlays = prev.filter((p) => p.id !== selectedPlayId);
+        if (newPlays.length > 0) {
+          setSelectedPlayId(newPlays[0].id);
+        } else {
+          setSelectedPlayId(null);
+        }
+        return newPlays;
+      });
+    } catch (err) {
+      console.error('Failed to delete play:', err);
+      alert('Failed to delete play');
+    }
+  };
+
   // Format date for display
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 60) return `${minutes} mins ago`;
-    if (hours < 24) return `${hours} hours ago`;
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    if (days < 14) return 'Last week';
-    return `${Math.floor(days / 7)} weeks ago`;
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
   };
 
-  return (
-    <div className="h-full w-full bg-[#0A0F12] p-8 overflow-y-auto">
-      {/* Header */}
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">Play Library</h1>
-          <p className="text-slate-400">Manage your digitized playbook</p>
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="h-full w-full bg-[#0A0A0A] flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
+          <span className="text-sm text-slate-400">Loading play library...</span>
         </div>
-        <div className="flex gap-3">
-          <div className="relative">
-            <input 
-              type="text" 
-              placeholder="Search plays..." 
-              className="bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-white focus:outline-none focus:border-[var(--neon-teal)] focus:ring-1 focus:ring-[var(--neon-teal)] transition-all w-64 text-sm"
-            />
-            <svg className="absolute left-3 top-2.5 text-slate-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex bg-[#0A0A0A]">
+      {/* Left Sidebar: Play List */}
+      <aside className="flex w-80 flex-col border-r border-[#1B1E20] bg-[#0A0A0A]">
+        {/* Header */}
+        <div className="border-b border-[#1B1E20] px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+              Play Library
+            </h2>
+            <span className="rounded bg-[#1B1E20] px-2 py-0.5 text-xs font-medium text-slate-500">
+              {plays.length}
+            </span>
           </div>
-          <button 
+          <button
             onClick={onNewScan}
-            className="bg-[var(--neon-teal)] text-black font-bold px-6 py-2.5 rounded-lg hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center gap-2"
+            className="w-full bg-[#00F6E5] text-black font-bold px-4 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-2"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 5v14"/><path d="M5 12h14"/>
+            </svg>
             NEW SCAN
           </button>
         </div>
-      </div>
 
-      {/* Loading State */}
-      {isLoading && (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-slate-400">Loading playbooks...</div>
+        {/* Play List */}
+        <div className="flex-1 overflow-y-auto p-2">
+          {plays.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <p className="text-sm text-slate-500 mb-2">No plays found</p>
+              <p className="text-xs text-slate-600">Upload plays to get started</p>
+            </div>
+          ) : (
+            plays.map((play) => (
+              <button
+                key={play.id}
+                onClick={() => setSelectedPlayId(play.id)}
+                className={`group mb-1 w-full rounded-lg px-3 py-2.5 text-left transition-all ${
+                  play.id === selectedPlayId
+                    ? "bg-[#00F6E5]/10 ring-1 ring-[#00F6E5]/30"
+                    : "hover:bg-[#1B1E20]/50"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`truncate text-sm font-semibold ${
+                        play.id === selectedPlayId ? "text-[#00F6E5]" : "text-white"
+                      }`}
+                    >
+                      {play.name || "Untitled Play"}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {play.metadata?.formation_name || "Unknown"} • {formatDate(play.uploadedAt)}
+                    </p>
+                  </div>
+                  {play.id === selectedPlayId && (
+                    <div className="ml-2 mt-1 h-2 w-2 shrink-0 rounded-full bg-[#00F6E5]" />
+                  )}
+                </div>
+              </button>
+            ))
+          )}
         </div>
-      )}
+      </aside>
 
-      {/* Error State */}
-      {error && (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-red-400">Error: {error}</div>
-        </div>
-      )}
-
-      {/* Grid */}
-      {!isLoading && !error && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {plays.map((play) => (
-          <div
-            key={play.id}
-            onClick={() => onSelectPlay(play.url, play.fileName, play.type as 'pdf' | 'image')}
-            className="group bg-gradient-to-b from-[#151a1e] to-[#0f1215] border border-white/5 rounded-2xl overflow-hidden hover:border-[var(--neon-teal)]/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.5)] transition-all cursor-pointer relative"
-          >
-            {/* File Type Badge */}
-            <div className="absolute top-3 right-3 z-10">
-              <span className="bg-[var(--neon-teal)]/10 border border-[var(--neon-teal)]/30 text-[var(--neon-teal)] text-[10px] font-bold px-2 py-0.5 rounded backdrop-blur-sm uppercase">
-                {play.type === 'pdf' ? 'PDF' : 'IMAGE'}
-              </span>
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto">
+        {!selectedPlay ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-slate-500">Select a play to view details</p>
+          </div>
+        ) : (
+          <div className="p-6">
+            {/* Header with Actions */}
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  {selectedPlay.name || "Untitled Play"}
+                </h1>
+                <p className="mt-1 text-sm text-slate-400">
+                  Uploaded {formatDate(selectedPlay.uploadedAt)}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleAnalyzePlay}
+                  disabled={isAnalyzing}
+                  className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                      </svg>
+                      Analyze Play
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleDeletePlay}
+                  className="flex items-center gap-1.5 rounded-lg bg-red-900/20 px-3 py-2 text-xs font-semibold text-red-400 transition-colors hover:bg-red-900/30"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                  Delete
+                </button>
+              </div>
             </div>
 
-            {/* Thumbnail Preview Area */}
-            <div className="aspect-video bg-[#0D1117] relative overflow-hidden group-hover:bg-[#11161d] transition-colors">
-              {/* Image Preview for image files */}
-              {play.type === 'image' ? (
+            {/* Image Preview */}
+            <div className="mb-6 rounded-lg border border-[#1B1E20] bg-[#0d1117] overflow-hidden">
+              {selectedPlay.type === 'image' ? (
                 <img
-                  src={play.url}
-                  alt={play.name}
-                  className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
+                  src={selectedPlay.url}
+                  alt={selectedPlay.name}
+                  className="w-full h-auto max-h-[500px] object-contain"
                 />
               ) : (
-                /* Abstract Play Lines for PDF files */
-                <div className="w-full h-full opacity-60 group-hover:opacity-100 transition-opacity p-4">
-                  <svg className="w-full h-full" viewBox="0 0 100 60">
-                  {/* Field Lines */}
-                  <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
-                  <line x1="0" y1="30" x2="100" y2="30" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
-                  <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
-                  
-                  {/* Play Art */}
-                  {play.playType === 'Pass' ? (
-                     <>
-                      <path d="M 50 45 L 50 40 L 45 40" fill="none" stroke={play.id === '1' ? '#00F6E5' : '#3DF3FF'} strokeWidth="1" strokeLinecap="round" />
-                      <path d="M 20 40 L 20 20 L 40 10" fill="none" stroke={play.id === '1' ? '#00F6E5' : '#3DF3FF'} strokeWidth="1" strokeDasharray="2 1" strokeLinecap="round" />
-                      <path d="M 80 40 L 80 25 L 90 25" fill="none" stroke={play.id === '1' ? '#00F6E5' : '#3DF3FF'} strokeWidth="1" strokeDasharray="2 1" strokeLinecap="round" />
-                     </>
-                  ) : (
-                     <>
-                      <path d="M 50 45 L 50 35" fill="none" stroke="#F5C253" strokeWidth="1" strokeLinecap="round" />
-                      <path d="M 45 35 L 45 30 L 55 25" fill="none" stroke="#F5C253" strokeWidth="1" strokeLinecap="round" />
-                     </>
-                  )}
-                  
-                  {/* Formation Dots */}
-                  <circle cx="50" cy="45" r="1.5" fill="#fff" />
-                  <circle cx="20" cy="40" r="1.5" fill="#fff" />
-                  <circle cx="80" cy="40" r="1.5" fill="#fff" />
-                </svg>
+                <div className="flex items-center justify-center h-64 text-slate-400">
+                  <div className="text-center">
+                    <svg className="mx-auto h-12 w-12 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                    <p className="text-sm">PDF Document</p>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Content */}
-            <div className="p-4">
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="text-white font-bold text-lg group-hover:text-[var(--neon-teal)] transition-colors line-clamp-1">{play.name}</h3>
+            {/* Success Message */}
+            {updateSuccess && (
+              <div className="mb-4 rounded-lg bg-green-900/20 border border-green-500/30 px-4 py-2 text-sm text-green-400">
+                Metadata updated successfully
               </div>
-              
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {play.tags.map(tag => (
-                  <span key={tag} className="text-[10px] text-slate-400 bg-white/5 border border-white/5 px-1.5 py-0.5 rounded">
-                    {tag}
-                  </span>
-                ))}
+            )}
+
+            {/* Metadata Form */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Play Metadata</h2>
+
+              {/* Formation & Concept */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Formation
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedPlay.metadata?.formation_name || ""}
+                    onChange={(e) =>
+                      handleUpdateMetadata({ formation_name: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                    placeholder="Formation name..."
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Concept
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedPlay.metadata?.concept_name || ""}
+                    onChange={(e) =>
+                      handleUpdateMetadata({ concept_name: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                    placeholder="Concept name..."
+                  />
+                </div>
               </div>
 
-              <div className="flex justify-between items-center text-xs text-slate-500">
-                <span>{formatDate(play.uploadedAt)}</span>
-                <span className="group-hover:translate-x-1 transition-transform">View Play →</span>
+              {/* Side of Ball & Content Type */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Side of Ball
+                  </label>
+                  <select
+                    value={selectedPlay.metadata?.side_of_ball || ""}
+                    onChange={(e) =>
+                      handleUpdateMetadata({ side_of_ball: e.target.value as any })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  >
+                    <option value="">Select...</option>
+                    <option value="offense">Offense</option>
+                    <option value="defense">Defense</option>
+                    <option value="special_teams">Special Teams</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Content Type
+                  </label>
+                  <select
+                    value={selectedPlay.metadata?.content_type || ""}
+                    onChange={(e) =>
+                      handleUpdateMetadata({ content_type: e.target.value as any })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  >
+                    <option value="">Select...</option>
+                    <option value="full_playbook">Full Playbook</option>
+                    <option value="single_play">Single Play</option>
+                    <option value="formation">Formation</option>
+                    <option value="concept">Concept</option>
+                    <option value="install_notes">Install Notes</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Level */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Level
+                </label>
+                <select
+                  value={selectedPlay.metadata?.level || ""}
+                  onChange={(e) =>
+                    handleUpdateMetadata({ level: e.target.value as any })
+                  }
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                >
+                  <option value="">Select...</option>
+                  <option value="high_school">High School</option>
+                  <option value="college">College</option>
+                  <option value="pro">Pro</option>
+                </select>
+              </div>
+
+              {/* Position Relevance */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Position Relevance
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {["all", "qb", "rb", "wr", "te", "ol", "dl", "lb", "db", "k"].map((pos) => {
+                    const isSelected = selectedPlay.metadata?.position_relevance?.includes(pos as any);
+                    return (
+                      <button
+                        key={pos}
+                        onClick={() => {
+                          const current = selectedPlay.metadata?.position_relevance || ["all"];
+                          const updated = isSelected
+                            ? current.filter((p) => p !== pos)
+                            : [...current.filter((p) => p !== "all"), pos];
+                          handleUpdateMetadata({
+                            position_relevance: updated.length === 0 ? ["all"] : updated,
+                          });
+                        }}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase transition-all ${
+                          isSelected
+                            ? "bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30"
+                            : "bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]"
+                        }`}
+                      >
+                        {pos}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom Notes */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Custom Notes
+                </label>
+                <textarea
+                  value={selectedPlay.metadata?.custom_notes || ""}
+                  onChange={(e) =>
+                    handleUpdateMetadata({ custom_notes: e.target.value })
+                  }
+                  rows={4}
+                  className="w-full resize-none rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  placeholder="Add any coaching notes, reads, or adjustments..."
+                />
               </div>
             </div>
           </div>
-        ))}
-
-          {/* Create New Card */}
-          <button
-              onClick={onNewScan}
-              className="group border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center min-h-[260px] hover:border-[var(--neon-teal)]/30 hover:bg-white/5 transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400 group-hover:text-[var(--neon-teal)]">
-                <path d="M5 12h14"/><path d="M12 5v14"/>
-              </svg>
-            </div>
-            <span className="text-slate-400 font-bold group-hover:text-white">Import New Play</span>
-          </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
+
+// Icon component
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
 
 
 

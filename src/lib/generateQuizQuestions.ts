@@ -41,42 +41,46 @@ export interface GPTPlayAnalysis {
 
 /**
  * Convert GPT-analyzed play data to PlayDefinition format
+ * Includes defensive checks for incomplete API responses
  */
 export function convertGPTPlayToDefinition(
   gptPlay: GPTPlayAnalysis,
   playId?: string
 ): PlayDefinition {
+  // Defensive check: ensure positions object exists
+  const positions = gptPlay?.positions || {};
+
   // Convert positions object to assignments array
-  const assignments: PositionAssignment[] = Object.entries(gptPlay.positions).map(
+  const assignments: PositionAssignment[] = Object.entries(positions).map(
     ([position, data]) => ({
       position: position as SkillPosition,
-      alignment: data.alignment,
-      landmark: data.landmark,
-      assignment: data.assignment,
-      read: data.read,
+      alignment: data?.alignment || 'Unknown',
+      landmark: data?.landmark || 'Unknown',
+      assignment: data?.assignment || 'Unknown',
+      read: data?.read || 'Unknown',
       adjustments: {
-        vsMan: data.adjustments.vsMan,
-        vsZone: data.adjustments.vsZone,
-        vsBlitz: data.adjustments.vsBlitz,
+        vsMan: data?.adjustments?.vsMan || 'No adjustment',
+        vsZone: data?.adjustments?.vsZone || 'No adjustment',
+        vsBlitz: data?.adjustments?.vsBlitz,
       },
-      routeId: data.routeId as any,
-      depth: data.depth,
-      motion: data.motion,
+      routeId: data?.routeId as any,
+      depth: data?.depth,
+      motion: data?.motion,
     })
   );
 
   return {
-    id: playId || gptPlay.fileName?.replace(/\.[^/.]+$/, '') || `play-${Date.now()}`,
-    name: gptPlay.name,
-    shortName: gptPlay.shortName,
-    formation: gptPlay.formation as any,
-    playType: gptPlay.playType,
-    concept: gptPlay.concept,
+    id: playId || gptPlay?.fileName?.replace(/\.[^/.]+$/, '') || `play-${Date.now()}`,
+    name: gptPlay?.name || 'Unnamed Play',
+    shortName: gptPlay?.shortName || 'Unknown',
+    formation: (gptPlay?.formation || 'Unknown') as any,
+    playType: gptPlay?.playType || 'pass',
+    concept: gptPlay?.concept || 'Unknown Concept',
     assignments,
-    description: gptPlay.description,
-    keyPoints: gptPlay.keyPoints,
-    bestAgainst: gptPlay.bestAgainst,
-    diagramType: gptPlay.playType === 'run' ? 'run' : 'pass',
+    description: gptPlay?.description || 'No description available',
+    keyPoints: gptPlay?.keyPoints || [],
+    bestAgainst: gptPlay?.bestAgainst || [],
+    diagramType: gptPlay?.playType === 'run' ? 'run' : 'pass',
   };
 }
 
