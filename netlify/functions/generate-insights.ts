@@ -50,7 +50,7 @@ Keep each section brief (1-2 sentences max). Be specific and actionable.`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${process.env.GPT_KEY}`,
       },
       body: JSON.stringify({
         model: 'gpt-4',
