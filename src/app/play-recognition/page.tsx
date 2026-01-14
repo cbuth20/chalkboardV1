@@ -6,6 +6,7 @@ import { ImageViewer } from '../../components/play-recognition/ImageViewer';
 import { PDFViewer } from '../../components/play-recognition/PDFViewer';
 import { SavedPlayLibrary } from '../../components/play-recognition/SavedPlayLibrary';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
+import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import PlayerNavbar from '@/components/PlayerNavbar';
 
 type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER';
@@ -26,8 +27,7 @@ export default function PlayRecognitionPage() {
     setCurrentView('UPLOAD');
   };
 
-  const handleUploadComplete = async (fileData: string, fileName: string, fileType: string) => {
-    // Upload to API
+  const handleUploadComplete = async (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => {
     try {
       const apiUrl = getPlaybooksApiUrl();
       const response = await fetch(apiUrl, {
@@ -38,6 +38,7 @@ export default function PlayRecognitionPage() {
         body: JSON.stringify({
           fileName,
           fileData,
+          metadata,
         }),
       });
 

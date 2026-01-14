@@ -1,7 +1,18 @@
 import React, { useState, useRef } from 'react';
+import {
+  SideOfBall,
+  ContentType,
+  Level,
+  Position,
+  PlaybookMetadataInput,
+  SIDE_OF_BALL_LABELS,
+  CONTENT_TYPE_LABELS,
+  LEVEL_LABELS,
+  POSITION_LABELS,
+} from '@/types/playbook-metadata';
 
 interface FileUploadScreenProps {
-  onUploadComplete: (fileData: string, fileName: string, fileType: string) => void;
+  onUploadComplete: (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => void;
   onBack: () => void;
 }
 
@@ -9,8 +20,15 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [showMetadata, setShowMetadata] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<{data: string, name: string, type: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Metadata form state
+  const [metadata, setMetadata] = useState<PlaybookMetadataInput>({
+    position_relevance: ['all'],
+  });
 
   const handleFileSelect = async (file: File) => {
     if (!file) return;
@@ -22,18 +40,50 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
       reader.onload = (e) => {
         const result = e.target?.result as string;
         setPreview(result);
-
-        // Simulate processing delay
-        setTimeout(() => {
-          onUploadComplete(result, file.name, file.type);
-          setIsUploading(false);
-        }, 1000);
+        setSelectedFile({ data: result, name: file.name, type: file.type });
+        setIsUploading(false);
+        setShowMetadata(true);
       };
       reader.readAsDataURL(file);
     } catch (error) {
       console.error('Error reading file:', error);
       setIsUploading(false);
     }
+  };
+
+  const handleUploadWithMetadata = () => {
+    if (!selectedFile) return;
+    onUploadComplete(selectedFile.data, selectedFile.name, selectedFile.type, metadata);
+  };
+
+  const handleSkipMetadata = () => {
+    if (!selectedFile) return;
+    onUploadComplete(selectedFile.data, selectedFile.name, selectedFile.type);
+  };
+
+  const handlePositionToggle = (position: Position) => {
+    setMetadata(prev => {
+      const currentPositions = prev.position_relevance || ['all'];
+
+      if (position === 'all') {
+        return { ...prev, position_relevance: ['all'] };
+      }
+
+      const withoutAll = currentPositions.filter(p => p !== 'all');
+
+      if (withoutAll.includes(position)) {
+        const newPositions = withoutAll.filter(p => p !== position);
+        return {
+          ...prev,
+          position_relevance: newPositions.length === 0 ? ['all'] : newPositions,
+        };
+      } else {
+        return {
+          ...prev,
+          position_relevance: [...withoutAll, position],
+        };
+      }
+    });
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -63,6 +113,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
     }
   };
 
+  const selectedPositions = metadata.position_relevance || ['all'];
+
   return (
     <div className="relative h-full w-full bg-[#0A0F12] overflow-hidden flex flex-col">
       {/* Top Bar */}
@@ -80,8 +132,160 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
       </div>
 
       {/* Main Upload Area */}
-      <div className="flex-1 flex items-center justify-center p-8 mt-16">
+      <div className="flex-1 flex items-center justify-center p-8 mt-16 overflow-y-auto">
         <div className="w-full max-w-2xl">
+          {showMetadata && preview ? (
+            /* Metadata Form */
+            <div className="space-y-6 animate-fade-in">
+              {/* Preview */}
+              <div className="relative rounded-2xl overflow-hidden border border-white/10">
+                <img src={preview} alt="Preview" className="w-full h-48 object-contain bg-black" />
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Add Details (Optional)</h3>
+                  <p className="text-sm text-slate-400">Help organize your playbook by adding some optional tags</p>
+                </div>
+
+                {/* Side of Ball */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Side of Ball</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(Object.entries(SIDE_OF_BALL_LABELS) as [SideOfBall, string][]).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setMetadata(prev => ({ ...prev, side_of_ball: value }))}
+                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
+                          metadata.side_of_ball === value
+                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Content Type */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Content Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.entries(CONTENT_TYPE_LABELS) as [ContentType, string][]).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setMetadata(prev => ({ ...prev, content_type: value }))}
+                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
+                          metadata.content_type === value
+                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Level */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Level</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(Object.entries(LEVEL_LABELS) as [Level, string][]).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setMetadata(prev => ({ ...prev, level: value }))}
+                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
+                          metadata.level === value
+                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Position Relevance */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Position Relevance</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(Object.entries(POSITION_LABELS) as [Position, string][]).map(([value, label]) => {
+                      const isSelected = selectedPositions.includes(value) ||
+                        (value !== 'all' && selectedPositions.includes('all'));
+                      const isAllSelected = selectedPositions.includes('all');
+
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => handlePositionToggle(value)}
+                          disabled={value !== 'all' && isAllSelected}
+                          className={`p-2 rounded-lg border transition-all text-xs font-bold ${
+                            isSelected
+                              ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                              : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                          } ${value !== 'all' && isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          title={label}
+                        >
+                          {value}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Formation Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Formation Name</label>
+                  <input
+                    type="text"
+                    value={metadata.formation_name || ''}
+                    onChange={(e) => setMetadata(prev => ({ ...prev, formation_name: e.target.value }))}
+                    placeholder="e.g., Spread, I-Formation, Shotgun"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                  />
+                </div>
+
+                {/* Concept Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">Concept Name</label>
+                  <input
+                    type="text"
+                    value={metadata.concept_name || ''}
+                    onChange={(e) => setMetadata(prev => ({ ...prev, concept_name: e.target.value }))}
+                    placeholder="e.g., Mesh, Power, Zone, Slant-Flat"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSkipMetadata}
+                    className="flex-1 px-6 py-3 bg-white/5 border border-white/10 rounded-lg text-slate-300 font-semibold hover:bg-white/10 transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUploadWithMetadata}
+                    className="flex-1 px-6 py-3 bg-[var(--neon-teal)] rounded-lg text-black font-bold hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+                  >
+                    Upload
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Upload Interface */
+            <>
           {/* Drag and Drop Zone */}
           <div
             onDrop={handleDrop}
@@ -169,6 +373,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
               className="hidden"
             />
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { PlaybookMetadata } from '@/types/playbook-metadata';
 
 // This endpoint analyzes playbook files and generates dynamic content for the assignment tracker
 export async function GET() {
@@ -43,7 +44,11 @@ export async function GET() {
 // POST endpoint to analyze a specific play image
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl, fileName } = await request.json();
+    const { imageUrl, fileName, metadata } = await request.json() as {
+      imageUrl: string;
+      fileName?: string;
+      metadata?: PlaybookMetadata;
+    };
 
     if (!imageUrl) {
       return NextResponse.json(
@@ -77,6 +82,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build context from metadata if provided
+    let metadataContext = '';
+    if (metadata) {
+      const contextParts = [];
+      if (metadata.side_of_ball) contextParts.push(`Side of ball: ${metadata.side_of_ball}`);
+      if (metadata.content_type) contextParts.push(`Content type: ${metadata.content_type}`);
+      if (metadata.level) contextParts.push(`Level: ${metadata.level}`);
+      if (metadata.formation_name) contextParts.push(`Formation: ${metadata.formation_name}`);
+      if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
+      if (metadata.position_relevance && metadata.position_relevance.length > 0) {
+        contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
+      }
+
+      if (contextParts.length > 0) {
+        metadataContext = `\n\nAdditional context about this image:\n${contextParts.join('\n')}`;
+      }
+    }
+
+    const userPrompt = `Analyze this football play image and extract the play information, formations, routes, and position assignments.${metadataContext}`;
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -95,7 +120,7 @@ export async function POST(request: NextRequest) {
             content: [
               {
                 type: 'text',
-                text: 'Analyze this football play image and extract the play information, formations, routes, and position assignments.',
+                text: userPrompt,
               },
               {
                 type: 'image_url',

@@ -5,6 +5,7 @@ import { CoachDrawer, CoachFAB } from "@/components/ai-coach";
 import { ModeProvider } from "@/contexts/ModeContext";
 import { CoachProvider } from "@/components/ai-coach/CoachContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { PlaysProvider } from "@/contexts/PlaysContext";
 
 const rajdhani = Rajdhani({
   weight: ["300", "400", "500", "600", "700"],
@@ -38,13 +39,15 @@ export default function RootLayout({
         className={`${rajdhani.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <AuthProvider>
-          <ModeProvider>
-            <CoachProvider>
-              {children}
-              <CoachFAB />
-              <CoachDrawer />
-            </CoachProvider>
-          </ModeProvider>
+          <PlaysProvider>
+            <ModeProvider>
+              <CoachProvider>
+                {children}
+                <CoachFAB />
+                <CoachDrawer />
+              </CoachProvider>
+            </ModeProvider>
+          </PlaysProvider>
         </AuthProvider>
       </body>
     </html>

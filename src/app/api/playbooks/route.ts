@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -9,7 +10,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const BUCKET_NAME = 'Chalkboard Bucket';
 const FOLDER_PATH = 'public'; // Store files in public folder within bucket
 
-// GET - List all playbooks from Supabase Storage
+// GET - List all playbooks from Supabase Storage with metadata
 export async function GET() {
   try {
     // List all files in the public folder
@@ -58,7 +59,30 @@ export async function GET() {
         };
       });
 
-    return NextResponse.json(playbooks);
+    // Fetch metadata for all files
+    const filePaths = playbooks.map(p => `${FOLDER_PATH}/${p.fileName}`);
+    const { data: metadataRecords, error: metadataError } = await supabase
+      .from('playbook_metadata')
+      .select('*')
+      .overlaps('file_paths', filePaths);
+
+    if (metadataError) {
+      console.warn('Failed to fetch metadata:', metadataError);
+      // Continue without metadata rather than failing
+    }
+
+    // Merge metadata with playbooks
+    const playbooksWithMetadata = playbooks.map(playbook => {
+      const filePath = `${FOLDER_PATH}/${playbook.fileName}`;
+      const metadata = metadataRecords?.find(m => m.file_paths.includes(filePath));
+
+      return {
+        ...playbook,
+        metadata: metadata || null,
+      };
+    });
+
+    return NextResponse.json(playbooksWithMetadata);
   } catch (error: any) {
     console.error('Error fetching playbooks:', error);
     return NextResponse.json(
@@ -71,11 +95,15 @@ export async function GET() {
   }
 }
 
-// POST - Upload new playbook to Supabase Storage
+// POST - Upload new playbook to Supabase Storage with optional metadata
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, fileData } = body;
+    const { fileName, fileData, metadata } = body as {
+      fileName: string;
+      fileData: string;
+      metadata?: PlaybookMetadataInput;
+    };
 
     if (!fileName || !fileData) {
       return NextResponse.json(
@@ -123,6 +151,34 @@ export async function POST(request: NextRequest) {
       .from(BUCKET_NAME)
       .getPublicUrl(filePath);
 
+    // Save metadata if provided
+    let savedMetadata = null;
+    if (metadata) {
+      const metadataToSave = {
+        file_paths: metadata.file_paths || [filePath],
+        side_of_ball: metadata.side_of_ball,
+        content_type: metadata.content_type,
+        position_relevance: metadata.position_relevance || ['all'],
+        level: metadata.level,
+        formation_name: metadata.formation_name,
+        concept_name: metadata.concept_name,
+        custom_notes: metadata.custom_notes,
+      };
+
+      const { data: metadataData, error: metadataError } = await supabase
+        .from('playbook_metadata')
+        .insert(metadataToSave)
+        .select()
+        .single();
+
+      if (metadataError) {
+        console.error('Failed to save metadata:', metadataError);
+        // Continue without failing the upload
+      } else {
+        savedMetadata = metadataData;
+      }
+    }
+
     const newPlay = {
       id: fileName,
       name: fileName.replace(/\.[^/.]+$/, ''),
@@ -132,6 +188,7 @@ export async function POST(request: NextRequest) {
       tags: [],
       playType: 'Unknown',
       url: urlData.publicUrl,
+      metadata: savedMetadata,
     };
 
     return NextResponse.json(newPlay);

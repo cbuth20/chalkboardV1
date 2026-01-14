@@ -62,10 +62,33 @@ export const handler: Handler = async (event, context) => {
           };
         });
 
+      // Fetch metadata for all files
+      const filePaths = playbooks.map(p => `${FOLDER_PATH}/${p.fileName}`);
+      const { data: metadataRecords, error: metadataError } = await supabase
+        .from('playbook_metadata')
+        .select('*')
+        .overlaps('file_paths', filePaths);
+
+      if (metadataError) {
+        console.warn('Failed to fetch metadata:', metadataError);
+        // Continue without metadata rather than failing
+      }
+
+      // Merge metadata with playbooks
+      const playbooksWithMetadata = playbooks.map(playbook => {
+        const filePath = `${FOLDER_PATH}/${playbook.fileName}`;
+        const metadata = metadataRecords?.find(m => m.file_paths.includes(filePath));
+
+        return {
+          ...playbook,
+          metadata: metadata || null,
+        };
+      });
+
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(playbooks),
+        body: JSON.stringify(playbooksWithMetadata),
       };
     } catch (error: any) {
       console.error('Error fetching playbooks:', error);
@@ -80,10 +103,10 @@ export const handler: Handler = async (event, context) => {
     }
   }
 
-  // POST - Upload new playbook to Supabase Storage
+  // POST - Upload new playbook to Supabase Storage with optional metadata
   if (httpMethod === 'POST') {
     try {
-      const { fileName, fileData } = JSON.parse(event.body || '{}');
+      const { fileName, fileData, metadata } = JSON.parse(event.body || '{}');
 
       if (!fileName || !fileData) {
         return {
@@ -133,6 +156,34 @@ export const handler: Handler = async (event, context) => {
         .from(BUCKET_NAME)
         .getPublicUrl(filePath);
 
+      // Save metadata if provided
+      let savedMetadata = null;
+      if (metadata) {
+        const metadataToSave = {
+          file_paths: metadata.file_paths || [filePath],
+          side_of_ball: metadata.side_of_ball,
+          content_type: metadata.content_type,
+          position_relevance: metadata.position_relevance || ['all'],
+          level: metadata.level,
+          formation_name: metadata.formation_name,
+          concept_name: metadata.concept_name,
+          custom_notes: metadata.custom_notes,
+        };
+
+        const { data: metadataData, error: metadataError } = await supabase
+          .from('playbook_metadata')
+          .insert(metadataToSave)
+          .select()
+          .single();
+
+        if (metadataError) {
+          console.error('Failed to save metadata:', metadataError);
+          // Continue without failing the upload
+        } else {
+          savedMetadata = metadataData;
+        }
+      }
+
       const newPlay = {
         id: fileName,
         name: fileName.replace(/\.[^/.]+$/, ''),
@@ -142,6 +193,7 @@ export const handler: Handler = async (event, context) => {
         tags: [],
         playType: 'Unknown',
         url: urlData.publicUrl,
+        metadata: savedMetadata,
       };
 
       return {

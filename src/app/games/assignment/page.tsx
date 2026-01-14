@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlayerNavbar from "@/components/PlayerNavbar";
 import { GameTimer, GameHeader, ResultsModal } from "@/components/games";
@@ -17,6 +17,7 @@ import {
   getPositionsForPlay,
   type GPTPlayAnalysis
 } from "@/lib/generateQuizQuestions";
+import { usePlays } from "@/contexts/PlaysContext";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES & CONSTANTS
@@ -111,6 +112,10 @@ function getResults(): AssignmentResults[] {
 
 export default function AssignmentTrackerPage() {
   const router = useRouter();
+  const { getAnalyzedPlay, addAnalyzedPlay, hasAnalyzedPlay } = usePlays();
+
+  // Track if we've already loaded plays to prevent duplicate loads
+  const hasLoadedPlays = useRef(false);
 
   // Dynamic plays state
   const [plays, setPlays] = useState<PlayDefinition[]>([]);
@@ -153,6 +158,20 @@ export default function AssignmentTrackerPage() {
   // Load and analyze playbooks on mount
   useEffect(() => {
     const loadPlays = async () => {
+      // Ensure context functions are available
+      if (!getAnalyzedPlay || !hasAnalyzedPlay || !addAnalyzedPlay) {
+        console.log('Waiting for PlaysContext to initialize...');
+        return;
+      }
+
+      // Only load once
+      if (hasLoadedPlays.current) {
+        console.log('Plays already loaded, skipping');
+        return;
+      }
+
+      hasLoadedPlays.current = true;
+
       try {
         setIsLoadingPlays(true);
         setPlaysError(null);
@@ -178,34 +197,61 @@ export default function AssignmentTrackerPage() {
           return;
         }
 
-        // Analyze each playbook image with GPT Vision
-        const analyzePlaysApiUrl = getAnalyzePlaysApiUrl();
+        // Check which plays are already analyzed in cache
         const analyzedPlays: PlayDefinition[] = [];
+        const playsToAnalyze: any[] = [];
 
         for (const playbook of imagePlaybooks) {
-          try {
-            const analyzeResponse = await fetch(analyzePlaysApiUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                fileName: playbook.fileName,
-              }),
-            });
-
-            if (analyzeResponse.ok) {
-              const gptAnalysis: GPTPlayAnalysis | undefined = await analyzeResponse.json();
-              if(gptAnalysis) {
-                const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
-                analyzedPlays.push(playDef);
-              }
-            } else {
-              console.error(`Failed to analyze ${playbook.fileName}`);
+          // Check if we already have this play analyzed
+          if (hasAnalyzedPlay(playbook.id)) {
+            const cachedPlay = getAnalyzedPlay(playbook.id);
+            if (cachedPlay) {
+              console.log(`Using cached analysis for ${playbook.fileName}`);
+              analyzedPlays.push(cachedPlay);
             }
-          } catch (err) {
-            console.error(`Error analyzing ${playbook.fileName}:`, err);
+          } else {
+            // Need to analyze this one
+            playsToAnalyze.push(playbook);
           }
+        }
+
+        // Only analyze plays that aren't cached
+        if (playsToAnalyze.length > 0) {
+          console.log(`Analyzing ${playsToAnalyze.length} new play(s)...`);
+          const analyzePlaysApiUrl = getAnalyzePlaysApiUrl();
+
+          for (const playbook of playsToAnalyze) {
+            try {
+              const analyzeResponse = await fetch(analyzePlaysApiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  fileName: playbook.fileName,
+                  imageUrl: playbook.url,
+                  metadata: playbook.metadata, // Pass metadata for better context
+                }),
+              });
+
+              if (analyzeResponse.ok) {
+                const gptAnalysis: GPTPlayAnalysis | undefined = await analyzeResponse.json();
+                if(gptAnalysis) {
+                  const playDef = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
+                  analyzedPlays.push(playDef);
+                  // Cache the newly analyzed play
+                  addAnalyzedPlay(playbook.id, playDef);
+                  console.log(`Cached analysis for ${playbook.fileName}`);
+                }
+              } else {
+                console.error(`Failed to analyze ${playbook.fileName}`);
+              }
+            } catch (err) {
+              console.error(`Error analyzing ${playbook.fileName}:`, err);
+            }
+          }
+        } else {
+          console.log('All plays already analyzed, using cache');
         }
 
         setPlays(analyzedPlays);
@@ -218,7 +264,7 @@ export default function AssignmentTrackerPage() {
     };
 
     loadPlays();
-  }, []);
+  }, [getAnalyzedPlay, hasAnalyzedPlay, addAnalyzedPlay]); // Re-run if context becomes available
 
   // Timer effect for test mode
   useEffect(() => {
@@ -260,6 +306,15 @@ export default function AssignmentTrackerPage() {
       handleQuizEnd();
     }
   }, [timeLeft, isFinished, handleQuizEnd]);
+
+  // Helper to get positions from play
+  const getPositionsForPlay = (play: PlayDefinition): SkillPosition[] => {
+    if (play.assignments && play.assignments.length > 0) {
+      return play.assignments.map(a => a.position);
+    }
+    // Fallback to common positions if no assignments
+    return ['QB', 'RB', 'X', 'Z', 'TE'];
+  };
 
   // Select a play
   const handlePlaySelect = (play: PlayDefinition) => {
@@ -517,7 +572,7 @@ export default function AssignmentTrackerPage() {
             </div>
 
             {/* Generate Personal Test Section */}
-            <div className="glass-card p-6 border-[#F5C253]/30">
+            {/* <div className="glass-card p-6 border-[#F5C253]/30">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#F5C253]/15 border border-[#F5C253]/30">
@@ -532,9 +587,9 @@ export default function AssignmentTrackerPage() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"> */}
                 {/* Quick Random Test */}
-                <button
+                {/* <button
                   onClick={generateQuickTest}
                   className="group relative overflow-hidden rounded-xl border border-[#FF6A3D]/30 bg-gradient-to-br from-[#FF6A3D]/10 to-transparent p-4 text-left transition-all hover:border-[#FF6A3D]/50 hover:shadow-lg hover:shadow-[#FF6A3D]/10"
                 >
@@ -548,10 +603,10 @@ export default function AssignmentTrackerPage() {
                       Fast
                     </span>
                   </div>
-                </button>
+                </button> */}
 
                 {/* Custom Test Builder */}
-                <button
+                {/* <button
                   onClick={() => setPhase("generate-test")}
                   className="group relative overflow-hidden rounded-xl border border-[#F5C253]/30 bg-gradient-to-br from-[#F5C253]/10 to-transparent p-4 text-left transition-all hover:border-[#F5C253]/50 hover:shadow-lg hover:shadow-[#F5C253]/10"
                 >
@@ -567,7 +622,7 @@ export default function AssignmentTrackerPage() {
                   </div>
                 </button>
               </div>
-            </div>
+            </div> */}
 
             {/* Play Selection Grid */}
             <div className="glass-card p-6">
@@ -818,8 +873,8 @@ export default function AssignmentTrackerPage() {
                       {selectedPlay.concept || selectedPlay.playType}
                     </span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      selectedPlay.playType === "pass" 
-                        ? "bg-[#00F6E5]/10 text-[#00F6E5]" 
+                      selectedPlay.playType === "pass"
+                        ? "bg-[#00F6E5]/10 text-[#00F6E5]"
                         : selectedPlay.playType === "run"
                         ? "bg-[#F5C253]/10 text-[#F5C253]"
                         : "bg-[#FF6A3D]/10 text-[#FF6A3D]"
@@ -847,39 +902,101 @@ export default function AssignmentTrackerPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Quick Actions */}
+              <div className="mt-4 pt-4 border-t border-[#1B1E20] flex gap-3">
+                <button
+                  onClick={() => {
+                    // Quick quiz with 3 random questions from any position
+                    const positions = getPositionsForPlay(selectedPlay);
+                    const randomPos = positions[Math.floor(Math.random() * positions.length)];
+                    setSelectedPosition(randomPos);
+                    const allQuestions = generateQuestionsForPosition(selectedPlay, randomPos);
+                    const quickQuestions = allQuestions.slice(0, 3);
+                    setQuestions(quickQuestions);
+                    setCurrentQuestionIndex(0);
+                    setScore(0);
+                    setCorrectCount(0);
+                    setStreak(0);
+                    setPhase("quiz");
+                    setShowFlash(true);
+                    setTimeout(() => setShowFlash(false), 300);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 bg-[#F5C253]/10 border border-[#F5C253]/30 rounded-lg px-4 py-3 text-[#F5C253] font-semibold hover:bg-[#F5C253]/20 transition-all"
+                >
+                  <ZapIcon className="h-4 w-4" />
+                  Quick Quiz (3 Questions)
+                </button>
+              </div>
             </div>
 
-            {/* Play Diagram */}
-            <div className="glass-card overflow-hidden">
-              <div className="border-b border-[#1B1E20] px-4 py-3 flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                  Formation: {selectedPlay.formation}
-                </span>
-                <span className="text-xs text-slate-500">Tap a position to start</span>
+            {/* Play Metadata Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="glass-card p-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Formation</div>
+                <div className="text-lg font-bold text-white">{selectedPlay.formation}</div>
               </div>
-              <div className="p-4">
-                {/* <PlayDiagram
-                  play={selectedPlay}
-                  onPositionSelect={handlePositionSelect}
-                /> */}
+              <div className="glass-card p-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Play Type</div>
+                <div className="text-lg font-bold text-[#00F6E5]">{selectedPlay.playType.toUpperCase()}</div>
+              </div>
+              <div className="glass-card p-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Concept</div>
+                <div className="text-lg font-bold text-[#F5C253]">{selectedPlay.concept || 'N/A'}</div>
               </div>
             </div>
 
-            {/* Position Grid */}
-            {/* <div className="glass-card p-6">
+            {/* Best Against */}
+            {selectedPlay.bestAgainst && selectedPlay.bestAgainst.length > 0 && (
+              <div className="glass-card p-6">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
+                  Best Against
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedPlay.bestAgainst.map((coverage, i) => (
+                    <span
+                      key={i}
+                      className="rounded-lg bg-[#00F6E5]/10 border border-[#00F6E5]/30 px-3 py-1.5 text-sm font-semibold text-[#00F6E5]"
+                    >
+                      {coverage}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Position Assignments */}
+            <div className="glass-card p-6">
               <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-400">
-                Select Your Position
+                Position Assignments
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {getPositionsForPlay(selectedPlay.id).map((pos) => (
-                  <PositionButton
-                    key={pos}
-                    position={pos}
-                    onClick={() => handlePositionSelect(pos)}
-                  />
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {getPositionsForPlay(selectedPlay).map((pos) => {
+                  const assignment = selectedPlay.assignments.find(a => a.position === pos);
+                  return (
+                    <button
+                      key={pos}
+                      onClick={() => handlePositionSelect(pos)}
+                      className="group relative overflow-hidden rounded-xl border border-slate-700/50 bg-[#1B1E20]/50 p-4 text-left transition-all hover:border-[#00F6E5]/40 hover:bg-[#1B1E20] hover:shadow-lg hover:shadow-[#00F6E5]/10 hover:-translate-y-0.5 active:scale-[0.99]"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xl font-black text-white">{pos}</span>
+                        <span className="text-xs text-slate-500">Click to study</span>
+                      </div>
+                      {assignment && (
+                        <div className="space-y-1">
+                          <div className="text-xs text-slate-500">Alignment</div>
+                          <div className="text-sm font-semibold text-slate-300 truncate">{assignment.alignment}</div>
+                          <div className="text-xs text-slate-500 mt-2">Assignment</div>
+                          <div className="text-sm font-semibold text-[#00F6E5] truncate">{assignment.assignment}</div>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#00F6E5]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  );
+                })}
               </div>
-            </div> */}
+            </div>
           </div>
         )}
 
@@ -1096,7 +1213,7 @@ function PlayCard({ play, onClick }: { play: PlayDefinition; onClick: () => void
     rpo: { bg: "bg-[#FF6A3D]/10", border: "border-[#FF6A3D]/30", text: "text-[#FF6A3D]" },
     screen: { bg: "bg-[#3DF3FF]/10", border: "border-[#3DF3FF]/30", text: "text-[#3DF3FF]" },
   };
-  
+  console.log(play, "play");
   const colors = typeColors[play.playType];
 
   return (

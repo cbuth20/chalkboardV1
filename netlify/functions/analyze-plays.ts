@@ -51,7 +51,7 @@ export const handler: Handler = async (event, context) => {
   // POST - Analyze a specific play image
   if (httpMethod === 'POST') {
     try {
-      const { imageUrl, fileName } = JSON.parse(event.body || '{}');
+      const { imageUrl, fileName, metadata } = JSON.parse(event.body || '{}');
 
       if (!imageUrl) {
         return {
@@ -84,6 +84,26 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
+      // Build context from metadata if provided
+      let metadataContext = '';
+      if (metadata) {
+        const contextParts = [];
+        if (metadata.side_of_ball) contextParts.push(`Side of ball: ${metadata.side_of_ball}`);
+        if (metadata.content_type) contextParts.push(`Content type: ${metadata.content_type}`);
+        if (metadata.level) contextParts.push(`Level: ${metadata.level}`);
+        if (metadata.formation_name) contextParts.push(`Formation: ${metadata.formation_name}`);
+        if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
+        if (metadata.position_relevance && metadata.position_relevance.length > 0) {
+          contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
+        }
+
+        if (contextParts.length > 0) {
+          metadataContext = `\n\nAdditional context about this image:\n${contextParts.join('\n')}`;
+        }
+      }
+
+      const userPrompt = `Analyze this football play image and extract the play information, formations, routes, and position assignments.${metadataContext}`;
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -102,7 +122,7 @@ export const handler: Handler = async (event, context) => {
               content: [
                 {
                   type: 'text',
-                  text: 'Analyze this football play image and extract the play information, formations, routes, and position assignments.',
+                  text: userPrompt,
                 },
                 {
                   type: 'image_url',
