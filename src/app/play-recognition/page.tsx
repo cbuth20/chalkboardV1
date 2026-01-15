@@ -29,6 +29,10 @@ export default function PlayRecognitionPage() {
 
   const handleUploadComplete = async (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => {
     try {
+      // TODO: Get teamId from auth context instead of hardcoding
+      // Using a valid UUID format as placeholder
+      const teamId = '00000000-0000-0000-0000-000000000000'; // Replace with actual teamId from context
+
       const apiUrl = getPlaybooksApiUrl();
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -39,6 +43,7 @@ export default function PlayRecognitionPage() {
           fileName,
           fileData,
           metadata,
+          teamId,
         }),
       });
 

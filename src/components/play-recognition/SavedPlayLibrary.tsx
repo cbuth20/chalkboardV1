@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { getPlaybooksApiUrl, getPlaybookMetadataApiUrl, getAnalyzePlaysApiUrl } from '@/lib/api-config';
+import {
+  getPlaybooksApiUrl,
+  getPlaybookMetadataApiUrl,
+  getGeneratePlayContentApiUrl,
+  getReviewPlayContentApiUrl,
+} from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
+import PlayContentReviewModal from './PlayContentReviewModal';
 
 interface Play {
   id: string;
@@ -24,8 +30,12 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState<any>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  // TODO: Get from auth context instead of hardcoding
+  const [teamId] = useState<string>('00000000-0000-0000-0000-000000000000');
 
   const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
 
@@ -95,43 +105,150 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
   };
 
-  // Analyze play with GPT
-  const handleAnalyzePlay = async () => {
-    if (!selectedPlay) return;
+  // Generate AI content (insights + assignments + knowledge cards)
+  const handleGenerateContent = async () => {
+    if (!selectedPlay || !selectedPlay.metadata?.id) {
+      alert('Please ensure play metadata is saved before generating content');
+      return;
+    }
 
-    setIsAnalyzing(true);
+    setIsGenerating(true);
     try {
-      const apiUrl = getAnalyzePlaysApiUrl();
+      const apiUrl = getGeneratePlayContentApiUrl();
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileName: selectedPlay.fileName,
+          playbookMetadataId: selectedPlay.metadata.id,
           imageUrl: selectedPlay.url,
-          metadata: selectedPlay.metadata,
+          fileName: selectedPlay.fileName,
+          teamId: teamId || 'default-team-id', // TODO: Get from auth context
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze play');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate content');
       }
 
-      const analysis = await response.json();
-
-      // Navigate to the play with analysis
-      onSelectPlay(selectedPlay.url, selectedPlay.fileName, selectedPlay.type as 'pdf' | 'image');
-    } catch (err) {
-      console.error('Failed to analyze play:', err);
-      alert('Failed to analyze play');
+      const data = await response.json();
+      setGeneratedContent(data);
+      setShowReviewModal(true);
+    } catch (err: any) {
+      console.error('Failed to generate content:', err);
+      alert(`Failed to generate content: ${err.message}`);
     } finally {
-      setIsAnalyzing(false);
+      setIsGenerating(false);
+    }
+  };
+
+  // Handle approve content
+  const handleApprove = async (editedContent: any, notes: string) => {
+    if (!generatedContent?.playId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: generatedContent.playId,
+          action: 'approve',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          updates: editedContent,
+          reviewNotes: notes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve content');
+      }
+
+      setShowReviewModal(false);
+      setGeneratedContent(null);
+      alert('Content approved and published successfully!');
+
+      // Refresh play library
+      const fetchUrl = getPlaybooksApiUrl();
+      const fetchResponse = await fetch(fetchUrl);
+      const data = await fetchResponse.json();
+      setPlays(data);
+    } catch (err) {
+      console.error('Failed to approve content:', err);
+      alert('Failed to approve content');
+    }
+  };
+
+  // Handle reject content
+  const handleReject = async (notes: string) => {
+    if (!generatedContent?.playId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: generatedContent.playId,
+          action: 'reject',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          reviewNotes: notes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reject content');
+      }
+
+      setShowReviewModal(false);
+      setGeneratedContent(null);
+      alert('Content rejected');
+    } catch (err) {
+      console.error('Failed to reject content:', err);
+      alert('Failed to reject content');
+    }
+  };
+
+  // Handle save draft
+  const handleSaveDraft = async (editedContent: any) => {
+    if (!generatedContent?.playId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: generatedContent.playId,
+          action: 'update',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          updates: editedContent,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save draft');
+      }
+
+      setShowReviewModal(false);
+      setGeneratedContent(null);
+      alert('Draft saved successfully');
+    } catch (err) {
+      console.error('Failed to save draft:', err);
+      alert('Failed to save draft');
     }
   };
 
   // Delete play
   const handleDeletePlay = async () => {
     if (!selectedPlay) return;
-    if (!confirm('Delete this play? This cannot be undone.')) return;
+
+    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play image/PDF\n• All generated content (insights, assignments, flashcards)\n• Metadata\n\nThis cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
 
     try {
       const apiUrl = getPlaybooksApiUrl();
@@ -145,6 +262,17 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         throw new Error('Failed to delete play');
       }
 
+      const result = await response.json();
+      console.log('Deleted:', result);
+
+      // Show success message with counts
+      if (result.deleted) {
+        const { plays, assignments, flashcards, metadata } = result.deleted;
+        alert(
+          `Successfully deleted:\n• ${plays} play(s)\n• ${assignments} assignment(s)\n• ${flashcards} flashcard(s)\n• ${metadata} metadata record(s)\n• 1 file from storage`
+        );
+      }
+
       setPlays((prev) => {
         const newPlays = prev.filter((p) => p.id !== selectedPlayId);
         if (newPlays.length > 0) {
@@ -156,7 +284,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
     } catch (err) {
       console.error('Failed to delete play:', err);
-      alert('Failed to delete play');
+      alert('Failed to delete play. Check console for details.');
     }
   };
 
@@ -268,21 +396,21 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={handleAnalyzePlay}
-                  disabled={isAnalyzing}
+                  onClick={handleGenerateContent}
+                  disabled={isGenerating}
                   className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
                 >
-                  {isAnalyzing ? (
+                  {isGenerating ? (
                     <>
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
-                      Analyzing...
+                      Generating...
                     </>
                   ) : (
                     <>
                       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                       </svg>
-                      Analyze Play
+                      Generate AI Content
                     </>
                   )}
                 </button>
@@ -471,6 +599,18 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
           </div>
         )}
       </div>
+
+      {/* Review Modal */}
+      {showReviewModal && generatedContent && (
+        <PlayContentReviewModal
+          content={generatedContent}
+          playName={selectedPlay?.name || 'Untitled Play'}
+          onClose={() => setShowReviewModal(false)}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onSaveDraft={handleSaveDraft}
+        />
+      )}
     </div>
   );
 };

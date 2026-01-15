@@ -9,57 +9,93 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ───────────────────────────────────────────────────────────────────────────────────────────
--- ENUMS
+-- ENUMS (with safe creation checks)
 -- ───────────────────────────────────────────────────────────────────────────────────────────
 
 -- User roles within a team
-CREATE TYPE user_role AS ENUM ('player', 'coach', 'admin');
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('player', 'coach', 'admin');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Football positions for position-specific content
-CREATE TYPE football_position AS ENUM (
-  'QB', 'RB', 'FB', 'WR', 'TE', 'OT', 'OG', 'C',  -- Offense
-  'DE', 'DT', 'NT', 'OLB', 'ILB', 'MLB', 'CB', 'FS', 'SS',  -- Defense
-  'K', 'P', 'LS'  -- Special Teams
-);
+DO $$ BEGIN
+  CREATE TYPE football_position AS ENUM (
+    'QB', 'RB', 'FB', 'WR', 'TE', 'OT', 'OG', 'C',  -- Offense
+    'DE', 'DT', 'NT', 'OLB', 'ILB', 'MLB', 'CB', 'FS', 'SS',  -- Defense
+    'K', 'P', 'LS'  -- Special Teams
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Game types available in the platform
-CREATE TYPE game_type AS ENUM (
-  'coverage_recognition',
-  'blitz_id',
-  'route_matching',
-  'formation_memory',
-  'play_responsibility',
-  'red_zone_scenarios',
-  'two_minute_drill',
-  'film_reaction'
-);
+DO $$ BEGIN
+  CREATE TYPE game_type AS ENUM (
+    'coverage_recognition',
+    'blitz_id',
+    'route_matching',
+    'formation_memory',
+    'play_responsibility',
+    'red_zone_scenarios',
+    'two_minute_drill',
+    'film_reaction'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Game modes
-CREATE TYPE game_mode AS ENUM ('train', 'compete');
+DO $$ BEGIN
+  CREATE TYPE game_mode AS ENUM ('train', 'compete');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Difficulty levels
-CREATE TYPE difficulty_level AS ENUM ('easy', 'medium', 'hard', 'expert');
+DO $$ BEGIN
+  CREATE TYPE difficulty_level AS ENUM ('easy', 'medium', 'hard', 'expert');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Session status
-CREATE TYPE session_status AS ENUM ('in_progress', 'completed', 'abandoned', 'timed_out');
+DO $$ BEGIN
+  CREATE TYPE session_status AS ENUM ('in_progress', 'completed', 'abandoned', 'timed_out');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- XP event types
-CREATE TYPE xp_event_type AS ENUM (
-  'game_completion',
-  'correct_answer',
-  'streak_bonus',
-  'daily_challenge',
-  'first_play_of_day',
-  'perfect_game',
-  'level_up',
-  'achievement'
-);
+DO $$ BEGIN
+  CREATE TYPE xp_event_type AS ENUM (
+    'game_completion',
+    'correct_answer',
+    'streak_bonus',
+    'daily_challenge',
+    'first_play_of_day',
+    'perfect_game',
+    'level_up',
+    'achievement'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Leaderboard scope
-CREATE TYPE leaderboard_scope AS ENUM ('team', 'position_room', 'global');
+DO $$ BEGIN
+  CREATE TYPE leaderboard_scope AS ENUM ('team', 'position_room', 'global');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Time window for leaderboards
-CREATE TYPE time_window AS ENUM ('daily', 'weekly', 'season', 'all_time');
+DO $$ BEGIN
+  CREATE TYPE time_window AS ENUM ('daily', 'weekly', 'season', 'all_time');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- ───────────────────────────────────────────────────────────────────────────────────────────
 -- CORE TABLES
@@ -67,7 +103,7 @@ CREATE TYPE time_window AS ENUM ('daily', 'weekly', 'season', 'all_time');
 
 -- Teams Table
 -- Each team is a tenant with its own isolated data
-CREATE TABLE teams (
+CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(100) UNIQUE NOT NULL,  -- URL-friendly identifier
@@ -541,7 +577,7 @@ CREATE TABLE season_archives (
 
 -- User Stats View (per team)
 CREATE OR REPLACE VIEW user_team_stats AS
-SELECT 
+SELECT
   tm.user_id,
   tm.team_id,
   u.first_name,
@@ -562,7 +598,7 @@ FROM team_members tm
 JOIN users u ON tm.user_id = u.id
 LEFT JOIN user_streaks us ON tm.user_id = us.user_id AND tm.team_id = us.team_id
 LEFT JOIN game_sessions gs ON tm.user_id = gs.user_id AND tm.team_id = gs.team_id AND gs.status = 'completed'
-GROUP BY tm.user_id, tm.team_id, u.id, tm.position, tm.position_group, tm.role, us.current_streak, us.longest_streak;
+GROUP BY tm.user_id, tm.team_id, u.id, tm.position, tm.position_group, tm.role, u.current_level, tm.team_xp, us.current_streak, us.longest_streak;
 
 -- Weekly XP Leaderboard View
 CREATE OR REPLACE VIEW weekly_leaderboard AS
@@ -695,6 +731,16 @@ EXECUTE FUNCTION update_user_streak();
 -- ROW-LEVEL SECURITY POLICIES
 -- ───────────────────────────────────────────────────────────────────────────────────────────
 
+-- Helper function to check if user is in a team (bypasses RLS to avoid infinite recursion)
+CREATE OR REPLACE FUNCTION public.is_team_member(check_team_id UUID)
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM team_members tm
+    JOIN users u ON tm.user_id = u.id
+    WHERE tm.team_id = check_team_id AND u.auth_id = auth.uid()
+  )
+$$ LANGUAGE SQL SECURITY DEFINER STABLE;
+
 -- Enable RLS on all tables
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -718,23 +764,11 @@ CREATE POLICY "Users can update own profile" ON users
 
 -- Team members can see their team data
 CREATE POLICY "Team members can view team" ON teams
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM team_members tm
-      JOIN users u ON tm.user_id = u.id
-      WHERE tm.team_id = teams.id AND u.auth_id = auth.uid()
-    )
-  );
+  FOR SELECT USING (public.is_team_member(teams.id));
 
--- Team member policies
+-- Team member policies (using helper function to avoid infinite recursion)
 CREATE POLICY "Users can view team members of their teams" ON team_members
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM team_members my_teams
-      JOIN users u ON my_teams.user_id = u.id
-      WHERE my_teams.team_id = team_members.team_id AND u.auth_id = auth.uid()
-    )
-  );
+  FOR SELECT USING (public.is_team_member(team_members.team_id));
 
 -- Game sessions - users see their own and teammates' sessions
 CREATE POLICY "Users can view own sessions" ON game_sessions
