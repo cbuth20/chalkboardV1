@@ -3,13 +3,38 @@ import { createClient } from '@supabase/supabase-js';
 import { GLOSSARY_CONTEXT } from '../../src/lib/football-glossary';
 
 // Initialize Supabase client with service role key for admin operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const openaiApiKey = process.env.GPT_KEY;
 
-const openaiApiKey = process.env.GPT_KEY!;
+// Validate environment variables
+if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
+  console.error('Missing required environment variables:', {
+    supabaseUrl: !!supabaseUrl,
+    supabaseServiceKey: !!supabaseServiceKey,
+    openaiApiKey: !!openaiApiKey,
+  });
+}
+
+const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
 
 export const handler: Handler = async (event, context) => {
+  // Check for missing environment variables
+  if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: 'Server configuration error',
+        message: 'Missing required environment variables. Please check Netlify environment settings.',
+        details: {
+          supabaseUrl: !!supabaseUrl,
+          supabaseServiceKey: !!supabaseServiceKey,
+          openaiApiKey: !!openaiApiKey,
+        },
+      }),
+    };
+  }
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
