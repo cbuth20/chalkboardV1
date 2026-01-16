@@ -18,26 +18,23 @@ if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
 
 const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
 
-// Generate play content synchronously
+// Background function to process play content with AI
+// The -background suffix gives this 15 minutes instead of 10 seconds
 export const handler: Handler = async (event, context) => {
-  console.log('🔄 Generate play content function started');
+  console.log('🚀 Background processing started - 15 minute timeout');
 
   // Check for missing environment variables
   if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
+    console.error('❌ Missing environment variables');
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: 'Server configuration error',
-        message: 'Missing required environment variables. Please check Netlify environment settings.',
-        details: {
-          supabaseUrl: !!supabaseUrl,
-          supabaseServiceKey: !!supabaseServiceKey,
-          openaiApiKey: !!openaiApiKey,
-        },
       }),
     };
   }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -47,54 +44,55 @@ export const handler: Handler = async (event, context) => {
   }
 
   const startTime = Date.now();
+  let playId: string | null = null;
 
   try {
     const {
-      playbookMetadataId,
+      playId: inputPlayId,
       imageUrl,
       fileName,
-      teamId,
       generateInsights = true,
       generateAssignments = true,
       generateKnowledge = true,
     } = JSON.parse(event.body || '{}');
 
-    console.log('📝 Request parameters:', {
-      playbookMetadataId,
-      imageUrl: imageUrl?.substring(0, 50) + '...',
-      fileName,
-      teamId,
-    });
+    playId = inputPlayId;
+
+    console.log('📝 Processing play:', playId);
 
     // Validation
-    if (!playbookMetadataId || !imageUrl || !teamId) {
+    if (!playId || !imageUrl) {
       return {
         statusCode: 400,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          error: 'Missing required fields: playbookMetadataId, imageUrl, teamId',
+          error: 'Missing required fields: playId, imageUrl',
         }),
       };
     }
 
-    // Fetch playbook metadata for context
-    console.log('📖 Fetching metadata for ID:', playbookMetadataId);
-    const { data: metadata, error: metadataError } = await supabase
-      .from('playbook_metadata')
-      .select('*')
-      .eq('id', playbookMetadataId)
+    // Fetch the existing play with its metadata
+    console.log('📖 Fetching play and metadata...');
+    const { data: play, error: playError } = await supabase
+      .from('plays')
+      .select(`
+        *,
+        playbook_metadata (*)
+      `)
+      .eq('id', playId)
       .single();
 
-    if (metadataError || !metadata) {
-      console.error('❌ Metadata fetch failed:', metadataError);
+    if (playError || !play) {
+      console.error('❌ Play fetch failed:', playError);
       return {
         statusCode: 404,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Playbook metadata not found' }),
+        body: JSON.stringify({ error: 'Play not found' }),
       };
     }
 
-    console.log('✅ Metadata found:', metadata.formation_name);
+    const metadata = (play as any).playbook_metadata;
+    console.log('✅ Play and metadata found:', metadata?.formation_name);
 
     // Fetch image for AI processing
     console.log('🖼️  Fetching image from:', imageUrl);
@@ -149,15 +147,12 @@ export const handler: Handler = async (event, context) => {
       console.log('✅ Generated', knowledgeCards.length, 'knowledge cards');
     }
 
-    // --- Database Insertion Phase ---
-    console.log('💾 Inserting play into database...');
+    // --- Update Play Record ---
+    console.log('💾 Updating play with AI-generated content...');
 
-    // Insert into plays table
-    const { data: play, error: playError } = await supabase
+    const { error: updateError } = await supabase
       .from('plays')
-      .insert({
-        team_id: teamId,
-        playbook_metadata_id: playbookMetadataId,
+      .update({
         name: playAnalysis?.name || metadata.formation_name || 'Untitled Play',
         short_name: playAnalysis?.shortName || playAnalysis?.name?.substring(0, 50) || 'Untitled',
         play_type: playAnalysis?.playType?.toUpperCase() || 'PASS',
@@ -165,25 +160,28 @@ export const handler: Handler = async (event, context) => {
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
         content_status: 'draft', // Mark as draft, ready for review
-        is_published: false,
       })
-      .select()
-      .single();
+      .eq('id', playId);
 
-    if (playError || !play) {
-      console.error('❌ Failed to insert play:', playError);
+    if (updateError) {
+      console.error('❌ Failed to update play:', updateError);
+      // Mark as rejected on error
+      await supabase
+        .from('plays')
+        .update({ content_status: 'rejected' })
+        .eq('id', playId);
+
       return {
         statusCode: 500,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          error: 'Failed to create play record',
-          details: playError?.message,
+          error: 'Failed to update play record',
+          details: updateError.message,
         }),
       };
     }
 
-    const playId = play.id;
-    console.log('✅ Play created with ID:', playId);
+    console.log('✅ Play updated successfully');
 
     // Insert play_assignments
     const assignments: any[] = [];
@@ -258,20 +256,12 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
-    // Mark play as complete
+    // Generation complete
     const duration = Date.now() - startTime;
     console.log(`✅ Content generation completed in ${(duration / 1000).toFixed(2)}s`);
-
-    await supabase
-      .from('plays')
-      .update({
-        content_status: 'draft',
-      })
-      .eq('id', playId);
-
     console.log(`✅ Play ${playId} marked as draft - ready for review`);
 
-    // Return success with playId
+    // Return success (though response will be discarded by Netlify for background functions)
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -283,19 +273,16 @@ export const handler: Handler = async (event, context) => {
       }),
     };
   } catch (error: any) {
-    console.error('Error generating play content:', error);
+    console.error('❌ Error generating play content:', error);
 
     // Try to mark play as rejected if we have playId
-    const body = JSON.parse(event.body || '{}');
-    const errorPlayId = body.playId;
-
-    if (errorPlayId) {
+    if (playId) {
       try {
-        console.log('Marking play as rejected due to error:', errorPlayId);
+        console.log('Marking play as rejected due to error:', playId);
         await supabase
           .from('plays')
           .update({ content_status: 'rejected' })
-          .eq('id', errorPlayId);
+          .eq('id', playId);
       } catch (updateError) {
         console.error('Failed to update play status to rejected:', updateError);
       }

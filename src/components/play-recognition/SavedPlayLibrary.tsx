@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   getPlaybooksApiUrl,
   getPlaybookMetadataApiUrl,
-  getGeneratePlayContentApiUrl,
+  getCreatePlayRecordApiUrl,
+  getProcessPlayContentApiUrl,
   getReviewPlayContentApiUrl,
   getClearPlayContentApiUrl,
+  getCheckPlayStatusApiUrl,
 } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import PlayContentReviewModal from './PlayContentReviewModal';
@@ -212,48 +214,104 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
 
     setIsGenerating(true);
+    let pollIntervalId: NodeJS.Timeout | null = null;
 
     try {
-      const apiUrl = getGeneratePlayContentApiUrl();
-      console.log('📤 Calling API:', apiUrl);
-
-      const requestBody = {
-        playbookMetadataId: metadataId,
-        imageUrl: selectedPlay.url,
-        fileName: selectedPlay.fileName,
-        teamId: teamId || 'default-team-id', // TODO: Get from auth context
-        generateInsights: true,
-        generateAssignments: true,
-        generateKnowledge: true,
-      };
-      console.log('📤 Request body:', requestBody);
-
-      // Generate content - this will complete before returning
-      const response = await fetch(apiUrl, {
+      // Step 1: Create the play record (fast)
+      console.log('📝 Step 1: Creating play record...');
+      const createUrl = getCreatePlayRecordApiUrl();
+      const createResponse = await fetch(createUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          playbookMetadataId: metadataId,
+          fileName: selectedPlay.fileName,
+          teamId: teamId || 'default-team-id',
+        }),
       });
 
-      console.log('📥 Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        throw new Error(`Failed to generate content: ${response.status} - ${errorText.substring(0, 200)}`);
+      if (!createResponse.ok) {
+        const errorText = await createResponse.text();
+        throw new Error(`Failed to create play: ${errorText.substring(0, 200)}`);
       }
 
-      // Parse the complete response
-      const data = await response.json();
-      console.log('✅ Generation complete! Data:', data);
+      const { playId } = await createResponse.json();
+      console.log('✅ Play created with ID:', playId);
 
-      // Show review modal with generated content
-      setGeneratedContent(data);
-      setShowReviewModal(true);
-      setIsGenerating(false);
+      // Step 2: Trigger background processing
+      console.log('🚀 Step 2: Starting background AI generation...');
+      const processUrl = getProcessPlayContentApiUrl();
+      const processResponse = await fetch(processUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId,
+          imageUrl: selectedPlay.url,
+          fileName: selectedPlay.fileName,
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
+        }),
+      });
+
+      // Background function returns 202 immediately
+      console.log('📥 Background function triggered, status:', processResponse.status);
+
+      // Step 3: Start polling for completion
+      console.log('🔄 Step 3: Polling for completion...');
+      let pollCount = 0;
+      const maxPolls = 300; // 15 minutes
+
+      pollIntervalId = setInterval(async () => {
+        pollCount++;
+
+        if (pollCount > maxPolls) {
+          if (pollIntervalId) clearInterval(pollIntervalId);
+          console.error('⏰ Polling timeout');
+          alert('Generation is taking longer than expected. Please refresh and check back.');
+          setIsGenerating(false);
+          return;
+        }
+
+        try {
+          const statusUrl = `${getCheckPlayStatusApiUrl()}?playId=${playId}`;
+          const statusResponse = await fetch(statusUrl);
+
+          if (!statusResponse.ok) {
+            console.error('Status check failed:', statusResponse.status);
+            if (pollCount > 5 && statusResponse.status >= 500) {
+              if (pollIntervalId) clearInterval(pollIntervalId);
+              alert('Server error. Please try again.');
+              setIsGenerating(false);
+            }
+            return;
+          }
+
+          const statusData = await statusResponse.json();
+          console.log(`📊 Poll ${pollCount}: Status = ${statusData.status}`);
+
+          if (statusData.status === 'draft') {
+            // Complete!
+            if (pollIntervalId) clearInterval(pollIntervalId);
+            console.log('✅ Generation complete!');
+            setGeneratedContent(statusData);
+            setShowReviewModal(true);
+            setIsGenerating(false);
+          } else if (statusData.status === 'rejected') {
+            // Failed
+            if (pollIntervalId) clearInterval(pollIntervalId);
+            console.error('❌ Generation failed');
+            alert('Content generation failed. Please try again.');
+            setIsGenerating(false);
+          }
+        } catch (pollError) {
+          console.error('Polling error:', pollError);
+        }
+      }, 3000); // Poll every 3 seconds
 
     } catch (err: any) {
       console.error('❌ Failed to generate content:', err);
+      if (pollIntervalId) clearInterval(pollIntervalId);
       alert(`Failed to generate content: ${err.message}`);
       setIsGenerating(false);
     }
