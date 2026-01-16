@@ -1,7 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { getGeneratePlayContentApiUrl } from '@/lib/api-config';
+import {
+  getCreatePlayRecordApiUrl,
+  getProcessPlayContentApiUrl,
+  getCheckPlayStatusApiUrl
+} from '@/lib/api-config';
 
 interface PlayMetadata {
   id: string;
@@ -66,7 +70,9 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
     setGeneratedContents([]);
 
     try {
-      const apiUrl = getGeneratePlayContentApiUrl();
+      const createUrl = getCreatePlayRecordApiUrl();
+      const processUrl = getProcessPlayContentApiUrl();
+      const statusUrl = getCheckPlayStatusApiUrl();
       const results: GeneratedPlayContent[] = [];
 
       for (let i = 0; i < plays.length; i++) {
@@ -75,33 +81,69 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
         try {
           console.log(`Generating content for play ${i + 1}/${plays.length}: ${play.name}`);
 
-          const response = await fetch(apiUrl, {
+          // Step 1: Create play record
+          const createResponse = await fetch(createUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               playbookMetadataId: play.metadataId,
-              imageUrl: play.url,
               fileName: play.fileName,
               teamId: teamId,
+            }),
+          });
+
+          if (!createResponse.ok) {
+            throw new Error(`Failed to create play record for ${play.name}`);
+          }
+
+          const { playId } = await createResponse.json();
+          console.log(`Play record created with ID: ${playId}`);
+
+          // Step 2: Trigger background processing
+          await fetch(processUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playId,
+              imageUrl: play.url,
+              fileName: play.fileName,
               generateInsights: true,
               generateAssignments: true,
               generateKnowledge: true,
             }),
           });
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Failed to generate content for ${play.name}`);
+          // Step 3: Poll for completion
+          let attempts = 0;
+          const maxAttempts = 300; // 15 minutes
+          let complete = false;
+
+          while (!complete && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+            attempts++;
+
+            const statusResponse = await fetch(`${statusUrl}?playId=${playId}`);
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json();
+
+              if (statusData.status === 'draft') {
+                complete = true;
+                results.push({
+                  playId: statusData.playId,
+                  playMetadataId: play.metadataId || '',
+                  fileName: play.fileName,
+                  playName: play.name,
+                  content: statusData,
+                });
+              } else if (statusData.status === 'rejected') {
+                throw new Error(`Generation failed for ${play.name}`);
+              }
+            }
           }
 
-          const data = await response.json();
-          results.push({
-            playId: data.playId,
-            playMetadataId: play.metadataId || '',
-            fileName: play.fileName,
-            playName: play.name,
-            content: data,
-          });
+          if (!complete) {
+            throw new Error(`Timeout waiting for ${play.name} to complete`);
+          }
 
           // Update progress
           setProgress({ current: i + 1, total: plays.length });
