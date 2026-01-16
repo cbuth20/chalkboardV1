@@ -5,6 +5,8 @@ import { FileUploadScreen } from '../../components/play-recognition/FileUploadSc
 import { ImageViewer } from '../../components/play-recognition/ImageViewer';
 import { PDFViewer } from '../../components/play-recognition/PDFViewer';
 import { SavedPlayLibrary } from '../../components/play-recognition/SavedPlayLibrary';
+import { PlayContentLoadingIndicator } from '../../components/play-recognition/PlayContentLoadingIndicator';
+import { PlayContentGenerationProvider } from '@/contexts/PlayContentGenerationContext';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import PlayerNavbar from '@/components/PlayerNavbar';
@@ -29,6 +31,10 @@ export default function PlayRecognitionPage() {
 
   const handleUploadComplete = async (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => {
     try {
+      // TODO: Get teamId from auth context instead of hardcoding
+      // Using a valid UUID format as placeholder
+      const teamId = '00000000-0000-0000-0000-000000000000'; // Replace with actual teamId from context
+
       const apiUrl = getPlaybooksApiUrl();
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -39,6 +45,7 @@ export default function PlayRecognitionPage() {
           fileName,
           fileData,
           metadata,
+          teamId,
         }),
       });
 
@@ -113,9 +120,12 @@ export default function PlayRecognitionPage() {
   };
 
   return (
-    <div className="h-screen w-full bg-[#0A0F12] text-white overflow-hidden font-[family-name:var(--font-rajdhani)]">
-      {renderView()}
-    </div>
+    <PlayContentGenerationProvider>
+      <div className="h-screen w-full bg-[#0A0F12] text-white overflow-hidden font-[family-name:var(--font-rajdhani)]">
+        {renderView()}
+        <PlayContentLoadingIndicator />
+      </div>
+    </PlayContentGenerationProvider>
   );
 }
 

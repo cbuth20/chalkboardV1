@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { getPlaybooksApiUrl, getPlaybookMetadataApiUrl, getAnalyzePlaysApiUrl } from '@/lib/api-config';
+import {
+  getPlaybooksApiUrl,
+  getPlaybookMetadataApiUrl,
+  getGeneratePlayContentApiUrl,
+  getReviewPlayContentApiUrl,
+  getClearPlayContentApiUrl,
+} from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
+import PlayContentReviewModal from './PlayContentReviewModal';
+import { usePlayContentGeneration } from '@/contexts/PlayContentGenerationContext';
 
 interface Play {
   id: string;
@@ -24,10 +32,19 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState<any>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedPlayIds, setSelectedPlayIds] = useState<Set<string>>(new Set());
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  // TODO: Get from auth context instead of hardcoding
+  const [teamId] = useState<string>('00000000-0000-0000-0000-000000000000');
 
   const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
+
+  // Multi-play generation context
+  const { startGeneration, generatedContents, isComplete } = usePlayContentGeneration();
 
   // Fetch plays from API
   useEffect(() => {
@@ -58,6 +75,13 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
     fetchPlays();
   }, []);
+
+  // Show review modal when multi-play generation is complete
+  useEffect(() => {
+    if (isComplete && generatedContents.length > 0) {
+      setShowReviewModal(true);
+    }
+  }, [isComplete, generatedContents]);
 
   // Update metadata
   const handleUpdateMetadata = async (updates: Partial<PlaybookMetadataInput>) => {
@@ -95,43 +119,254 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
   };
 
-  // Analyze play with GPT
-  const handleAnalyzePlay = async () => {
-    if (!selectedPlay) return;
+  // Toggle multi-select mode
+  const handleToggleMultiSelect = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    if (isMultiSelectMode) {
+      setSelectedPlayIds(new Set());
+    }
+  };
 
-    setIsAnalyzing(true);
+  // Toggle play selection
+  const handleTogglePlaySelection = (playId: string) => {
+    const newSelected = new Set(selectedPlayIds);
+    if (newSelected.has(playId)) {
+      newSelected.delete(playId);
+    } else {
+      newSelected.add(playId);
+    }
+    setSelectedPlayIds(newSelected);
+  };
+
+  // Generate content for multiple plays
+  const handleGenerateMultiplePlays = async () => {
+    if (selectedPlayIds.size === 0) {
+      alert('Please select at least one play');
+      return;
+    }
+
+    const selectedPlays = plays
+      .filter((p) => selectedPlayIds.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        fileName: p.fileName,
+        name: p.name || 'Untitled Play',
+        url: p.url,
+        metadataId: p.metadata?.id,
+        teamId: teamId,
+      }));
+
+    await startGeneration(selectedPlays, teamId);
+  };
+
+  // Generate AI content (insights + assignments + knowledge cards)
+  const handleGenerateContent = async () => {
+    if (!selectedPlay || !selectedPlay.metadata?.id) {
+      alert('Please ensure play metadata is saved before generating content');
+      return;
+    }
+
+    setIsGenerating(true);
     try {
-      const apiUrl = getAnalyzePlaysApiUrl();
+      const apiUrl = getGeneratePlayContentApiUrl();
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileName: selectedPlay.fileName,
+          playbookMetadataId: selectedPlay.metadata.id,
           imageUrl: selectedPlay.url,
-          metadata: selectedPlay.metadata,
+          fileName: selectedPlay.fileName,
+          teamId: teamId || 'default-team-id', // TODO: Get from auth context
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze play');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate content');
       }
 
-      const analysis = await response.json();
-
-      // Navigate to the play with analysis
-      onSelectPlay(selectedPlay.url, selectedPlay.fileName, selectedPlay.type as 'pdf' | 'image');
-    } catch (err) {
-      console.error('Failed to analyze play:', err);
-      alert('Failed to analyze play');
+      const data = await response.json();
+      setGeneratedContent(data);
+      setShowReviewModal(true);
+    } catch (err: any) {
+      console.error('Failed to generate content:', err);
+      alert(`Failed to generate content: ${err.message}`);
     } finally {
-      setIsAnalyzing(false);
+      setIsGenerating(false);
+    }
+  };
+
+  // Handle approve content
+  const handleApprove = async (editedContent: any, notes: string, playId?: string) => {
+    const targetPlayId = playId || generatedContent?.playId;
+    if (!targetPlayId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: targetPlayId,
+          action: 'approve',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          updates: editedContent,
+          reviewNotes: notes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve content');
+      }
+
+      // Only close modal and clear if single-play mode
+      if (!playId) {
+        setShowReviewModal(false);
+        setGeneratedContent(null);
+        alert('Content approved and published successfully!');
+
+        // Refresh play library
+        const fetchUrl = getPlaybooksApiUrl();
+        const fetchResponse = await fetch(fetchUrl);
+        const data = await fetchResponse.json();
+        setPlays(data);
+      }
+    } catch (err) {
+      console.error('Failed to approve content:', err);
+      alert('Failed to approve content');
+    }
+  };
+
+  // Handle reject content
+  const handleReject = async (notes: string, playId?: string) => {
+    const targetPlayId = playId || generatedContent?.playId;
+    if (!targetPlayId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: targetPlayId,
+          action: 'reject',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          reviewNotes: notes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reject content');
+      }
+
+      // Only close modal and clear if single-play mode
+      if (!playId) {
+        setShowReviewModal(false);
+        setGeneratedContent(null);
+        alert('Content rejected');
+      }
+    } catch (err) {
+      console.error('Failed to reject content:', err);
+      alert('Failed to reject content');
+    }
+  };
+
+  // Handle save draft
+  const handleSaveDraft = async (editedContent: any) => {
+    if (!generatedContent?.playId) return;
+
+    try {
+      const apiUrl = getReviewPlayContentApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playId: generatedContent.playId,
+          action: 'update',
+          coachId: 'coach-user-id', // TODO: Get from auth context
+          updates: editedContent,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save draft');
+      }
+
+      setShowReviewModal(false);
+      setGeneratedContent(null);
+      alert('Draft saved successfully');
+    } catch (err) {
+      console.error('Failed to save draft:', err);
+      alert('Failed to save draft');
+    }
+  };
+
+  // Clear generated content (assignments, insights, flashcards) for regeneration
+  const handleClearContent = async () => {
+    if (!selectedPlay?.metadata?.id) {
+      alert('No metadata found for this play');
+      return;
+    }
+
+    console.log('Clearing content for play:', selectedPlay.name);
+    console.log('Metadata ID:', selectedPlay.metadata.id);
+
+    const confirmMessage = `Clear generated content for "${selectedPlay.name}"?\n\nThis will delete:\n• All position assignments\n• AI-generated insights\n• Quiz/flashcard questions\n\nYou can then regenerate fresh content. The play file and metadata will NOT be deleted.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const apiUrl = getClearPlayContentApiUrl();
+      console.log('API URL:', apiUrl);
+      console.log('Sending request with metadataId:', selectedPlay.metadata.id);
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metadataId: selectedPlay.metadata.id,
+        }),
+      });
+
+      const result = await response.json();
+      console.log('Clear content response:', result);
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to clear content');
+      }
+
+      // Show success message with counts
+      if (result.deleted) {
+        const { plays, assignments, flashcards } = result.deleted;
+        const message = `Successfully cleared:\n• ${plays} play record(s)\n• ${assignments} assignment(s)\n• ${flashcards} flashcard(s)\n\n${result.warning || 'You can now regenerate content for this play.'}`;
+        alert(message);
+      } else if (result.warning) {
+        alert(`${result.message}\n\n${result.warning}`);
+      } else {
+        alert('Content cleared successfully. You can now regenerate content.');
+      }
+
+      // Refresh play library to update UI
+      const fetchUrl = getPlaybooksApiUrl();
+      const fetchResponse = await fetch(fetchUrl);
+      const data = await fetchResponse.json();
+      setPlays(data);
+    } catch (err: any) {
+      console.error('Failed to clear content:', err);
+      alert(`Failed to clear content: ${err.message}\n\nCheck console for details.`);
     }
   };
 
   // Delete play
   const handleDeletePlay = async () => {
     if (!selectedPlay) return;
-    if (!confirm('Delete this play? This cannot be undone.')) return;
+
+    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play image/PDF\n• All generated content (insights, assignments, flashcards)\n• Metadata\n\nThis cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
 
     try {
       const apiUrl = getPlaybooksApiUrl();
@@ -145,6 +380,17 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         throw new Error('Failed to delete play');
       }
 
+      const result = await response.json();
+      console.log('Deleted:', result);
+
+      // Show success message with counts
+      if (result.deleted) {
+        const { plays, assignments, flashcards, metadata } = result.deleted;
+        alert(
+          `Successfully deleted:\n• ${plays} play(s)\n• ${assignments} assignment(s)\n• ${flashcards} flashcard(s)\n• ${metadata} metadata record(s)\n• 1 file from storage`
+        );
+      }
+
       setPlays((prev) => {
         const newPlays = prev.filter((p) => p.id !== selectedPlayId);
         if (newPlays.length > 0) {
@@ -156,7 +402,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
     } catch (err) {
       console.error('Failed to delete play:', err);
-      alert('Failed to delete play');
+      alert('Failed to delete play. Check console for details.');
     }
   };
 
@@ -198,13 +444,36 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
           </div>
           <button
             onClick={onNewScan}
-            className="w-full bg-[#00F6E5] text-black font-bold px-4 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-2"
+            className="w-full bg-[#00F6E5] text-black font-bold px-4 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-2 mb-2"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M12 5v14"/><path d="M5 12h14"/>
             </svg>
             NEW SCAN
           </button>
+
+          {/* Multi-select controls */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleToggleMultiSelect}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                isMultiSelectMode
+                  ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
+                  : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]/70'
+              }`}
+            >
+              {isMultiSelectMode ? `Selected (${selectedPlayIds.size})` : 'Multi-Select'}
+            </button>
+            {isMultiSelectMode && (
+              <button
+                onClick={handleGenerateMultiplePlays}
+                disabled={selectedPlayIds.size === 0}
+                className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#00F6E5] text-black hover:bg-[#3DF3FF] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
+              >
+                Generate
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Play List */}
@@ -216,33 +485,50 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
             </div>
           ) : (
             plays.map((play) => (
-              <button
+              <div
                 key={play.id}
-                onClick={() => setSelectedPlayId(play.id)}
-                className={`group mb-1 w-full rounded-lg px-3 py-2.5 text-left transition-all ${
+                className={`group mb-1 w-full rounded-lg px-3 py-2.5 transition-all ${
                   play.id === selectedPlayId
                     ? "bg-[#00F6E5]/10 ring-1 ring-[#00F6E5]/30"
                     : "hover:bg-[#1B1E20]/50"
                 }`}
               >
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={`truncate text-sm font-semibold ${
-                        play.id === selectedPlayId ? "text-[#00F6E5]" : "text-white"
-                      }`}
-                    >
-                      {play.name || "Untitled Play"}
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-slate-500">
-                      {play.metadata?.formation_name || "Unknown"} • {formatDate(play.uploadedAt)}
-                    </p>
-                  </div>
-                  {play.id === selectedPlayId && (
-                    <div className="ml-2 mt-1 h-2 w-2 shrink-0 rounded-full bg-[#00F6E5]" />
+                <div className="flex items-start gap-2">
+                  {isMultiSelectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedPlayIds.has(play.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleTogglePlaySelection(play.id);
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-gray-600 bg-[#1B1E20] text-[#00F6E5] focus:ring-[#00F6E5] focus:ring-offset-0"
+                    />
                   )}
+                  <button
+                    onClick={() => setSelectedPlayId(play.id)}
+                    className="flex-1 text-left"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`truncate text-sm font-semibold ${
+                            play.id === selectedPlayId ? "text-[#00F6E5]" : "text-white"
+                          }`}
+                        >
+                          {play.name || "Untitled Play"}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {play.metadata?.formation_name || "Unknown"} • {formatDate(play.uploadedAt)}
+                        </p>
+                      </div>
+                      {!isMultiSelectMode && play.id === selectedPlayId && (
+                        <div className="ml-2 mt-1 h-2 w-2 shrink-0 rounded-full bg-[#00F6E5]" />
+                      )}
+                    </div>
+                  </button>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>
@@ -268,23 +554,33 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={handleAnalyzePlay}
-                  disabled={isAnalyzing}
+                  onClick={handleGenerateContent}
+                  disabled={isGenerating}
                   className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
                 >
-                  {isAnalyzing ? (
+                  {isGenerating ? (
                     <>
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
-                      Analyzing...
+                      Generating...
                     </>
                   ) : (
                     <>
                       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                       </svg>
-                      Analyze Play
+                      Generate AI Content
                     </>
                   )}
+                </button>
+                <button
+                  onClick={handleClearContent}
+                  className="flex items-center gap-1.5 rounded-lg bg-orange-900/20 px-3 py-2 text-xs font-semibold text-orange-400 transition-colors hover:bg-orange-900/30"
+                  title="Clear generated content to regenerate"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Clear Content
                 </button>
                 <button
                   onClick={handleDeletePlay}
@@ -452,25 +748,45 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                 </div>
               </div>
 
-              {/* Custom Notes */}
+              {/* Additional Information / Custom Notes */}
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Custom Notes
+                  Additional Information
+                  <span className="ml-2 text-xs text-slate-500 font-normal normal-case">(Helps AI generate better content)</span>
                 </label>
                 <textarea
                   value={selectedPlay.metadata?.custom_notes || ""}
                   onChange={(e) =>
                     handleUpdateMetadata({ custom_notes: e.target.value })
                   }
-                  rows={4}
+                  rows={6}
                   className="w-full resize-none rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
-                  placeholder="Add any coaching notes, reads, or adjustments..."
+                  placeholder="Add detailed context: QB progressions, protection schemes, route details, blocking assignments, reads, adjustments, etc. This information helps the AI generate more accurate and detailed content."
                 />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Providing detailed information here will help the AI generate more accurate assignments, insights, and quiz questions when you click "Generate AI Content".
+                </p>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Review Modal */}
+      {showReviewModal && (generatedContent || generatedContents.length > 0) && (
+        <PlayContentReviewModal
+          content={generatedContent}
+          playName={selectedPlay?.name || 'Untitled Play'}
+          multipleContents={generatedContents.length > 0 ? generatedContents : undefined}
+          onClose={() => {
+            setShowReviewModal(false);
+            setGeneratedContent(null);
+          }}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onSaveDraft={handleSaveDraft}
+        />
+      )}
     </div>
   );
 };

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase client
+// Initialize Supabase client with service role for server-side operations
+// Service role bypasses RLS which is appropriate for server-side API routes
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // GET - Fetch all playbook metadata
 export async function GET() {
@@ -74,9 +75,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!metadata.team_id) {
+      return NextResponse.json(
+        { error: 'team_id is required' },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabase
       .from('playbook_metadata')
       .insert({
+        team_id: metadata.team_id,
         file_paths: metadata.file_paths,
         side_of_ball: metadata.side_of_ball,
         content_type: metadata.content_type,

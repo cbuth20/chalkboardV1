@@ -59,3 +59,63 @@ export function getGenerateInsightsApiUrl(): string {
   // Use Netlify functions for production
   return '/.netlify/functions/generate-insights';
 }
+
+export function getGeneratePlayContentApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/generate-play-content';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/generate-play-content';
+}
+
+export function getReviewPlayContentApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/review-play-content';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/review-play-content';
+}
+
+export function getApprovedPlaysApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/get-approved-plays';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/get-approved-plays';
+}
+
+export function getClearPlayContentApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/playbooks/clear-content';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/playbooks-clear-content';
+}

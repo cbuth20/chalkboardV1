@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 
-// Initialize Supabase client
+// Initialize Supabase client with service role for server-side operations
+// Service role bypasses RLS which is appropriate for server-side API routes
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const BUCKET_NAME = 'Chalkboard Bucket';
 const FOLDER_PATH = 'public'; // Store files in public folder within bucket
@@ -99,10 +100,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, fileData, metadata } = body as {
+    const { fileName, fileData, metadata, teamId } = body as {
       fileName: string;
       fileData: string;
       metadata?: PlaybookMetadataInput;
+      teamId?: string;
     };
 
     if (!fileName || !fileData) {
@@ -151,10 +153,30 @@ export async function POST(request: NextRequest) {
       .from(BUCKET_NAME)
       .getPublicUrl(filePath);
 
+    // Ensure team exists (create default team if using placeholder UUID)
+    if (teamId === '00000000-0000-0000-0000-000000000000') {
+      const { data: existingTeam } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('id', teamId)
+        .single();
+
+      if (!existingTeam) {
+        // Create default team
+        await supabase.from('teams').insert({
+          id: teamId,
+          name: 'Default Team',
+          slug: 'default-team',
+          season: '2024',
+        });
+      }
+    }
+
     // Save metadata if provided
     let savedMetadata = null;
-    if (metadata) {
+    if (metadata && teamId) {
       const metadataToSave = {
+        team_id: teamId,
         file_paths: metadata.file_paths || [filePath],
         side_of_ball: metadata.side_of_ball,
         content_type: metadata.content_type,
@@ -173,10 +195,18 @@ export async function POST(request: NextRequest) {
 
       if (metadataError) {
         console.error('Failed to save metadata:', metadataError);
+        console.error('Metadata error details:', {
+          code: metadataError.code,
+          message: metadataError.message,
+          details: metadataError.details,
+          hint: metadataError.hint,
+        });
         // Continue without failing the upload
       } else {
         savedMetadata = metadataData;
       }
+    } else if (metadata && !teamId) {
+      console.warn('Metadata provided but teamId missing - skipping metadata save');
     }
 
     const newPlay = {
@@ -204,7 +234,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Remove a playbook from Supabase Storage
+// DELETE - Remove a playbook from Supabase Storage and database
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
@@ -218,24 +248,107 @@ export async function DELETE(request: NextRequest) {
     }
 
     const filePath = `${FOLDER_PATH}/${fileName}`;
-    const { error } = await supabase.storage
+    let deletedCounts = {
+      plays: 0,
+      assignments: 0,
+      flashcards: 0,
+      metadata: 0,
+    };
+
+    // Find playbook_metadata by file_path
+    const { data: metadata, error: metadataFetchError } = await supabase
+      .from('playbook_metadata')
+      .select('id')
+      .contains('file_paths', [filePath])
+      .maybeSingle();
+
+    if (metadataFetchError) {
+      console.error('Error fetching metadata:', metadataFetchError);
+    }
+
+    if (metadata) {
+      // Find all plays linked to this metadata
+      const { data: plays, error: playsFetchError } = await supabase
+        .from('plays')
+        .select('id')
+        .eq('playbook_metadata_id', metadata.id);
+
+      if (playsFetchError) {
+        console.error('Error fetching plays:', playsFetchError);
+      }
+
+      if (plays && plays.length > 0) {
+        const playIds = plays.map(p => p.id);
+
+        // Delete play_assignments (will cascade from play deletion, but doing explicitly)
+        const { count: assignmentsCount } = await supabase
+          .from('play_assignments')
+          .delete()
+          .in('play_id', playIds)
+          .select('id', { count: 'exact', head: true });
+
+        deletedCounts.assignments = assignmentsCount || 0;
+
+        // Delete flashcard_templates
+        const { count: flashcardsCount } = await supabase
+          .from('flashcard_templates')
+          .delete()
+          .in('play_id', playIds)
+          .select('id', { count: 'exact', head: true });
+
+        deletedCounts.flashcards = flashcardsCount || 0;
+
+        // Delete plays
+        const { count: playsCount, error: playsDeleteError } = await supabase
+          .from('plays')
+          .delete()
+          .in('id', playIds)
+          .select('id', { count: 'exact', head: true });
+
+        if (playsDeleteError) {
+          console.error('Error deleting plays:', playsDeleteError);
+        } else {
+          deletedCounts.plays = playsCount || 0;
+        }
+      }
+
+      // Delete playbook_metadata
+      const { count: metadataCount, error: metadataDeleteError } = await supabase
+        .from('playbook_metadata')
+        .delete()
+        .eq('id', metadata.id)
+        .select('id', { count: 'exact', head: true });
+
+      if (metadataDeleteError) {
+        console.error('Error deleting metadata:', metadataDeleteError);
+      } else {
+        deletedCounts.metadata = metadataCount || 0;
+      }
+    }
+
+    // Delete from storage
+    const { error: storageError } = await supabase.storage
       .from(BUCKET_NAME)
       .remove([filePath]);
 
-    if (error) {
-      console.error('Supabase delete error:', error);
+    if (storageError) {
+      console.error('Supabase storage delete error:', storageError);
       return NextResponse.json(
         {
           error: 'Failed to delete from storage',
-          message: error.message,
+          message: storageError.message,
+          partialSuccess: deletedCounts,
         },
         { status: 500 }
       );
     }
 
+    console.log('Deleted:', deletedCounts);
+
     return NextResponse.json({
       success: true,
-      message: 'File deleted successfully'
+      message: 'Play and all related data deleted successfully',
+      deleted: deletedCounts,
     });
   } catch (error: any) {
     console.error('Error deleting playbook:', error);
