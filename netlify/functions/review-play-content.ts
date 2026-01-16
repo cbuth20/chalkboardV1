@@ -94,16 +94,25 @@ export const handler: Handler = async (event, context) => {
         await applyUpdates(playId, updates);
       }
 
+      // Check if coachId is a valid UUID
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(coachId);
+
       // Update play status to approved
+      const updateData: any = {
+        content_status: 'approved',
+        reviewed_at: new Date().toISOString(),
+        review_notes: reviewNotes || null,
+        is_published: true,
+      };
+
+      // Only set reviewed_by if coachId is a valid UUID
+      if (isValidUUID) {
+        updateData.reviewed_by = coachId;
+      }
+
       const { error: updateError } = await supabase
         .from('plays')
-        .update({
-          content_status: 'approved',
-          reviewed_by: coachId,
-          reviewed_at: new Date().toISOString(),
-          review_notes: reviewNotes || null,
-          is_published: true,
-        })
+        .update(updateData)
         .eq('id', playId);
 
       if (updateError) {
@@ -116,16 +125,25 @@ export const handler: Handler = async (event, context) => {
     } else if (action === 'reject') {
       console.log('🔴 Rejecting play:', playId);
 
+      // Check if coachId is a valid UUID
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(coachId);
+
       // Update play status to rejected
+      const updateData: any = {
+        content_status: 'rejected',
+        reviewed_at: new Date().toISOString(),
+        review_notes: reviewNotes || null,
+        is_published: false,
+      };
+
+      // Only set reviewed_by if coachId is a valid UUID
+      if (isValidUUID) {
+        updateData.reviewed_by = coachId;
+      }
+
       const { error: updateError } = await supabase
         .from('plays')
-        .update({
-          content_status: 'rejected',
-          reviewed_by: coachId,
-          reviewed_at: new Date().toISOString(),
-          review_notes: reviewNotes || null,
-          is_published: false,
-        })
+        .update(updateData)
         .eq('id', playId);
 
       if (updateError) {

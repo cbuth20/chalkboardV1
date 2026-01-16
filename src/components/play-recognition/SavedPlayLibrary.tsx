@@ -42,6 +42,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   // TODO: Get from auth context instead of hardcoding
   const [teamId] = useState<string>('00000000-0000-0000-0000-000000000000');
+  const [pendingMetadata, setPendingMetadata] = useState<Partial<PlaybookMetadataInput>>({});
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
 
@@ -85,7 +87,67 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
   }, [isComplete, generatedContents]);
 
-  // Update metadata
+  // Reset pending changes when selected play changes
+  useEffect(() => {
+    setPendingMetadata({});
+    setHasUnsavedChanges(false);
+  }, [selectedPlayId]);
+
+  // Track metadata changes locally (don't save immediately)
+  const handleMetadataChange = (updates: Partial<PlaybookMetadataInput>) => {
+    setPendingMetadata(prev => ({ ...prev, ...updates }));
+    setHasUnsavedChanges(true);
+  };
+
+  // Get current value for a field (pending or saved)
+  const getCurrentMetadataValue = (field: keyof PlaybookMetadataInput) => {
+    if (field in pendingMetadata) {
+      return pendingMetadata[field];
+    }
+    return selectedPlay?.metadata?.[field];
+  };
+
+  // Save metadata changes
+  const handleSaveMetadata = async () => {
+    if (!selectedPlay?.metadata?.id) return;
+
+    try {
+      const apiUrl = getPlaybookMetadataApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedPlay.metadata.id,
+          ...pendingMetadata,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update metadata');
+      }
+
+      // Update local state
+      setPlays((prev) =>
+        prev.map((p) =>
+          p.id === selectedPlayId && p.metadata
+            ? { ...p, metadata: { ...p.metadata, ...pendingMetadata } }
+            : p
+        )
+      );
+
+      // Reset pending changes
+      setPendingMetadata({});
+      setHasUnsavedChanges(false);
+
+      setUpdateSuccess(true);
+      setTimeout(() => setUpdateSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+      alert('Failed to update metadata');
+    }
+  };
+
+  // Update metadata (used by other functions that need direct updates)
   const handleUpdateMetadata = async (updates: Partial<PlaybookMetadataInput>) => {
     if (!selectedPlay?.metadata?.id) return;
 
@@ -371,7 +433,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       const requestBody = {
         playId: targetPlayId,
         action: 'approve',
-        coachId: 'coach-user-id', // TODO: Get from auth context
+        coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
         updates: editedContent,
         reviewNotes: notes,
       };
@@ -429,7 +491,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       const requestBody = {
         playId: targetPlayId,
         action: 'reject',
-        coachId: 'coach-user-id', // TODO: Get from auth context
+        coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
         reviewNotes: notes,
       };
       console.log('📤 Request body:', requestBody);
@@ -475,7 +537,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         body: JSON.stringify({
           playId: generatedContent.playId,
           action: 'update',
-          coachId: 'coach-user-id', // TODO: Get from auth context
+          coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
           updates: editedContent,
         }),
       });
@@ -821,9 +883,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   </label>
                   <input
                     type="text"
-                    value={selectedPlay.metadata?.formation_name || ""}
+                    value={(getCurrentMetadataValue('formation_name') as string) || ""}
                     onChange={(e) =>
-                      handleUpdateMetadata({ formation_name: e.target.value })
+                      handleMetadataChange({ formation_name: e.target.value })
                     }
                     className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
                     placeholder="Formation name..."
@@ -835,9 +897,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   </label>
                   <input
                     type="text"
-                    value={selectedPlay.metadata?.concept_name || ""}
+                    value={(getCurrentMetadataValue('concept_name') as string) || ""}
                     onChange={(e) =>
-                      handleUpdateMetadata({ concept_name: e.target.value })
+                      handleMetadataChange({ concept_name: e.target.value })
                     }
                     className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
                     placeholder="Concept name..."
@@ -852,9 +914,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                     Side of Ball
                   </label>
                   <select
-                    value={selectedPlay.metadata?.side_of_ball || ""}
+                    value={(getCurrentMetadataValue('side_of_ball') as string) || ""}
                     onChange={(e) =>
-                      handleUpdateMetadata({ side_of_ball: e.target.value as any })
+                      handleMetadataChange({ side_of_ball: e.target.value as any })
                     }
                     className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
                   >
@@ -869,9 +931,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                     Content Type
                   </label>
                   <select
-                    value={selectedPlay.metadata?.content_type || ""}
+                    value={(getCurrentMetadataValue('content_type') as string) || ""}
                     onChange={(e) =>
-                      handleUpdateMetadata({ content_type: e.target.value as any })
+                      handleMetadataChange({ content_type: e.target.value as any })
                     }
                     className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
                   >
@@ -891,9 +953,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   Level
                 </label>
                 <select
-                  value={selectedPlay.metadata?.level || ""}
+                  value={(getCurrentMetadataValue('level') as string) || ""}
                   onChange={(e) =>
-                    handleUpdateMetadata({ level: e.target.value as any })
+                    handleMetadataChange({ level: e.target.value as any })
                   }
                   className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
                 >
@@ -911,16 +973,16 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {["all", "qb", "rb", "wr", "te", "ol", "dl", "lb", "db", "k"].map((pos) => {
-                    const isSelected = selectedPlay.metadata?.position_relevance?.includes(pos as any);
+                    const currentPositions = (getCurrentMetadataValue('position_relevance') as string[]) || ["all"];
+                    const isSelected = currentPositions.includes(pos as any);
                     return (
                       <button
                         key={pos}
                         onClick={() => {
-                          const current = selectedPlay.metadata?.position_relevance || ["all"];
                           const updated = isSelected
-                            ? current.filter((p) => p !== pos)
-                            : [...current.filter((p) => p !== "all"), pos];
-                          handleUpdateMetadata({
+                            ? currentPositions.filter((p) => p !== pos)
+                            : [...currentPositions.filter((p) => p !== "all"), pos];
+                          handleMetadataChange({
                             position_relevance: updated.length === 0 ? ["all"] : updated,
                           });
                         }}
@@ -944,9 +1006,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   <span className="ml-2 text-xs text-slate-500 font-normal normal-case">(Helps AI generate better content)</span>
                 </label>
                 <textarea
-                  value={selectedPlay.metadata?.custom_notes || ""}
+                  value={(getCurrentMetadataValue('custom_notes') as string) || ""}
                   onChange={(e) =>
-                    handleUpdateMetadata({ custom_notes: e.target.value })
+                    handleMetadataChange({ custom_notes: e.target.value })
                   }
                   rows={6}
                   className="w-full resize-none rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
@@ -956,6 +1018,24 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   Providing detailed information here will help the AI generate more accurate assignments, insights, and quiz questions when you click "Generate AI Content".
                 </p>
               </div>
+
+              {/* Save Button - Only shown when there are unsaved changes */}
+              {hasUnsavedChanges && (
+                <div className="flex items-center gap-3 pt-4 border-t border-[#1B1E20]">
+                  <button
+                    onClick={handleSaveMetadata}
+                    className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-6 py-2.5 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Save Changes
+                  </button>
+                  <span className="text-xs text-slate-400">
+                    You have unsaved changes
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
