@@ -233,6 +233,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       console.log('📤 Request body:', requestBody);
 
       // Start the generation - this might take a while in production
+      console.log('📤 Calling API:', apiUrl);
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -240,11 +242,19 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
 
       console.log('📥 Response status:', response.status);
+      console.log('📥 Response statusText:', response.statusText);
       console.log('📥 Response content-type:', response.headers.get('content-type'));
+      console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
 
       // Get response text first for debugging
       const responseText = await response.text();
-      console.log('📥 Response text (first 500 chars):', responseText.substring(0, 500));
+      console.log('📥 Response text length:', responseText.length);
+      console.log('📥 Response text (full):', responseText);
+
+      // Check if response is empty
+      if (!responseText || responseText.trim() === '') {
+        throw new Error(`Empty response from server (status ${response.status}). Check Netlify function logs for errors.`);
+      }
 
       if (!response.ok) {
         console.error('❌ Error response:', responseText);
@@ -262,6 +272,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       }
 
       playId = data.playId;
+      console.log('✅ Parsed data:', data);
       console.log('✅ Generation complete or started, playId:', playId);
 
       // Check if already complete (local dev) or needs polling (production)
