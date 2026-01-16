@@ -71,8 +71,9 @@ export function getGeneratePlayContentApiUrl(): string {
     }
   }
 
-  // Use Netlify background function for production (15 minute timeout)
-  return '/.netlify/functions/generate-play-content-background';
+  // Use Netlify starter function for production
+  // This creates the play and triggers background processing
+  return '/.netlify/functions/start-play-generation';
 }
 
 export function getCheckPlayStatusApiUrl(): string {
