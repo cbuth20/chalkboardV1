@@ -75,6 +75,21 @@ export function getGeneratePlayContentApiUrl(): string {
   return '/.netlify/functions/generate-play-content-background';
 }
 
+export function getCheckPlayStatusApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/check-play-status';
+    }
+  }
+
+  // Use Netlify function for production
+  return '/.netlify/functions/check-play-status';
+}
+
 export function getReviewPlayContentApiUrl(): string {
   // Check if we're running on localhost
   if (typeof window !== 'undefined') {

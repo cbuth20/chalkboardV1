@@ -104,7 +104,41 @@ export const handler: Handler = async (event, context) => {
     // Build metadata context for AI
     const metadataContext = buildMetadataContext(metadata);
 
-    // --- AI Generation Phase ---
+    // --- Create placeholder play record immediately ---
+    console.log('Creating play record with generating status...');
+    const { data: play, error: playError } = await supabase
+      .from('plays')
+      .insert({
+        team_id: teamId,
+        playbook_metadata_id: playbookMetadataId,
+        name: metadata.formation_name || fileName || 'Untitled Play',
+        short_name: metadata.formation_name?.substring(0, 50) || 'Untitled',
+        play_type: 'PASS', // Default, will update
+        concept: metadata.concept_name,
+        formation_name: metadata.formation_name,
+        ai_insights: null,
+        content_status: 'generating', // Mark as generating
+        is_published: false,
+      })
+      .select()
+      .single();
+
+    if (playError || !play) {
+      console.error('Failed to insert play:', playError);
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          error: 'Failed to create play record',
+          details: playError?.message,
+        }),
+      };
+    }
+
+    const playId = play.id;
+    console.log('Created play with ID:', playId, '- Starting AI generation');
+
+    // --- AI Generation Phase (runs synchronously with 15 min timeout) ---
     let playAnalysis: any = null;
     let insights: string | null = null;
     let knowledgeCards: any[] = [];
@@ -127,40 +161,19 @@ export const handler: Handler = async (event, context) => {
       knowledgeCards = await generateKnowledgeCards(playAnalysis, metadata);
     }
 
-    // --- Database Insertion Phase ---
-
-    // Insert into plays table
-    const { data: play, error: playError } = await supabase
+    // --- Update play with AI results ---
+    console.log('Updating play with AI-generated content...');
+    await supabase
       .from('plays')
-      .insert({
-        team_id: teamId,
-        playbook_metadata_id: playbookMetadataId,
+      .update({
         name: playAnalysis?.name || metadata.formation_name || 'Untitled Play',
         short_name: playAnalysis?.shortName || playAnalysis?.name?.substring(0, 50) || 'Untitled',
         play_type: playAnalysis?.playType?.toUpperCase() || 'PASS',
         concept: playAnalysis?.concept || metadata.concept_name,
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
-        content_status: 'draft',
-        is_published: false,
       })
-      .select()
-      .single();
-
-    if (playError || !play) {
-      console.error('Failed to insert play:', playError);
-      return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Failed to create play record',
-          details: playError?.message,
-        }),
-      };
-    }
-
-    const playId = play.id;
-    console.log('Created play:', playId);
+      .eq('id', playId);
 
     // Insert play_assignments
     const assignments: any[] = [];
@@ -235,25 +248,45 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
-    // Return generated content
+    // Mark play as complete
     const duration = Date.now() - startTime;
     console.log(`✅ Content generation completed in ${(duration / 1000).toFixed(2)}s`);
 
+    await supabase
+      .from('plays')
+      .update({
+        content_status: 'draft',
+      })
+      .eq('id', playId);
+
+    console.log(`✅ Play ${playId} marked as draft - ready for review`);
+
+    // Return success with playId
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        success: true,
         playId,
-        insights,
-        assignments,
-        knowledgeCards: flashcards,
-        playAnalysis,
-        status: 'draft',
+        message: 'Content generation completed',
         generationTimeMs: duration,
       }),
     };
   } catch (error: any) {
     console.error('Error generating play content:', error);
+
+    // Try to mark play as error if we have playId
+    if (error.playId) {
+      try {
+        await supabase
+          .from('plays')
+          .update({ content_status: 'error' })
+          .eq('id', error.playId);
+      } catch (updateError) {
+        console.error('Failed to update play status to error:', updateError);
+      }
+    }
+
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
