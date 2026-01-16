@@ -68,6 +68,9 @@ export async function POST(request: NextRequest) {
   try {
     const metadata = await request.json();
 
+    console.log('POST /api/playbook-metadata - Received metadata:', metadata);
+    console.log('Using service role key:', supabaseServiceKey ? 'YES (key present)' : 'NO (key missing!)');
+
     if (!metadata.file_paths || metadata.file_paths.length === 0) {
       return NextResponse.json(
         { error: 'file_paths is required' },
@@ -82,33 +85,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const insertData = {
+      team_id: metadata.team_id,
+      file_paths: metadata.file_paths,
+      side_of_ball: metadata.side_of_ball,
+      content_type: metadata.content_type,
+      position_relevance: metadata.position_relevance || ['all'],
+      level: metadata.level,
+      formation_name: metadata.formation_name,
+      concept_name: metadata.concept_name,
+      custom_notes: metadata.custom_notes,
+    };
+
+    console.log('Inserting metadata with data:', insertData);
+
     const { data, error } = await supabase
       .from('playbook_metadata')
-      .insert({
-        team_id: metadata.team_id,
-        file_paths: metadata.file_paths,
-        side_of_ball: metadata.side_of_ball,
-        content_type: metadata.content_type,
-        position_relevance: metadata.position_relevance || ['all'],
-        level: metadata.level,
-        formation_name: metadata.formation_name,
-        concept_name: metadata.concept_name,
-        custom_notes: metadata.custom_notes,
-      })
+      .insert(insertData)
       .select()
       .single();
 
     if (error) {
       console.error('Supabase insert error:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       return NextResponse.json(
         {
           error: 'Failed to create metadata',
           message: error.message,
+          details: error.details,
+          hint: error.hint,
         },
         { status: 500 }
       );
     }
 
+    console.log('Successfully created metadata:', data);
     return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
     console.error('Error creating metadata:', error);

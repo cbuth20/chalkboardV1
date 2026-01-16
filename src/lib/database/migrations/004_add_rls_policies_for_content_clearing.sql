@@ -89,6 +89,35 @@ CREATE POLICY "Allow public delete from plays"
   USING (true);
 
 -- ============================================================================
+-- RLS Policies for playbook_metadata
+-- ============================================================================
+
+-- Allow anyone to select playbook_metadata
+CREATE POLICY "Allow public read access to playbook_metadata"
+  ON playbook_metadata
+  FOR SELECT
+  USING (true);
+
+-- Allow anyone to insert playbook_metadata
+CREATE POLICY "Allow public insert to playbook_metadata"
+  ON playbook_metadata
+  FOR INSERT
+  WITH CHECK (true);
+
+-- Allow anyone to update playbook_metadata
+CREATE POLICY "Allow public update to playbook_metadata"
+  ON playbook_metadata
+  FOR UPDATE
+  USING (true)
+  WITH CHECK (true);
+
+-- Allow anyone to delete playbook_metadata (though we typically don't delete this)
+CREATE POLICY "Allow public delete from playbook_metadata"
+  ON playbook_metadata
+  FOR DELETE
+  USING (true);
+
+-- ============================================================================
 -- NOTE: These are permissive policies for development/demo purposes
 -- In production, you should restrict these to:
 -- - Team members only (using team_id)

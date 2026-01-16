@@ -1,10 +1,10 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase client
+// Initialize Supabase client with service role key to bypass RLS
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export const handler: Handler = async (event, context) => {
   const { httpMethod } = event;
@@ -76,6 +76,9 @@ export const handler: Handler = async (event, context) => {
     try {
       const metadata = JSON.parse(event.body || '{}');
 
+      console.log('POST playbook-metadata - Received metadata:', metadata);
+      console.log('Using service role key:', supabaseServiceKey ? 'YES (key present)' : 'NO (key missing!)');
+
       if (!metadata.file_paths || metadata.file_paths.length === 0) {
         return {
           statusCode: 400,
@@ -84,18 +87,31 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
+      if (!metadata.team_id) {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'team_id is required' }),
+        };
+      }
+
+      const insertData = {
+        team_id: metadata.team_id,
+        file_paths: metadata.file_paths,
+        side_of_ball: metadata.side_of_ball,
+        content_type: metadata.content_type,
+        position_relevance: metadata.position_relevance || ['all'],
+        level: metadata.level,
+        formation_name: metadata.formation_name,
+        concept_name: metadata.concept_name,
+        custom_notes: metadata.custom_notes,
+      };
+
+      console.log('Inserting metadata with data:', insertData);
+
       const { data, error } = await supabase
         .from('playbook_metadata')
-        .insert({
-          file_paths: metadata.file_paths,
-          side_of_ball: metadata.side_of_ball,
-          content_type: metadata.content_type,
-          position_relevance: metadata.position_relevance || ['all'],
-          level: metadata.level,
-          formation_name: metadata.formation_name,
-          concept_name: metadata.concept_name,
-          custom_notes: metadata.custom_notes,
-        })
+        .insert(insertData)
         .select()
         .single();
 
