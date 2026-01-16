@@ -1,11 +1,34 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Validate environment variables
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('Missing required environment variables:', {
+    supabaseUrl: !!supabaseUrl,
+    supabaseServiceKey: !!supabaseServiceKey,
+  });
+}
+
+const supabase = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
 
 export const handler: Handler = async (event, context) => {
+  // Check for missing environment variables
+  if (!supabase) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: 'Server configuration error',
+        message: 'Missing required environment variables',
+      }),
+    };
+  }
+
   if (event.httpMethod !== 'GET') {
     return {
       statusCode: 405,
@@ -15,6 +38,7 @@ export const handler: Handler = async (event, context) => {
   }
 
   try {
+    console.log('Checking play status for playId:', event.queryStringParameters?.playId);
     const playId = event.queryStringParameters?.playId;
 
     if (!playId) {

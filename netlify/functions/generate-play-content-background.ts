@@ -51,6 +51,7 @@ export const handler: Handler = async (event, context) => {
 
   try {
     const {
+      playId: existingPlayId,
       playbookMetadataId,
       imageUrl,
       fileName,
@@ -60,30 +61,94 @@ export const handler: Handler = async (event, context) => {
       generateKnowledge = true,
     } = JSON.parse(event.body || '{}');
 
-    // Validation
-    if (!playbookMetadataId || !imageUrl || !teamId) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Missing required fields: playbookMetadataId, imageUrl, teamId',
-        }),
-      };
-    }
+    let playId = existingPlayId;
+    let metadata: any;
 
-    // Fetch playbook metadata for context
-    const { data: metadata, error: metadataError } = await supabase
-      .from('playbook_metadata')
-      .select('*')
-      .eq('id', playbookMetadataId)
-      .single();
+    // If playId is provided, fetch the existing play
+    if (playId) {
+      console.log('Processing existing play:', playId);
 
-    if (metadataError || !metadata) {
-      return {
-        statusCode: 404,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Playbook metadata not found' }),
-      };
+      const { data: existingPlay, error: playError } = await supabase
+        .from('plays')
+        .select('*, playbook_metadata(*)')
+        .eq('id', playId)
+        .single();
+
+      if (playError || !existingPlay) {
+        console.error('Failed to fetch play:', playError);
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Play not found' }),
+        };
+      }
+
+      metadata = existingPlay.playbook_metadata;
+      console.log('Found existing play with metadata:', metadata?.formation_name);
+    } else {
+      // Legacy path: create new play (for local dev)
+      console.log('Creating new play (legacy path)');
+
+      // Validation
+      if (!playbookMetadataId || !imageUrl || !teamId) {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            error: 'Missing required fields: playbookMetadataId, imageUrl, teamId',
+          }),
+        };
+      }
+
+      // Fetch playbook metadata for context
+      const { data: fetchedMetadata, error: metadataError } = await supabase
+        .from('playbook_metadata')
+        .select('*')
+        .eq('id', playbookMetadataId)
+        .single();
+
+      if (metadataError || !fetchedMetadata) {
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Playbook metadata not found' }),
+        };
+      }
+
+      metadata = fetchedMetadata;
+
+      // Create play record
+      const { data: play, error: playError } = await supabase
+        .from('plays')
+        .insert({
+          team_id: teamId,
+          playbook_metadata_id: playbookMetadataId,
+          name: metadata.formation_name || fileName || 'Untitled Play',
+          short_name: metadata.formation_name?.substring(0, 50) || 'Untitled',
+          play_type: 'PASS',
+          concept: metadata.concept_name,
+          formation_name: metadata.formation_name,
+          ai_insights: null,
+          content_status: 'generating',
+          is_published: false,
+        })
+        .select()
+        .single();
+
+      if (playError || !play) {
+        console.error('Failed to insert play:', playError);
+        return {
+          statusCode: 500,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            error: 'Failed to create play record',
+            details: playError?.message,
+          }),
+        };
+      }
+
+      playId = play.id;
+      console.log('Created play with ID:', playId);
     }
 
     // Fetch image for AI processing
@@ -104,39 +169,7 @@ export const handler: Handler = async (event, context) => {
     // Build metadata context for AI
     const metadataContext = buildMetadataContext(metadata);
 
-    // --- Create placeholder play record immediately ---
-    console.log('Creating play record with generating status...');
-    const { data: play, error: playError } = await supabase
-      .from('plays')
-      .insert({
-        team_id: teamId,
-        playbook_metadata_id: playbookMetadataId,
-        name: metadata.formation_name || fileName || 'Untitled Play',
-        short_name: metadata.formation_name?.substring(0, 50) || 'Untitled',
-        play_type: 'PASS', // Default, will update
-        concept: metadata.concept_name,
-        formation_name: metadata.formation_name,
-        ai_insights: null,
-        content_status: 'generating', // Mark as generating
-        is_published: false,
-      })
-      .select()
-      .single();
-
-    if (playError || !play) {
-      console.error('Failed to insert play:', playError);
-      return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Failed to create play record',
-          details: playError?.message,
-        }),
-      };
-    }
-
-    const playId = play.id;
-    console.log('Created play with ID:', playId, '- Starting AI generation');
+    console.log('Starting AI generation for play:', playId);
 
     // --- AI Generation Phase (runs synchronously with 15 min timeout) ---
     let playAnalysis: any = null;
@@ -275,15 +308,19 @@ export const handler: Handler = async (event, context) => {
   } catch (error: any) {
     console.error('Error generating play content:', error);
 
-    // Try to mark play as error if we have playId
-    if (error.playId) {
+    // Try to mark play as rejected if we have playId
+    const body = JSON.parse(event.body || '{}');
+    const errorPlayId = body.playId;
+
+    if (errorPlayId) {
       try {
+        console.log('Marking play as rejected due to error:', errorPlayId);
         await supabase
           .from('plays')
-          .update({ content_status: 'error' })
-          .eq('id', error.playId);
+          .update({ content_status: 'rejected' })
+          .eq('id', errorPlayId);
       } catch (updateError) {
-        console.error('Failed to update play status to error:', updateError);
+        console.error('Failed to update play status to rejected:', updateError);
       }
     }
 
@@ -293,6 +330,7 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({
         error: 'Failed to generate play content',
         message: error.message,
+        playId: errorPlayId,
       }),
     };
   }

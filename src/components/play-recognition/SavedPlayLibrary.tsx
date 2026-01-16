@@ -287,13 +287,39 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
       // Start polling for completion (production with background function)
       console.log('🔄 Starting polling for play:', playId);
+
+      let pollCount = 0;
+      const maxPolls = 300; // 15 minutes (300 * 3 seconds)
+
       pollIntervalId = setInterval(async () => {
+        pollCount++;
+
+        if (pollCount > maxPolls) {
+          // Safety timeout
+          if (pollIntervalId) clearInterval(pollIntervalId);
+          console.error('⏰ Polling timeout after 15 minutes');
+          alert('Content generation is taking longer than expected. Please check back later.');
+          setIsGenerating(false);
+          return;
+        }
+
         try {
           const statusUrl = `${getCheckPlayStatusApiUrl()}?playId=${playId}`;
+          console.log(`🔄 Poll ${pollCount}: Checking status...`);
+
           const statusResponse = await fetch(statusUrl);
 
           if (!statusResponse.ok) {
             console.error('Status check failed:', statusResponse.status);
+            const errorText = await statusResponse.text();
+            console.error('Error response:', errorText);
+
+            // If we get 500+ errors consistently, stop polling
+            if (pollCount > 5 && statusResponse.status >= 500) {
+              if (pollIntervalId) clearInterval(pollIntervalId);
+              alert('Server error while checking status. Please try again later.');
+              setIsGenerating(false);
+            }
             return;
           }
 
@@ -308,28 +334,21 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
             setGeneratedContent(statusData);
             setShowReviewModal(true);
             setIsGenerating(false);
-          } else if (statusData.status === 'error' || statusData.status === 'rejected') {
+          } else if (statusData.status === 'rejected') {
             // Generation failed
             if (pollIntervalId) clearInterval(pollIntervalId);
             console.error('❌ Content generation failed');
 
             alert('Content generation failed. Please try again.');
             setIsGenerating(false);
+          } else if (statusData.status === 'generating') {
+            console.log(`⏳ Still generating... (poll ${pollCount}/${maxPolls})`);
           }
         } catch (pollError) {
           console.error('Polling error:', pollError);
+          // Don't stop polling on intermittent errors
         }
       }, 3000); // Poll every 3 seconds
-
-      // Safety timeout - stop polling after 15 minutes
-      setTimeout(() => {
-        if (pollIntervalId) clearInterval(pollIntervalId);
-        if (isGenerating) {
-          console.error('⏰ Polling timeout');
-          alert('Content generation is taking longer than expected. Please check back later.');
-          setIsGenerating(false);
-        }
-      }, 15 * 60 * 1000);
 
     } catch (err: any) {
       console.error('❌ Failed to generate content:', err);

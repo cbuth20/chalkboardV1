@@ -106,14 +106,23 @@ export const handler: Handler = async (event, context) => {
 
     // Trigger the background function to process this play
     // Note: This is a fire-and-forget call to the background function
-    const backgroundUrl = `${event.headers.host}/.netlify/functions/generate-play-content-background`;
-    fetch(`https://${backgroundUrl}`, {
+    const host = event.headers.host || 'chalkboardv1.netlify.app';
+    const backgroundUrl = `https://${host}/.netlify/functions/generate-play-content-background`;
+
+    console.log('Triggering background function:', backgroundUrl);
+
+    fetch(backgroundUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         playId,
+        playbookMetadataId,
         imageUrl,
         fileName,
+        teamId,
+        generateInsights: true,
+        generateAssignments: true,
+        generateKnowledge: true,
       }),
     }).catch(err => console.error('Failed to trigger background function:', err));
 
