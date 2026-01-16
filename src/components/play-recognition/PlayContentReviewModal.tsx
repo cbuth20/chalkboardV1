@@ -10,12 +10,14 @@ interface GeneratedPlayContent {
   fileName: string;
   playName: string;
   content: any;
+  imageUrl?: string;
   reviewStatus?: 'pending' | 'approved' | 'rejected';
 }
 
 interface PlayContentReviewModalProps {
   content?: GeneratedContent;
   playName?: string;
+  imageUrl?: string;
   multipleContents?: GeneratedPlayContent[];
   onClose: () => void;
   onApprove: (editedContent: EditedContent, notes: string, playId?: string) => Promise<void>;
@@ -26,6 +28,7 @@ interface PlayContentReviewModalProps {
 export default function PlayContentReviewModal({
   content,
   playName,
+  imageUrl,
   multipleContents,
   onClose,
   onApprove,
@@ -51,6 +54,9 @@ export default function PlayContentReviewModal({
   const currentPlayId = isMultiPlayMode
     ? multipleContents[currentIndex]?.playId
     : undefined;
+  const currentImageUrl = isMultiPlayMode
+    ? multipleContents[currentIndex]?.imageUrl
+    : imageUrl;
 
   // Convert playAnalysis.positions to editable format if assignments is empty
   const initialAssignments = useMemo(() => {
@@ -254,6 +260,22 @@ export default function PlayContentReviewModal({
 
         {/* Content */}
         <div className="px-6 py-4 space-y-4">
+          {/* Play Image */}
+          {currentImageUrl && (
+            <div className="bg-[#1A1F28] border border-[#1E2732] rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+                Play Diagram
+              </h3>
+              <div className="rounded-lg overflow-hidden bg-[#0F1419] border border-[#1E2732]">
+                <img
+                  src={currentImageUrl}
+                  alt={currentPlayName || 'Play diagram'}
+                  className="w-full h-auto max-h-[400px] object-contain"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Summary Stats */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-[#1A1F28] border border-[#1E2732] rounded-lg p-4">

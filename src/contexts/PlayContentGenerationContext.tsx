@@ -21,6 +21,7 @@ interface GeneratedPlayContent {
   playMetadataId: string;
   fileName: string;
   playName: string;
+  imageUrl: string;
   content: any;
 }
 
@@ -133,6 +134,7 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
                   playMetadataId: play.metadataId || '',
                   fileName: play.fileName,
                   playName: play.name,
+                  imageUrl: play.url,
                   content: statusData,
                 });
               } else if (statusData.status === 'rejected') {

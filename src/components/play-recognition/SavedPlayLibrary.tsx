@@ -217,6 +217,43 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     let pollIntervalId: NodeJS.Timeout | null = null;
 
     try {
+      // Check if we're running locally
+      const isLocalhost = window.location.hostname === 'localhost' ||
+                         window.location.hostname === '127.0.0.1';
+
+      if (isLocalhost) {
+        // Local development: Use all-in-one API route
+        console.log('📝 Local dev: Using all-in-one API');
+        const apiUrl = '/api/generate-play-content';
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playbookMetadataId: metadataId,
+            imageUrl: selectedPlay.url,
+            fileName: selectedPlay.fileName,
+            teamId: teamId || 'default-team-id',
+            generateInsights: true,
+            generateAssignments: true,
+            generateKnowledge: true,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to generate content: ${errorText.substring(0, 200)}`);
+        }
+
+        const data = await response.json();
+        console.log('✅ Generation complete!');
+        setGeneratedContent(data);
+        setShowReviewModal(true);
+        setIsGenerating(false);
+        return;
+      }
+
+      // Production: Use two-step process with background function
       // Step 1: Create the play record (fast)
       console.log('📝 Step 1: Creating play record...');
       const createUrl = getCreatePlayRecordApiUrl();
@@ -320,25 +357,42 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   // Handle approve content
   const handleApprove = async (editedContent: any, notes: string, playId?: string) => {
     const targetPlayId = playId || generatedContent?.playId;
-    if (!targetPlayId) return;
+    console.log('🟢 Approving play:', targetPlayId);
+
+    if (!targetPlayId) {
+      console.error('❌ No playId provided');
+      return;
+    }
 
     try {
       const apiUrl = getReviewPlayContentApiUrl();
+      console.log('📤 Calling review API:', apiUrl);
+
+      const requestBody = {
+        playId: targetPlayId,
+        action: 'approve',
+        coachId: 'coach-user-id', // TODO: Get from auth context
+        updates: editedContent,
+        reviewNotes: notes,
+      };
+      console.log('📤 Request body:', requestBody);
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playId: targetPlayId,
-          action: 'approve',
-          coachId: 'coach-user-id', // TODO: Get from auth context
-          updates: editedContent,
-          reviewNotes: notes,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('📥 Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error('Failed to approve content');
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
+        throw new Error(`Failed to approve content: ${response.status} - ${errorText.substring(0, 200)}`);
       }
+
+      const result = await response.json();
+      console.log('✅ Approve successful:', result);
 
       // Only close modal and clear if single-play mode
       if (!playId) {
@@ -352,33 +406,50 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         const data = await fetchResponse.json();
         setPlays(data);
       }
-    } catch (err) {
-      console.error('Failed to approve content:', err);
-      alert('Failed to approve content');
+    } catch (err: any) {
+      console.error('❌ Failed to approve content:', err);
+      alert(`Failed to approve content: ${err.message}`);
     }
   };
 
   // Handle reject content
   const handleReject = async (notes: string, playId?: string) => {
     const targetPlayId = playId || generatedContent?.playId;
-    if (!targetPlayId) return;
+    console.log('🔴 Rejecting play:', targetPlayId);
+
+    if (!targetPlayId) {
+      console.error('❌ No playId provided');
+      return;
+    }
 
     try {
       const apiUrl = getReviewPlayContentApiUrl();
+      console.log('📤 Calling review API:', apiUrl);
+
+      const requestBody = {
+        playId: targetPlayId,
+        action: 'reject',
+        coachId: 'coach-user-id', // TODO: Get from auth context
+        reviewNotes: notes,
+      };
+      console.log('📤 Request body:', requestBody);
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playId: targetPlayId,
-          action: 'reject',
-          coachId: 'coach-user-id', // TODO: Get from auth context
-          reviewNotes: notes,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('📥 Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error('Failed to reject content');
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
+        throw new Error(`Failed to reject content: ${response.status} - ${errorText.substring(0, 200)}`);
       }
+
+      const result = await response.json();
+      console.log('✅ Reject successful:', result);
 
       // Only close modal and clear if single-play mode
       if (!playId) {
@@ -386,9 +457,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         setGeneratedContent(null);
         alert('Content rejected');
       }
-    } catch (err) {
-      console.error('Failed to reject content:', err);
-      alert('Failed to reject content');
+    } catch (err: any) {
+      console.error('❌ Failed to reject content:', err);
+      alert(`Failed to reject content: ${err.message}`);
     }
   };
 
@@ -895,6 +966,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         <PlayContentReviewModal
           content={generatedContent}
           playName={selectedPlay?.name || 'Untitled Play'}
+          imageUrl={selectedPlay?.url}
           multipleContents={generatedContents.length > 0 ? generatedContents : undefined}
           onClose={() => {
             setShowReviewModal(false);
