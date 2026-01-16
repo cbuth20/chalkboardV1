@@ -202,7 +202,6 @@ export async function POST(request: NextRequest) {
       const flashcardRecords = knowledgeCards.map((card, index) => ({
         play_id: playId,
         position: 'QB', // Knowledge cards aren't position-specific, but field is required
-        card_type: 'knowledge',
         category: card.category || 'play_concept',
         question_prompt: card.question,
         correct_answer: card.correct_answer,

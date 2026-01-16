@@ -234,7 +234,6 @@ export const handler: Handler = async (event, context) => {
       const flashcardRecords = knowledgeCards.map((card, index) => ({
         play_id: playId,
         position: 'QB', // Knowledge cards aren't position-specific, but field is required
-        card_type: 'knowledge',
         category: card.category || 'play_concept',
         question_prompt: card.question,
         correct_answer: card.correct_answer,
@@ -294,7 +293,7 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({
         error: 'Failed to generate play content',
         message: error.message,
-        playId: errorPlayId,
+        playId: playId,
       }),
     };
   }
