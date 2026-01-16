@@ -7,8 +7,3 @@
 
 [functions]
   directory = "netlify/functions"
-
-# Increase timeout for AI generation function
-[[functions]]
-  name = "generate-play-content"
-  timeout = 900  # 15 minutes (900 seconds) - requires background function or Pro plan
