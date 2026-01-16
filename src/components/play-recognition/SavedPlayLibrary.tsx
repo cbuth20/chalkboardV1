@@ -161,9 +161,54 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
   // Generate AI content (insights + assignments + knowledge cards)
   const handleGenerateContent = async () => {
-    if (!selectedPlay || !selectedPlay.metadata?.id) {
-      alert('Please ensure play metadata is saved before generating content');
+    if (!selectedPlay) {
+      alert('Please select a play first');
       return;
+    }
+
+    console.log('Generate content - selectedPlay:', selectedPlay);
+    console.log('Generate content - metadata:', selectedPlay?.metadata);
+    console.log('Generate content - metadata.id:', selectedPlay?.metadata?.id);
+
+    // If no metadata exists, create it first
+    let metadataId = selectedPlay.metadata?.id;
+    if (!metadataId) {
+      console.log('No metadata found, creating minimal metadata...');
+      try {
+        const metadataApiUrl = getPlaybookMetadataApiUrl();
+        const filePath = `public/${selectedPlay.fileName}`;
+
+        const response = await fetch(metadataApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            team_id: teamId,
+            file_paths: [filePath],
+            position_relevance: ['all'],
+            formation_name: selectedPlay.name,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create metadata');
+        }
+
+        const newMetadata = await response.json();
+        metadataId = newMetadata.id;
+
+        // Update local state with new metadata
+        setPlays((prev) =>
+          prev.map((p) =>
+            p.id === selectedPlayId ? { ...p, metadata: newMetadata } : p
+          )
+        );
+
+        console.log('Created metadata:', newMetadata);
+      } catch (err) {
+        console.error('Failed to create metadata:', err);
+        alert('Failed to create metadata. Please try adding metadata manually first.');
+        return;
+      }
     }
 
     setIsGenerating(true);
@@ -173,7 +218,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          playbookMetadataId: selectedPlay.metadata.id,
+          playbookMetadataId: metadataId,
           imageUrl: selectedPlay.url,
           fileName: selectedPlay.fileName,
           teamId: teamId || 'default-team-id', // TODO: Get from auth context
