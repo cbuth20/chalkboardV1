@@ -18,10 +18,9 @@ if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
 
 const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
 
-// Background function - Netlify automatically gives this 15 minutes instead of 10 seconds
-// Just by naming it with "-background" suffix
+// Generate play content synchronously
 export const handler: Handler = async (event, context) => {
-  console.log('🔄 Background function started - 15 minute timeout available');
+  console.log('🔄 Generate play content function started');
 
   // Check for missing environment variables
   if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
@@ -51,7 +50,6 @@ export const handler: Handler = async (event, context) => {
 
   try {
     const {
-      playId: existingPlayId,
       playbookMetadataId,
       imageUrl,
       fileName,
@@ -61,99 +59,48 @@ export const handler: Handler = async (event, context) => {
       generateKnowledge = true,
     } = JSON.parse(event.body || '{}');
 
-    let playId = existingPlayId;
-    let metadata: any;
+    console.log('📝 Request parameters:', {
+      playbookMetadataId,
+      imageUrl: imageUrl?.substring(0, 50) + '...',
+      fileName,
+      teamId,
+    });
 
-    // If playId is provided, fetch the existing play
-    if (playId) {
-      console.log('Processing existing play:', playId);
-
-      const { data: existingPlay, error: playError } = await supabase
-        .from('plays')
-        .select('*, playbook_metadata(*)')
-        .eq('id', playId)
-        .single();
-
-      if (playError || !existingPlay) {
-        console.error('Failed to fetch play:', playError);
-        return {
-          statusCode: 404,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Play not found' }),
-        };
-      }
-
-      metadata = existingPlay.playbook_metadata;
-      console.log('Found existing play with metadata:', metadata?.formation_name);
-    } else {
-      // Legacy path: create new play (for local dev)
-      console.log('Creating new play (legacy path)');
-
-      // Validation
-      if (!playbookMetadataId || !imageUrl || !teamId) {
-        return {
-          statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            error: 'Missing required fields: playbookMetadataId, imageUrl, teamId',
-          }),
-        };
-      }
-
-      // Fetch playbook metadata for context
-      const { data: fetchedMetadata, error: metadataError } = await supabase
-        .from('playbook_metadata')
-        .select('*')
-        .eq('id', playbookMetadataId)
-        .single();
-
-      if (metadataError || !fetchedMetadata) {
-        return {
-          statusCode: 404,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Playbook metadata not found' }),
-        };
-      }
-
-      metadata = fetchedMetadata;
-
-      // Create play record
-      const { data: play, error: playError } = await supabase
-        .from('plays')
-        .insert({
-          team_id: teamId,
-          playbook_metadata_id: playbookMetadataId,
-          name: metadata.formation_name || fileName || 'Untitled Play',
-          short_name: metadata.formation_name?.substring(0, 50) || 'Untitled',
-          play_type: 'PASS',
-          concept: metadata.concept_name,
-          formation_name: metadata.formation_name,
-          ai_insights: null,
-          content_status: 'generating',
-          is_published: false,
-        })
-        .select()
-        .single();
-
-      if (playError || !play) {
-        console.error('Failed to insert play:', playError);
-        return {
-          statusCode: 500,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            error: 'Failed to create play record',
-            details: playError?.message,
-          }),
-        };
-      }
-
-      playId = play.id;
-      console.log('Created play with ID:', playId);
+    // Validation
+    if (!playbookMetadataId || !imageUrl || !teamId) {
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          error: 'Missing required fields: playbookMetadataId, imageUrl, teamId',
+        }),
+      };
     }
 
+    // Fetch playbook metadata for context
+    console.log('📖 Fetching metadata for ID:', playbookMetadataId);
+    const { data: metadata, error: metadataError } = await supabase
+      .from('playbook_metadata')
+      .select('*')
+      .eq('id', playbookMetadataId)
+      .single();
+
+    if (metadataError || !metadata) {
+      console.error('❌ Metadata fetch failed:', metadataError);
+      return {
+        statusCode: 404,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Playbook metadata not found' }),
+      };
+    }
+
+    console.log('✅ Metadata found:', metadata.formation_name);
+
     // Fetch image for AI processing
+    console.log('🖼️  Fetching image from:', imageUrl);
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
+      console.error('❌ Failed to fetch image:', imageResponse.status);
       return {
         statusCode: 404,
         headers: { 'Content-Type': 'application/json' },
@@ -165,48 +112,78 @@ export const handler: Handler = async (event, context) => {
     const base64Image = Buffer.from(imageBuffer).toString('base64');
     const contentType = imageResponse.headers.get('content-type');
     const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    console.log('✅ Image fetched, size:', imageBuffer.byteLength, 'bytes');
 
     // Build metadata context for AI
     const metadataContext = buildMetadataContext(metadata);
 
-    console.log('Starting AI generation for play:', playId);
+    console.log('🎬 Starting AI generation...');
 
-    // --- AI Generation Phase (runs synchronously with 15 min timeout) ---
+    // --- AI Generation Phase ---
     let playAnalysis: any = null;
     let insights: string | null = null;
     let knowledgeCards: any[] = [];
 
     // 1. Generate assignments via GPT-4o Vision
     if (generateAssignments) {
-      console.log('Generating assignments via GPT-4o Vision...');
+      console.log('1️⃣  Generating assignments via GPT-4o Vision...');
       playAnalysis = await analyzePlayWithVision(base64Image, mimeType, metadataContext);
+      console.log('✅ Play analysis complete:', {
+        name: playAnalysis?.name,
+        playType: playAnalysis?.playType,
+        positionCount: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
+      });
     }
 
     // 2. Generate insights via GPT-4
     if (generateInsights && playAnalysis) {
-      console.log('Generating insights via GPT-4...');
+      console.log('2️⃣  Generating insights via GPT-4...');
       insights = await generatePlayInsights(metadata, playAnalysis);
+      console.log('✅ Insights generated');
     }
 
     // 3. Generate knowledge cards via GPT-4
     if (generateKnowledge && playAnalysis) {
-      console.log('Generating knowledge cards via GPT-4...');
+      console.log('3️⃣  Generating knowledge cards via GPT-4...');
       knowledgeCards = await generateKnowledgeCards(playAnalysis, metadata);
+      console.log('✅ Generated', knowledgeCards.length, 'knowledge cards');
     }
 
-    // --- Update play with AI results ---
-    console.log('Updating play with AI-generated content...');
-    await supabase
+    // --- Database Insertion Phase ---
+    console.log('💾 Inserting play into database...');
+
+    // Insert into plays table
+    const { data: play, error: playError } = await supabase
       .from('plays')
-      .update({
+      .insert({
+        team_id: teamId,
+        playbook_metadata_id: playbookMetadataId,
         name: playAnalysis?.name || metadata.formation_name || 'Untitled Play',
         short_name: playAnalysis?.shortName || playAnalysis?.name?.substring(0, 50) || 'Untitled',
         play_type: playAnalysis?.playType?.toUpperCase() || 'PASS',
         concept: playAnalysis?.concept || metadata.concept_name,
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
+        content_status: 'draft', // Mark as draft, ready for review
+        is_published: false,
       })
-      .eq('id', playId);
+      .select()
+      .single();
+
+    if (playError || !play) {
+      console.error('❌ Failed to insert play:', playError);
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          error: 'Failed to create play record',
+          details: playError?.message,
+        }),
+      };
+    }
+
+    const playId = play.id;
+    console.log('✅ Play created with ID:', playId);
 
     // Insert play_assignments
     const assignments: any[] = [];

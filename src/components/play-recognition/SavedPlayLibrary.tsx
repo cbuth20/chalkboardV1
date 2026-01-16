@@ -5,7 +5,6 @@ import {
   getGeneratePlayContentApiUrl,
   getReviewPlayContentApiUrl,
   getClearPlayContentApiUrl,
-  getCheckPlayStatusApiUrl,
 } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import PlayContentReviewModal from './PlayContentReviewModal';
@@ -213,13 +212,10 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
 
     setIsGenerating(true);
-    let playId: string | null = null;
-    let pollIntervalId: NodeJS.Timeout | null = null;
 
     try {
       const apiUrl = getGeneratePlayContentApiUrl();
-      console.log('🔗 Generate content API URL:', apiUrl);
-      console.log('🌐 Current location:', window.location.hostname);
+      console.log('📤 Calling API:', apiUrl);
 
       const requestBody = {
         playbookMetadataId: metadataId,
@@ -232,9 +228,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       };
       console.log('📤 Request body:', requestBody);
 
-      // Start the generation - this might take a while in production
-      console.log('📤 Calling API:', apiUrl);
-
+      // Generate content - this will complete before returning
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,117 +236,24 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
 
       console.log('📥 Response status:', response.status);
-      console.log('📥 Response statusText:', response.statusText);
-      console.log('📥 Response content-type:', response.headers.get('content-type'));
-      console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
-
-      // Get response text first for debugging
-      const responseText = await response.text();
-      console.log('📥 Response text length:', responseText.length);
-      console.log('📥 Response text (full):', responseText);
-
-      // Check if response is empty
-      if (!responseText || responseText.trim() === '') {
-        throw new Error(`Empty response from server (status ${response.status}). Check Netlify function logs for errors.`);
-      }
 
       if (!response.ok) {
-        console.error('❌ Error response:', responseText);
-        throw new Error(`Failed to start content generation: ${response.status} - ${responseText.substring(0, 200)}`);
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
+        throw new Error(`Failed to generate content: ${response.status} - ${errorText.substring(0, 200)}`);
       }
 
-      // Parse JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('❌ Failed to parse JSON:', parseError);
-        console.error('Response was:', responseText);
-        throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
-      }
+      // Parse the complete response
+      const data = await response.json();
+      console.log('✅ Generation complete! Data:', data);
 
-      playId = data.playId;
-      console.log('✅ Parsed data:', data);
-      console.log('✅ Generation complete or started, playId:', playId);
-
-      // Check if already complete (local dev) or needs polling (production)
-      if (data.status === 'draft' || data.assignments) {
-        // Already complete - show immediately
-        console.log('✅ Content already complete!');
-        setGeneratedContent(data);
-        setShowReviewModal(true);
-        setIsGenerating(false);
-        return;
-      }
-
-      // Start polling for completion (production with background function)
-      console.log('🔄 Starting polling for play:', playId);
-
-      let pollCount = 0;
-      const maxPolls = 300; // 15 minutes (300 * 3 seconds)
-
-      pollIntervalId = setInterval(async () => {
-        pollCount++;
-
-        if (pollCount > maxPolls) {
-          // Safety timeout
-          if (pollIntervalId) clearInterval(pollIntervalId);
-          console.error('⏰ Polling timeout after 15 minutes');
-          alert('Content generation is taking longer than expected. Please check back later.');
-          setIsGenerating(false);
-          return;
-        }
-
-        try {
-          const statusUrl = `${getCheckPlayStatusApiUrl()}?playId=${playId}`;
-          console.log(`🔄 Poll ${pollCount}: Checking status...`);
-
-          const statusResponse = await fetch(statusUrl);
-
-          if (!statusResponse.ok) {
-            console.error('Status check failed:', statusResponse.status);
-            const errorText = await statusResponse.text();
-            console.error('Error response:', errorText);
-
-            // If we get 500+ errors consistently, stop polling
-            if (pollCount > 5 && statusResponse.status >= 500) {
-              if (pollIntervalId) clearInterval(pollIntervalId);
-              alert('Server error while checking status. Please try again later.');
-              setIsGenerating(false);
-            }
-            return;
-          }
-
-          const statusData = await statusResponse.json();
-          console.log('📊 Status:', statusData.status);
-
-          if (statusData.status === 'draft') {
-            // Content generation complete
-            if (pollIntervalId) clearInterval(pollIntervalId);
-            console.log('✅ Content generation complete!');
-
-            setGeneratedContent(statusData);
-            setShowReviewModal(true);
-            setIsGenerating(false);
-          } else if (statusData.status === 'rejected') {
-            // Generation failed
-            if (pollIntervalId) clearInterval(pollIntervalId);
-            console.error('❌ Content generation failed');
-
-            alert('Content generation failed. Please try again.');
-            setIsGenerating(false);
-          } else if (statusData.status === 'generating') {
-            console.log(`⏳ Still generating... (poll ${pollCount}/${maxPolls})`);
-          }
-        } catch (pollError) {
-          console.error('Polling error:', pollError);
-          // Don't stop polling on intermittent errors
-        }
-      }, 3000); // Poll every 3 seconds
+      // Show review modal with generated content
+      setGeneratedContent(data);
+      setShowReviewModal(true);
+      setIsGenerating(false);
 
     } catch (err: any) {
       console.error('❌ Failed to generate content:', err);
-      if (pollIntervalId) clearInterval(pollIntervalId);
       alert(`Failed to generate content: ${err.message}`);
       setIsGenerating(false);
     }

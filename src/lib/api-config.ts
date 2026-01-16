@@ -71,9 +71,8 @@ export function getGeneratePlayContentApiUrl(): string {
     }
   }
 
-  // Use Netlify starter function for production
-  // This creates the play and triggers background processing
-  return '/.netlify/functions/start-play-generation';
+  // Use Netlify function for production
+  return '/.netlify/functions/generate-play-content';
 }
 
 export function getCheckPlayStatusApiUrl(): string {
