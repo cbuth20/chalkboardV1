@@ -87,8 +87,9 @@ export async function POST(request: NextRequest) {
         is_published: true,
       };
 
-      // Only set reviewed_by if it's a valid UUID
-      if (coachId !== 'coach-user-id') {
+      // Only set reviewed_by if it's a valid UUID and not a development placeholder
+      const isDevelopmentPlaceholder = coachId === 'coach-user-id' || coachId === '00000000-0000-0000-0000-000000000001';
+      if (!isDevelopmentPlaceholder) {
         updateData.reviewed_by = coachId;
       }
 
@@ -111,8 +112,9 @@ export async function POST(request: NextRequest) {
         is_published: false,
       };
 
-      // Only set reviewed_by if it's a valid UUID
-      if (coachId !== 'coach-user-id') {
+      // Only set reviewed_by if it's a valid UUID and not a development placeholder
+      const isDevelopmentPlaceholder = coachId === 'coach-user-id' || coachId === '00000000-0000-0000-0000-000000000001';
+      if (!isDevelopmentPlaceholder) {
         updateData.reviewed_by = coachId;
       }
 

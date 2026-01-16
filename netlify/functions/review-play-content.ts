@@ -94,8 +94,9 @@ export const handler: Handler = async (event, context) => {
         await applyUpdates(playId, updates);
       }
 
-      // Check if coachId is a valid UUID
+      // Check if coachId is a valid UUID and not a development placeholder
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(coachId);
+      const isDevelopmentPlaceholder = coachId === '00000000-0000-0000-0000-000000000001';
 
       // Update play status to approved
       const updateData: any = {
@@ -105,8 +106,8 @@ export const handler: Handler = async (event, context) => {
         is_published: true,
       };
 
-      // Only set reviewed_by if coachId is a valid UUID
-      if (isValidUUID) {
+      // Only set reviewed_by if coachId is a valid UUID and not a development placeholder
+      if (isValidUUID && !isDevelopmentPlaceholder) {
         updateData.reviewed_by = coachId;
       }
 
@@ -125,8 +126,9 @@ export const handler: Handler = async (event, context) => {
     } else if (action === 'reject') {
       console.log('🔴 Rejecting play:', playId);
 
-      // Check if coachId is a valid UUID
+      // Check if coachId is a valid UUID and not a development placeholder
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(coachId);
+      const isDevelopmentPlaceholder = coachId === '00000000-0000-0000-0000-000000000001';
 
       // Update play status to rejected
       const updateData: any = {
@@ -136,8 +138,8 @@ export const handler: Handler = async (event, context) => {
         is_published: false,
       };
 
-      // Only set reviewed_by if coachId is a valid UUID
-      if (isValidUUID) {
+      // Only set reviewed_by if coachId is a valid UUID and not a development placeholder
+      if (isValidUUID && !isDevelopmentPlaceholder) {
         updateData.reviewed_by = coachId;
       }
 
