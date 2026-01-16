@@ -18,7 +18,11 @@ if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
 
 const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
 
+// Background function - Netlify automatically gives this 15 minutes instead of 10 seconds
+// Just by naming it with "-background" suffix
 export const handler: Handler = async (event, context) => {
+  console.log('🔄 Background function started - 15 minute timeout available');
+
   // Check for missing environment variables
   if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
     return {
@@ -42,6 +46,8 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({ error: 'Method not allowed' }),
     };
   }
+
+  const startTime = Date.now();
 
   try {
     const {
@@ -230,6 +236,9 @@ export const handler: Handler = async (event, context) => {
     }
 
     // Return generated content
+    const duration = Date.now() - startTime;
+    console.log(`✅ Content generation completed in ${(duration / 1000).toFixed(2)}s`);
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -240,6 +249,7 @@ export const handler: Handler = async (event, context) => {
         knowledgeCards: flashcards,
         playAnalysis,
         status: 'draft',
+        generationTimeMs: duration,
       }),
     };
   } catch (error: any) {
