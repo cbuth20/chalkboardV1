@@ -104,3 +104,18 @@ export function getApprovedPlaysApiUrl(): string {
   // Use Netlify functions for production
   return '/.netlify/functions/get-approved-plays';
 }
+
+export function getClearPlayContentApiUrl(): string {
+  // Check if we're running on localhost
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return '/api/playbooks/clear-content';
+    }
+  }
+
+  // Use Netlify functions for production
+  return '/.netlify/functions/playbooks-clear-content';
+}

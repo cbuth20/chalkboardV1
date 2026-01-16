@@ -124,17 +124,34 @@ export async function POST(request: NextRequest) {
     // Insert play_assignments
     const assignments: any[] = [];
     if (playAnalysis?.positions && generateAssignments) {
+      // Valid position enum values from database
+      const VALID_POSITIONS = new Set([
+        'QB', 'RB', 'FB', 'X', 'Z', 'H', 'Y', 'TE',
+        'LT', 'LG', 'C', 'RG', 'RT'
+      ]);
+
       // Map position names to valid enum values
       const positionMap: Record<string, string> = {
+        'F': 'FB',   // F -> Fullback
         'HB': 'RB',  // Halfback -> Running Back
         'TB': 'RB',  // Tailback -> Running Back
         'WR': 'X',   // Generic WR -> X receiver
+        'FULLBACK': 'FB',
+        'HALFBACK': 'RB',
+        'SLOT': 'H',
+        'TIGHTEND': 'TE',
       };
 
-      const assignmentRecords = Object.entries(playAnalysis.positions).map(
-        ([position, posData]: [string, any]) => {
-          const normalizedPosition = position.toUpperCase();
+      const assignmentRecords = Object.entries(playAnalysis.positions)
+        .map(([position, posData]: [string, any]) => {
+          const normalizedPosition = position.toUpperCase().trim();
           const mappedPosition = positionMap[normalizedPosition] || normalizedPosition;
+
+          // Validate against enum
+          if (!VALID_POSITIONS.has(mappedPosition)) {
+            console.warn(`Invalid position detected: "${position}" (mapped to "${mappedPosition}") - skipping`);
+            return null;
+          }
 
           // Parse route_depth to ensure it's a number
           let routeDepth = null;
@@ -159,19 +176,23 @@ export async function POST(request: NextRequest) {
               vs_blitz: posData.adjustments?.vsBlitz || '',
             },
           };
+        })
+        .filter((record) => record !== null); // Remove null entries
+
+      if (assignmentRecords.length > 0) {
+        const { data: insertedAssignments, error: assignmentError } = await supabase
+          .from('play_assignments')
+          .insert(assignmentRecords)
+          .select();
+
+        if (assignmentError) {
+          console.error('Failed to insert assignments:', assignmentError);
+        } else {
+          assignments.push(...(insertedAssignments || []));
+          console.log(`Inserted ${assignments.length} assignments`);
         }
-      );
-
-      const { data: insertedAssignments, error: assignmentError } = await supabase
-        .from('play_assignments')
-        .insert(assignmentRecords)
-        .select();
-
-      if (assignmentError) {
-        console.error('Failed to insert assignments:', assignmentError);
       } else {
-        assignments.push(...(insertedAssignments || []));
-        console.log(`Inserted ${assignments.length} assignments`);
+        console.warn('No valid position assignments to insert');
       }
     }
 
@@ -269,6 +290,9 @@ function buildMetadataContext(metadata: any): string {
   if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
   if (metadata.position_relevance && metadata.position_relevance.length > 0) {
     contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
+  }
+  if (metadata.custom_notes) {
+    contextParts.push(`\nCoach's additional information:\n${metadata.custom_notes}`);
   }
 
   return contextParts.length > 0
@@ -573,7 +597,24 @@ When analyzing a play diagram, identify:
 1. The play name and formation
 2. The play type (pass, run, RPO, screen)
 3. The concept being used (e.g., Mesh, Flood, Power, Zone, etc.)
-4. Position assignments for each skill position (QB, RB, FB, X, Z, H, Y, TE)
+4. Position assignments for each skill position
+
+IMPORTANT: Use ONLY these exact position abbreviations in your response:
+- QB (Quarterback)
+- RB (Running Back / Halfback)
+- FB (Fullback)
+- X (Split End / Left Wide Receiver)
+- Z (Flanker / Right Wide Receiver)
+- H (Slot Receiver)
+- Y (Tight End / Y Receiver)
+- TE (Tight End)
+- LT (Left Tackle)
+- LG (Left Guard)
+- C (Center)
+- RG (Right Guard)
+- RT (Right Tackle)
+
+Do NOT use abbreviations like "F", "HB", "WR", or any other variations.
 
 For each position assignment, extract:
 - alignment: Where they line up (e.g., "Slot left", "Split right 12 yards", "Pistol")

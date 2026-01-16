@@ -264,6 +264,24 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                   />
                 </div>
 
+                {/* Additional Information */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-300 mb-2">
+                    Additional Information
+                    <span className="ml-2 text-xs text-slate-500 font-normal">(Optional - helps AI understand the play better)</span>
+                  </label>
+                  <textarea
+                    value={metadata.custom_notes || ''}
+                    onChange={(e) => setMetadata(prev => ({ ...prev, custom_notes: e.target.value }))}
+                    placeholder="Add detailed context about position assignments, blocking schemes, route progressions, protections, reads, adjustments, or any other information that would help the AI generate more accurate content..."
+                    rows={6}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors resize-none"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Example: QB progressions, protection schemes, route details, blocking assignments, etc.
+                  </p>
+                </div>
+
                 {/* Action Buttons */}
                 <div className="flex gap-3 pt-2">
                   <button
