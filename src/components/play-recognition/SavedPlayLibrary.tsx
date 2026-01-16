@@ -240,15 +240,27 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
 
       console.log('📥 Response status:', response.status);
+      console.log('📥 Response content-type:', response.headers.get('content-type'));
+
+      // Get response text first for debugging
+      const responseText = await response.text();
+      console.log('📥 Response text (first 500 chars):', responseText.substring(0, 500));
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        throw new Error(`Failed to start content generation: ${response.status}`);
+        console.error('❌ Error response:', responseText);
+        throw new Error(`Failed to start content generation: ${response.status} - ${responseText.substring(0, 200)}`);
       }
 
-      // Get the playId from response
-      const data = await response.json();
+      // Parse JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Failed to parse JSON:', parseError);
+        console.error('Response was:', responseText);
+        throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
+      }
+
       playId = data.playId;
       console.log('✅ Generation complete or started, playId:', playId);
 
