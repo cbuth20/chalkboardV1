@@ -14,7 +14,7 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
     const { userId, positions } = body as {
-      userId: string;
+      userId: string;  // This is the auth.users.id
       positions: SkillPosition[];
     };
 
@@ -25,13 +25,67 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    console.log('[API] Updating positions for user:', userId, 'to:', positions);
+    console.log('[API] Updating positions for auth user:', userId, 'to:', positions);
 
-    // Check if team member record exists
+    // Get or create user in public.users table
+    // Check if user exists in public.users by auth_id
+    let { data: publicUser, error: userCheckError } = await supabase
+      .from('users')
+      .select('id, auth_id')
+      .eq('auth_id', userId)
+      .maybeSingle();
+
+    if (!publicUser) {
+      console.log('[API] User not found in public.users, creating...');
+
+      // Get user data from auth to populate public.users
+      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
+
+      if (authError || !authUser.user) {
+        console.error('[API] Error fetching auth user:', authError);
+        return NextResponse.json(
+          { error: 'User not found in auth system', details: authError?.message },
+          { status: 404 }
+        );
+      }
+
+      // Create user in public.users
+      const { data: newUser, error: userCreateError } = await supabase
+        .from('users')
+        .insert({
+          auth_id: userId,
+          email: authUser.user.email || '',
+          first_name: authUser.user.user_metadata?.first_name || '',
+          last_name: authUser.user.user_metadata?.last_name || '',
+          display_name: authUser.user.user_metadata?.display_name || authUser.user.email?.split('@')[0] || 'Player',
+          total_xp: 0,
+          current_level: 1,
+          football_iq_rating: 0,
+        })
+        .select('id, auth_id')
+        .single();
+
+      if (userCreateError) {
+        console.error('[API] Error creating user record:', userCreateError);
+        return NextResponse.json(
+          { error: 'Failed to create user record', details: userCreateError.message },
+          { status: 500 }
+        );
+      }
+
+      publicUser = newUser;
+      console.log('[API] Created public.users record:', publicUser.id);
+    }
+
+    // Now use publicUser.id (not auth userId) for team_members foreign key
+    const publicUserId = publicUser.id;
+    console.log('[API] Using public user ID:', publicUserId);
+
+    // Check if team member record exists (using public.users.id)
     const { data: existingMember, error: checkError } = await supabase
       .from('team_members')
       .select('id, user_id, team_id, role')
-      .eq('user_id', userId)
+      .eq('user_id', publicUserId)
       .maybeSingle();
 
     if (checkError && checkError.code !== 'PGRST116') {
@@ -49,7 +103,7 @@ export async function PUT(request: NextRequest) {
       console.log('[API] Creating new team member record');
 
       const insertData = {
-        user_id: userId,
+        user_id: publicUserId,  // Use public.users.id, not auth id
         team_id: DEFAULT_TEAM_ID,
         role: 'player',
         positions,
@@ -84,7 +138,7 @@ export async function PUT(request: NextRequest) {
       const { data, error } = await supabase
         .from('team_members')
         .update(updateData)
-        .eq('user_id', userId)
+        .eq('user_id', publicUserId)  // Use public.users.id, not auth id
         .select()
         .single();
 

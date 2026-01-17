@@ -87,13 +87,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Fetch team member data (positions, role, team_id)
-  const fetchTeamMemberData = async (userId: string) => {
+  const fetchTeamMemberData = async (authUserId: string) => {
     try {
+      // First, get the public.users.id from auth_id
+      // team_members.user_id is a foreign key to public.users.id, not auth.users.id
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_id', authUserId)
+        .maybeSingle();
+
+      if (!publicUser) {
+        console.log('[AuthContext] No public user record found, will be created on first save');
+        // Set safe defaults - public user will be created when they save positions
+        setTeamId(DEFAULT_TEAM_ID);
+        setUserRole('player');
+        setUserPositions([]);
+        return;
+      }
+
+      const publicUserId = publicUser.id;
+      console.log('[AuthContext] Found public user ID:', publicUserId);
+
       // Add timeout to prevent hanging
       const fetchPromise = supabase
         .from('team_members')
         .select('position, positions, role, team_id')
-        .eq('user_id', userId)
+        .eq('user_id', publicUserId)  // Use public.users.id, not auth id
         .maybeSingle();
 
       const timeoutPromise = new Promise((_, reject) =>
