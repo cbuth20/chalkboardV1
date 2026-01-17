@@ -82,13 +82,46 @@ export const handler: Handler = async (event, context) => {
         return {
           ...playbook,
           metadata: metadata || null,
+          isBuiltPlay: metadata?.is_built_play || false,
         };
       });
+
+      // Also fetch built plays (those with is_built_play = true but might not have files in storage)
+      const { data: builtPlays, error: builtPlaysError } = await supabase
+        .from('playbook_metadata')
+        .select('*')
+        .eq('is_built_play', true);
+
+      if (builtPlaysError) {
+        console.warn('Failed to fetch built plays:', builtPlaysError);
+      }
+
+      // Add built plays that aren't already in the list
+      const builtPlayRecords = (builtPlays || [])
+        .filter(bp => {
+          // Only include if not already in playbooksWithMetadata
+          const filePath = bp.file_paths?.[0] || '';
+          return !playbooksWithMetadata.some(p => `${FOLDER_PATH}/${p.fileName}` === filePath);
+        })
+        .map(bp => ({
+          id: bp.id,
+          name: bp.formation_name || 'Built Play',
+          fileName: `built-play-${bp.id}.json`,
+          type: 'built-play',
+          uploadedAt: bp.created_at || new Date().toISOString(),
+          tags: [],
+          playType: bp.play_data?.metadata?.playType || 'Unknown',
+          url: '', // No URL for built plays
+          metadata: bp,
+          isBuiltPlay: true,
+        }));
+
+      const allPlaybooks = [...playbooksWithMetadata, ...builtPlayRecords];
 
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(playbooksWithMetadata),
+        body: JSON.stringify(allPlaybooks),
       };
     } catch (error: any) {
       console.error('Error fetching playbooks:', error);
@@ -106,60 +139,105 @@ export const handler: Handler = async (event, context) => {
   // POST - Upload new playbook to Supabase Storage with optional metadata
   if (httpMethod === 'POST') {
     try {
-      const { fileName, fileData, metadata } = JSON.parse(event.body || '{}');
+      const { fileName, fileData, playData, metadata, teamId, isBuiltPlay } = JSON.parse(event.body || '{}');
 
-      if (!fileName || !fileData) {
+      // Validation: Either fileData (for uploads) or playData (for built plays) must be provided
+      if (!fileName || (!fileData && !playData)) {
         return {
           statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'fileName and fileData are required' }),
+          body: JSON.stringify({ error: 'fileName and either fileData or playData are required' }),
         };
       }
 
-      // Convert base64 to buffer
-      const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
-      const buffer = Buffer.from(base64Data, 'base64');
+      let filePath: string;
+      let publicUrl: string;
+      let ext: string | undefined;
 
-      // Determine content type from file extension
-      const ext = fileName.split('.').pop()?.toLowerCase();
-      const contentType = ext === 'pdf'
-        ? 'application/pdf'
-        : ext === 'png'
-        ? 'image/png'
-        : ext === 'jpg' || ext === 'jpeg'
-        ? 'image/jpeg'
-        : 'application/octet-stream';
+      // Handle built plays differently from file uploads
+      if (isBuiltPlay && playData) {
+        // For built plays, we don't upload a file to storage
+        // Instead, we'll store the play data in metadata
+        filePath = `${FOLDER_PATH}/${fileName}`;
+        ext = 'json'; // Built plays are JSON
+        publicUrl = ''; // No public URL for built plays
 
-      // Upload to Supabase Storage
-      const filePath = `${FOLDER_PATH}/${fileName}`;
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(filePath, buffer, {
-          contentType,
-          upsert: true, // Replace if file already exists
-        });
+        console.log('[Built Play] Skipping file upload, will store play data in metadata');
+      } else if (fileData) {
+        // Standard file upload path
+        // Convert base64 to buffer
+        const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
+        const buffer = Buffer.from(base64Data, 'base64');
 
-      if (error) {
-        console.error('Supabase upload error:', error);
+        // Determine content type from file extension
+        ext = fileName.split('.').pop()?.toLowerCase();
+        const contentType = ext === 'pdf'
+          ? 'application/pdf'
+          : ext === 'png'
+          ? 'image/png'
+          : ext === 'jpg' || ext === 'jpeg'
+          ? 'image/jpeg'
+          : 'application/octet-stream';
+
+        // Upload to Supabase Storage
+        filePath = `${FOLDER_PATH}/${fileName}`;
+        const { data, error } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(filePath, buffer, {
+            contentType,
+            upsert: true, // Replace if file already exists
+          });
+
+        if (error) {
+          console.error('Supabase upload error:', error);
+          return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: 'Failed to upload to storage',
+              message: error.message,
+            }),
+          };
+        }
+
+        // Get public URL for the uploaded file
+        const { data: urlData } = supabase.storage
+          .from(BUCKET_NAME)
+          .getPublicUrl(filePath);
+
+        publicUrl = urlData.publicUrl;
+      } else {
         return {
-          statusCode: 500,
+          statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            error: 'Failed to upload to storage',
-            message: error.message,
-          }),
+          body: JSON.stringify({ error: 'Invalid request: either fileData or playData must be provided' }),
         };
       }
 
-      // Get public URL for the uploaded file
-      const { data: urlData } = supabase.storage
-        .from(BUCKET_NAME)
-        .getPublicUrl(filePath);
+      // Ensure team exists (create default team if using placeholder UUID)
+      if (teamId === '00000000-0000-0000-0000-000000000000') {
+        const { data: existingTeam } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('id', teamId)
+          .single();
+
+        if (!existingTeam) {
+          // Create default team
+          await supabase.from('teams').insert({
+            id: teamId,
+            name: 'Default Team',
+            slug: 'default-team',
+            season: '2024',
+          });
+        }
+      }
 
       // Save metadata if provided
       let savedMetadata = null;
-      if (metadata) {
+      if (metadata && teamId) {
         const metadataToSave = {
+          team_id: teamId,
           file_paths: metadata.file_paths || [filePath],
           side_of_ball: metadata.side_of_ball,
           content_type: metadata.content_type,
@@ -168,6 +246,8 @@ export const handler: Handler = async (event, context) => {
           formation_name: metadata.formation_name,
           concept_name: metadata.concept_name,
           custom_notes: metadata.custom_notes,
+          is_built_play: isBuiltPlay || false, // Mark if this is a built play
+          play_data: isBuiltPlay && playData ? playData : null, // Store structured play data
         };
 
         const { data: metadataData, error: metadataError } = await supabase
@@ -178,22 +258,31 @@ export const handler: Handler = async (event, context) => {
 
         if (metadataError) {
           console.error('Failed to save metadata:', metadataError);
+          console.error('Metadata error details:', {
+            code: metadataError.code,
+            message: metadataError.message,
+            details: metadataError.details,
+            hint: metadataError.hint,
+          });
           // Continue without failing the upload
         } else {
           savedMetadata = metadataData;
         }
+      } else if (metadata && !teamId) {
+        console.warn('Metadata provided but teamId missing - skipping metadata save');
       }
 
       const newPlay = {
         id: fileName,
         name: fileName.replace(/\.[^/.]+$/, ''),
         fileName,
-        type: ext === 'pdf' ? 'pdf' : 'image',
+        type: isBuiltPlay ? 'built-play' : (ext === 'pdf' ? 'pdf' : 'image'),
         uploadedAt: new Date().toISOString(),
         tags: [],
-        playType: 'Unknown',
-        url: urlData.publicUrl,
+        playType: isBuiltPlay && playData ? playData.metadata.playType : 'Unknown',
+        url: publicUrl,
         metadata: savedMetadata,
+        isBuiltPlay: isBuiltPlay || false,
       };
 
       return {
