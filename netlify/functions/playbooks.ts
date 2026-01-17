@@ -306,9 +306,9 @@ export const handler: Handler = async (event, context) => {
   // DELETE - Remove a playbook (file, metadata, and associated play records)
   if (httpMethod === 'DELETE') {
     try {
-      const { fileName, metadataId } = JSON.parse(event.body || '{}');
+      const { fileName, metadataId: providedMetadataId } = JSON.parse(event.body || '{}');
 
-      if (!fileName && !metadataId) {
+      if (!fileName && !providedMetadataId) {
         return {
           statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -316,33 +316,61 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
-      console.log('[Delete Playbook] Deleting:', { fileName, metadataId });
+      console.log('[Delete Playbook] Request:', { fileName, metadataId: providedMetadataId });
 
+      let metadataId = providedMetadataId;
       let metadata;
 
-      // If we have metadataId, find the associated file paths
+      // If we have metadataId, verify it exists
       if (metadataId) {
+        console.log('[Delete Playbook] Fetching metadata by ID:', metadataId);
         const { data: metadataRecord, error: metadataFetchError } = await supabase
           .from('playbook_metadata')
-          .select('file_paths')
+          .select('id, file_paths, is_built_play')
           .eq('id', metadataId)
-          .single();
+          .maybeSingle();
 
-        if (!metadataFetchError && metadataRecord) {
-          metadata = metadataRecord;
+        if (metadataFetchError) {
+          console.error('[Delete Playbook] Error fetching metadata:', metadataFetchError);
+          return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Failed to fetch metadata', details: metadataFetchError.message }),
+          };
         }
+
+        if (!metadataRecord) {
+          console.error('[Delete Playbook] Metadata not found:', metadataId);
+          return {
+            statusCode: 404,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Metadata record not found' }),
+          };
+        }
+
+        metadata = metadataRecord;
+        console.log('[Delete Playbook] Found metadata:', metadata);
       } else if (fileName) {
         // Find metadata by file path
         const filePath = `${FOLDER_PATH}/${fileName}`;
+        console.log('[Delete Playbook] Looking up metadata by file path:', filePath);
+
         const { data: metadataRecord, error: metadataFetchError } = await supabase
           .from('playbook_metadata')
-          .select('id, file_paths')
+          .select('id, file_paths, is_built_play')
           .overlaps('file_paths', [filePath])
           .maybeSingle();
 
-        if (!metadataFetchError && metadataRecord) {
+        if (metadataFetchError) {
+          console.error('[Delete Playbook] Error looking up metadata:', metadataFetchError);
+        }
+
+        if (metadataRecord) {
           metadata = metadataRecord;
           metadataId = metadataRecord.id;
+          console.log('[Delete Playbook] Found metadata by file path:', metadataId);
+        } else {
+          console.log('[Delete Playbook] No metadata found for file, will only delete file from storage');
         }
       }
 
@@ -355,43 +383,83 @@ export const handler: Handler = async (event, context) => {
           .select('id')
           .eq('playbook_metadata_id', metadataId);
 
-        if (!playsError && associatedPlays && associatedPlays.length > 0) {
-          console.log('[Delete Playbook] Found', associatedPlays.length, 'associated plays');
+        if (playsError) {
+          console.error('[Delete Playbook] Error fetching plays:', playsError);
+        }
+
+        if (associatedPlays && associatedPlays.length > 0) {
+          console.log('[Delete Playbook] Found', associatedPlays.length, 'associated plays, deleting...');
 
           for (const play of associatedPlays) {
             // Delete assignments for this play
-            await supabase
+            const { error: assignmentError } = await supabase
               .from('play_assignments')
               .delete()
               .eq('play_id', play.id);
 
+            if (assignmentError) {
+              console.error('[Delete Playbook] Error deleting assignments:', assignmentError);
+            }
+
             // Delete flashcards for this play
-            await supabase
+            const { error: flashcardError } = await supabase
               .from('flashcard_templates')
               .delete()
               .eq('play_id', play.id);
 
+            if (flashcardError) {
+              console.error('[Delete Playbook] Error deleting flashcards:', flashcardError);
+            }
+
             // Delete the play itself
-            await supabase
+            const { error: playDeleteError } = await supabase
               .from('plays')
               .delete()
               .eq('id', play.id);
 
-            console.log('[Delete Playbook] Deleted play and related data:', play.id);
+            if (playDeleteError) {
+              console.error('[Delete Playbook] Error deleting play:', playDeleteError);
+            } else {
+              console.log('[Delete Playbook] Deleted play and related data:', play.id);
+            }
           }
+        } else {
+          console.log('[Delete Playbook] No associated plays found');
         }
 
         // Step 2: Delete the metadata record
-        console.log('[Delete Playbook] Deleting metadata:', metadataId);
-        const { error: metadataDeleteError } = await supabase
+        console.log('[Delete Playbook] Deleting metadata record:', metadataId);
+        const { data: deletedMetadata, error: metadataDeleteError, count } = await supabase
           .from('playbook_metadata')
           .delete()
-          .eq('id', metadataId);
+          .eq('id', metadataId)
+          .select();
 
         if (metadataDeleteError) {
           console.error('[Delete Playbook] Error deleting metadata:', metadataDeleteError);
-          // Continue anyway - file should still be deleted
+          return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: 'Failed to delete metadata',
+              details: metadataDeleteError.message
+            }),
+          };
         }
+
+        if (!deletedMetadata || deletedMetadata.length === 0) {
+          console.error('[Delete Playbook] Metadata was not deleted (no rows affected)');
+          return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: 'Failed to delete metadata',
+              details: 'No rows were deleted. The metadata record may not exist or there may be a permissions issue.'
+            }),
+          };
+        }
+
+        console.log('[Delete Playbook] Metadata deleted successfully:', deletedMetadata);
       }
 
       // Step 3: Delete the file from storage (if not a built play)

@@ -587,22 +587,28 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
     try {
       const apiUrl = getPlaybooksApiUrl();
+      const deletePayload = {
+        fileName: selectedPlay.fileName,
+        metadataId: selectedPlay.metadata?.id, // Include metadata ID for cascade delete
+      };
+
+      console.log('[Delete Play] Request payload:', deletePayload);
+      console.log('[Delete Play] Selected play:', selectedPlay);
+
       const response = await fetch(apiUrl, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: selectedPlay.fileName,
-          metadataId: selectedPlay.metadata?.id, // Include metadata ID for cascade delete
-        }),
+        body: JSON.stringify(deletePayload),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('[Delete Play] API error response:', errorData);
         throw new Error(errorData.error || 'Failed to delete play');
       }
 
       const result = await response.json();
-      console.log('[Delete Play] Success:', result);
+      console.log('[Delete Play] API success response:', result);
 
       // Show success message
       alert('Playbook deleted successfully!\n\nDeleted:\n• File from storage\n• Metadata record\n• Associated play records\n• All assignments and flashcards');
