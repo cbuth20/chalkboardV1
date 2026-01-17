@@ -13,6 +13,9 @@ export async function GET(request: NextRequest) {
     const teamId = searchParams.get('teamId');
     const playId = searchParams.get('playId');
     const type = searchParams.get('type') || 'all';
+    const playType = searchParams.get('playType'); // PASS, RUN, RPO, etc.
+    const formation = searchParams.get('formation');
+    const position = searchParams.get('position'); // Filter by position visibility
 
     if (!teamId) {
       return NextResponse.json(
@@ -52,6 +55,35 @@ export async function GET(request: NextRequest) {
     // Filter by specific play if provided
     if (playId) {
       playsQuery = playsQuery.eq('id', playId);
+    }
+
+    // Filter by play type (PASS, RUN, RPO, etc.)
+    if (playType) {
+      playsQuery = playsQuery.eq('play_type', playType.toUpperCase());
+    }
+
+    // Filter by formation
+    if (formation) {
+      playsQuery = playsQuery.eq('formation_name', formation);
+    }
+
+    // Filter by position visibility
+    // Only show plays where this position has an assignment or is in visible_to_positions
+    if (position) {
+      const { data: assignedPlays, error: assignmentError } = await supabase
+        .from('play_assignments')
+        .select('play_id')
+        .or(`position.eq.${position.toUpperCase()},visible_to_positions.cs.["${position.toUpperCase()}"]`);
+
+      if (assignmentError) {
+        console.error('Error fetching position assignments:', assignmentError);
+      } else if (assignedPlays && assignedPlays.length > 0) {
+        const playIds = assignedPlays.map(a => a.play_id);
+        playsQuery = playsQuery.in('id', playIds);
+      } else {
+        // No plays found for this position, return empty array
+        return NextResponse.json({ plays: [] });
+      }
     }
 
     const { data: plays, error: playsError } = await playsQuery;

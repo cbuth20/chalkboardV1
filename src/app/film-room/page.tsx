@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect } from 'react';
-import PlayerNavbar from '@/components/PlayerNavbar';
+import { SidebarLayout } from '@/components/SidebarLayout';
 import {
   FilmRoomProvider,
   useFilmRoom,
@@ -121,10 +121,8 @@ function FilmRoomContent() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      <PlayerNavbar />
-
-      <main className="flex h-[calc(100vh-64px)]">
+    <SidebarLayout>
+      <main className="flex h-screen">
         {/* ═══════════════════════════════════════════════════════════════════
             LEFT SIDEBAR — Clips & Playlists
         ═══════════════════════════════════════════════════════════════════ */}
@@ -252,7 +250,7 @@ function FilmRoomContent() {
           </aside>
         )}
       </main>
-    </div>
+    </SidebarLayout>
   );
 }
 

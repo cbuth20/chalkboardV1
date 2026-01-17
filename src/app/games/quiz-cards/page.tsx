@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import PlayerNavbar from "@/components/PlayerNavbar";
+import { SidebarLayout } from "@/components/SidebarLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DEV_TEAM_ID } from "@/lib/constants";
 
@@ -133,22 +133,20 @@ function QuizCardsGame() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] text-white">
-        <PlayerNavbar />
-        <div className="flex h-[calc(100vh-64px)] items-center justify-center">
+      <SidebarLayout>
+        <div className="flex h-screen items-center justify-center text-white">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
             <span className="text-sm text-slate-400">Loading quiz cards...</span>
           </div>
         </div>
-      </div>
+      </SidebarLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <PlayerNavbar />
-      <main className="flex h-[calc(100vh-64px)]">
+    <SidebarLayout>
+      <main className="flex h-screen text-white">
         {/* Left Sidebar: Play Selection */}
         <aside className="flex w-72 flex-col border-r border-[#1B1E20] bg-[#0A0A0A]">
           <div className="flex items-center justify-between border-b border-[#1B1E20] px-4 py-3">
@@ -323,6 +321,6 @@ function QuizCardsGame() {
           )}
         </div>
       </main>
-    </div>
+    </SidebarLayout>
   );
 }

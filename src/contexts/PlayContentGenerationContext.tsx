@@ -88,63 +88,92 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               playbookMetadataId: play.metadataId,
+              imageUrl: play.url,
               fileName: play.fileName,
               teamId: teamId,
             }),
           });
 
           if (!createResponse.ok) {
-            throw new Error(`Failed to create play record for ${play.name}`);
+            const errorData = await createResponse.json().catch(() => ({}));
+            console.error('Failed to create play record:', {
+              play: play.name,
+              status: createResponse.status,
+              statusText: createResponse.statusText,
+              error: errorData
+            });
+            throw new Error(`Failed to create play record for ${play.name}: ${errorData.error || createResponse.statusText}`);
           }
 
-          const { playId } = await createResponse.json();
+          const createData = await createResponse.json();
+          const playId = createData.playId;
           console.log(`Play record created with ID: ${playId}`);
 
-          // Step 2: Trigger background processing
-          await fetch(processUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              playId,
-              imageUrl: play.url,
+          // Check if we're on localhost (where everything is done in one call)
+          const isLocalhost = typeof window !== 'undefined' &&
+                            (window.location.hostname === 'localhost' ||
+                             window.location.hostname === '127.0.0.1');
+
+          if (isLocalhost) {
+            // On localhost, the endpoint does everything in one call
+            // No need for Step 2 or Step 3
+            results.push({
+              playId: playId,
+              playMetadataId: play.metadataId || '',
               fileName: play.fileName,
-              generateInsights: true,
-              generateAssignments: true,
-              generateKnowledge: true,
-            }),
-          });
+              playName: play.name,
+              imageUrl: play.url,
+              content: createData,
+            });
+          } else {
+            // On production, we need background processing
 
-          // Step 3: Poll for completion
-          let attempts = 0;
-          const maxAttempts = 300; // 15 minutes
-          let complete = false;
+            // Step 2: Trigger background processing
+            await fetch(processUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                playId,
+                imageUrl: play.url,
+                fileName: play.fileName,
+                generateInsights: true,
+                generateAssignments: true,
+                generateKnowledge: true,
+              }),
+            });
 
-          while (!complete && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
-            attempts++;
+            // Step 3: Poll for completion
+            let attempts = 0;
+            const maxAttempts = 300; // 15 minutes
+            let complete = false;
 
-            const statusResponse = await fetch(`${statusUrl}?playId=${playId}`);
-            if (statusResponse.ok) {
-              const statusData = await statusResponse.json();
+            while (!complete && attempts < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+              attempts++;
 
-              if (statusData.status === 'draft') {
-                complete = true;
-                results.push({
-                  playId: statusData.playId,
-                  playMetadataId: play.metadataId || '',
-                  fileName: play.fileName,
-                  playName: play.name,
-                  imageUrl: play.url,
-                  content: statusData,
-                });
-              } else if (statusData.status === 'rejected') {
-                throw new Error(`Generation failed for ${play.name}`);
+              const statusResponse = await fetch(`${statusUrl}?playId=${playId}`);
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+
+                if (statusData.status === 'draft') {
+                  complete = true;
+                  results.push({
+                    playId: statusData.playId,
+                    playMetadataId: play.metadataId || '',
+                    fileName: play.fileName,
+                    playName: play.name,
+                    imageUrl: play.url,
+                    content: statusData,
+                  });
+                } else if (statusData.status === 'rejected') {
+                  throw new Error(`Generation failed for ${play.name}`);
+                }
               }
             }
-          }
 
-          if (!complete) {
-            throw new Error(`Timeout waiting for ${play.name} to complete`);
+            if (!complete) {
+              throw new Error(`Timeout waiting for ${play.name} to complete`);
+            }
           }
 
           // Update progress

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import PlayerNavbar from "@/components/PlayerNavbar";
+import { SidebarLayout } from "@/components/SidebarLayout";
 import { ToastProvider, useToast } from "@/components/playbook-builder";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DEV_TEAM_ID } from "@/lib/constants";
@@ -114,15 +114,14 @@ function PlaybookBuilder() {
 
   if (!isLoaded) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] text-white">
-        <PlayerNavbar />
-        <div className="flex h-[calc(100vh-64px)] items-center justify-center">
+      <SidebarLayout>
+        <div className="flex h-screen items-center justify-center">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
             <span className="text-sm text-slate-400">Loading playbook...</span>
           </div>
         </div>
-      </div>
+      </SidebarLayout>
     );
   }
 
@@ -131,9 +130,8 @@ function PlaybookBuilder() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <PlayerNavbar />
-      <main className="flex h-[calc(100vh-64px)]">
+    <SidebarLayout>
+      <main className="flex h-screen text-white">
         {/* Left Sidebar: Play List */}
         <aside className="flex w-72 flex-col border-r border-[#1B1E20] bg-[#0A0A0A]">
           {/* Header */}
@@ -300,6 +298,6 @@ function PlaybookBuilder() {
           )}
         </div>
       </main>
-    </div>
+    </SidebarLayout>
   );
 }

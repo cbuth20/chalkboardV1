@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, ChevronDown, ChevronUp, CheckCircle, XCircle } from 'lucide-react';
 import { GeneratedContent, EditedContent } from '@/types/play-content';
+import { PlayRenderer } from './PlayRenderer';
 
 interface GeneratedPlayContent {
   playId: string;
@@ -18,6 +19,8 @@ interface PlayContentReviewModalProps {
   content?: GeneratedContent;
   playName?: string;
   imageUrl?: string;
+  playData?: any; // BuiltPlayData
+  isBuiltPlay?: boolean;
   multipleContents?: GeneratedPlayContent[];
   onClose: () => void;
   onApprove: (editedContent: EditedContent, notes: string, playId?: string) => Promise<void>;
@@ -29,6 +32,8 @@ export default function PlayContentReviewModal({
   content,
   playName,
   imageUrl,
+  playData,
+  isBuiltPlay,
   multipleContents,
   onClose,
   onApprove,
@@ -260,18 +265,22 @@ export default function PlayContentReviewModal({
 
         {/* Content */}
         <div className="px-6 py-4 space-y-4">
-          {/* Play Image */}
-          {currentImageUrl && (
+          {/* Play Diagram */}
+          {(currentImageUrl || (isBuiltPlay && playData)) && (
             <div className="bg-[#1A1F28] border border-[#1E2732] rounded-lg p-4">
               <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
                 Play Diagram
               </h3>
               <div className="rounded-lg overflow-hidden bg-[#0F1419] border border-[#1E2732]">
-                <img
-                  src={currentImageUrl}
-                  alt={currentPlayName || 'Play diagram'}
-                  className="w-full h-auto max-h-[400px] object-contain"
-                />
+                {isBuiltPlay && playData ? (
+                  <PlayRenderer playData={playData} className="max-h-[400px]" />
+                ) : currentImageUrl ? (
+                  <img
+                    src={currentImageUrl}
+                    alt={currentPlayName || 'Play diagram'}
+                    className="w-full h-auto max-h-[400px] object-contain"
+                  />
+                ) : null}
               </div>
             </div>
           )}

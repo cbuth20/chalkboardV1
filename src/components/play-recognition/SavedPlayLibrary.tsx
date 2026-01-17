@@ -5,12 +5,12 @@ import {
   getCreatePlayRecordApiUrl,
   getProcessPlayContentApiUrl,
   getReviewPlayContentApiUrl,
-  getClearPlayContentApiUrl,
   getCheckPlayStatusApiUrl,
 } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import PlayContentReviewModal from './PlayContentReviewModal';
 import { usePlayContentGeneration } from '@/contexts/PlayContentGenerationContext';
+import { PlayRenderer } from './PlayRenderer';
 
 interface Play {
   id: string;
@@ -21,15 +21,21 @@ interface Play {
   tags: string[];
   playType: string;
   url: string;
-  metadata?: PlaybookMetadataInput & { id: string };
+  metadata?: PlaybookMetadataInput & {
+    id: string;
+    is_built_play?: boolean;
+    play_data?: any; // BuiltPlayData from PlayBuilder
+  };
+  isBuiltPlay?: boolean;
 }
 
 interface SavedPlayLibraryProps {
   onSelectPlay: (url: string, fileName: string, type: 'pdf' | 'image') => void;
-  onNewScan: () => void;
+  onFileUpload: () => void;
+  onCreatePlay: () => void;
 }
 
-export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onNewScan }) => {
+export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onFileUpload, onCreatePlay }) => {
   const [plays, setPlays] = useState<Play[]>([]);
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -288,18 +294,25 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         console.log('📝 Local dev: Using all-in-one API');
         const apiUrl = '/api/generate-play-content';
 
+        // For built plays, send playData instead of imageUrl
+        const isBuiltPlay = selectedPlay.type === 'built-play' || selectedPlay.isBuiltPlay;
+        const requestBody = {
+          playbookMetadataId: metadataId,
+          fileName: selectedPlay.fileName,
+          teamId: teamId || 'default-team-id',
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
+          ...(isBuiltPlay && selectedPlay.metadata?.play_data
+            ? { playData: selectedPlay.metadata.play_data }
+            : { imageUrl: selectedPlay.url }
+          ),
+        };
+
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playbookMetadataId: metadataId,
-            imageUrl: selectedPlay.url,
-            fileName: selectedPlay.fileName,
-            teamId: teamId || 'default-team-id',
-            generateInsights: true,
-            generateAssignments: true,
-            generateKnowledge: true,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -340,17 +353,25 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       // Step 2: Trigger background processing
       console.log('🚀 Step 2: Starting background AI generation...');
       const processUrl = getProcessPlayContentApiUrl();
+
+      // For built plays, send playData instead of imageUrl
+      const isBuiltPlay = selectedPlay.type === 'built-play' || selectedPlay.isBuiltPlay;
+      const processRequestBody = {
+        playId,
+        fileName: selectedPlay.fileName,
+        generateInsights: true,
+        generateAssignments: true,
+        generateKnowledge: true,
+        ...(isBuiltPlay && selectedPlay.metadata?.play_data
+          ? { playData: selectedPlay.metadata.play_data }
+          : { imageUrl: selectedPlay.url }
+        ),
+      };
+
       const processResponse = await fetch(processUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playId,
-          imageUrl: selectedPlay.url,
-          fileName: selectedPlay.fileName,
-          generateInsights: true,
-          generateAssignments: true,
-          generateKnowledge: true,
-        }),
+        body: JSON.stringify(processRequestBody),
       });
 
       // Background function returns 202 immediately
@@ -555,61 +576,6 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
   };
 
-  // Clear generated content (assignments, insights, flashcards) for regeneration
-  const handleClearContent = async () => {
-    if (!selectedPlay?.metadata?.id) {
-      alert('No metadata found for this play');
-      return;
-    }
-
-    console.log('Clearing content for play:', selectedPlay.name);
-    console.log('Metadata ID:', selectedPlay.metadata.id);
-
-    const confirmMessage = `Clear generated content for "${selectedPlay.name}"?\n\nThis will delete:\n• All position assignments\n• AI-generated insights\n• Quiz/flashcard questions\n\nYou can then regenerate fresh content. The play file and metadata will NOT be deleted.`;
-
-    if (!confirm(confirmMessage)) return;
-
-    try {
-      const apiUrl = getClearPlayContentApiUrl();
-      console.log('API URL:', apiUrl);
-      console.log('Sending request with metadataId:', selectedPlay.metadata.id);
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          metadataId: selectedPlay.metadata.id,
-        }),
-      });
-
-      const result = await response.json();
-      console.log('Clear content response:', result);
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to clear content');
-      }
-
-      // Show success message with counts
-      if (result.deleted) {
-        const { plays, assignments, flashcards } = result.deleted;
-        const message = `Successfully cleared:\n• ${plays} play record(s)\n• ${assignments} assignment(s)\n• ${flashcards} flashcard(s)\n\n${result.warning || 'You can now regenerate content for this play.'}`;
-        alert(message);
-      } else if (result.warning) {
-        alert(`${result.message}\n\n${result.warning}`);
-      } else {
-        alert('Content cleared successfully. You can now regenerate content.');
-      }
-
-      // Refresh play library to update UI
-      const fetchUrl = getPlaybooksApiUrl();
-      const fetchResponse = await fetch(fetchUrl);
-      const data = await fetchResponse.json();
-      setPlays(data);
-    } catch (err: any) {
-      console.error('Failed to clear content:', err);
-      alert(`Failed to clear content: ${err.message}\n\nCheck console for details.`);
-    }
-  };
 
   // Delete play
   const handleDeletePlay = async () => {
@@ -693,15 +659,28 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               {plays.length}
             </span>
           </div>
-          <button
-            onClick={onNewScan}
-            className="w-full bg-[#00F6E5] text-black font-bold px-4 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-2 mb-2"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M12 5v14"/><path d="M5 12h14"/>
-            </svg>
-            NEW SCAN
-          </button>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              onClick={onFileUpload}
+              className="bg-[#00F6E5] text-black font-bold px-3 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-1.5 text-xs"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              FILE UPLOAD
+            </button>
+            <button
+              onClick={onCreatePlay}
+              className="bg-[#A855F7] text-white font-bold px-3 py-2.5 rounded-lg hover:bg-[#9333EA] transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] flex items-center justify-center gap-1.5 text-xs"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+              CREATE PLAY
+            </button>
+          </div>
 
           {/* Multi-select controls */}
           <div className="flex gap-2">
@@ -824,16 +803,6 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                   )}
                 </button>
                 <button
-                  onClick={handleClearContent}
-                  className="flex items-center gap-1.5 rounded-lg bg-orange-900/20 px-3 py-2 text-xs font-semibold text-orange-400 transition-colors hover:bg-orange-900/30"
-                  title="Clear generated content to regenerate"
-                >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Clear Content
-                </button>
-                <button
                   onClick={handleDeletePlay}
                   className="flex items-center gap-1.5 rounded-lg bg-red-900/20 px-3 py-2 text-xs font-semibold text-red-400 transition-colors hover:bg-red-900/30"
                 >
@@ -843,15 +812,22 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               </div>
             </div>
 
-            {/* Image Preview */}
+            {/* Play Preview */}
             <div className="mb-6 rounded-lg border border-[#1B1E20] bg-[#0d1117] overflow-hidden">
-              {selectedPlay.type === 'image' ? (
+              {selectedPlay.type === 'built-play' && selectedPlay.metadata?.play_data ? (
+                // Built play - render visually
+                <div className="p-6">
+                  <PlayRenderer playData={selectedPlay.metadata.play_data} className="max-h-[500px]" />
+                </div>
+              ) : selectedPlay.type === 'image' ? (
+                // Uploaded image
                 <img
                   src={selectedPlay.url}
                   alt={selectedPlay.name}
                   className="w-full h-auto max-h-[500px] object-contain"
                 />
               ) : (
+                // PDF document
                 <div className="flex items-center justify-center h-64 text-slate-400">
                   <div className="text-center">
                     <svg className="mx-auto h-12 w-12 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1047,6 +1023,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
           content={generatedContent}
           playName={selectedPlay?.name || 'Untitled Play'}
           imageUrl={selectedPlay?.url}
+          playData={selectedPlay?.metadata?.play_data}
+          isBuiltPlay={selectedPlay?.type === 'built-play' || selectedPlay?.isBuiltPlay}
           multipleContents={generatedContents.length > 0 ? generatedContents : undefined}
           onClose={() => {
             setShowReviewModal(false);

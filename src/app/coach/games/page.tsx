@@ -1,6 +1,6 @@
 "use client";
 
-import PlayerNavbar from "@/components/PlayerNavbar";
+import { SidebarLayout } from "@/components/SidebarLayout";
 import { useState, useEffect } from "react";
 import type {
   CoachDashboardResponse,
@@ -54,10 +54,8 @@ export default function CoachGamesDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <PlayerNavbar />
-
-      <main className="mx-auto max-w-[1600px] px-4 py-6 lg:px-8">
+    <SidebarLayout>
+      <main className="mx-auto max-w-[1600px] px-4 py-6 lg:px-8 holographic-grid">
         {/* ═══════════════════════════════════════════════════════════════════
             HEADER
         ═══════════════════════════════════════════════════════════════════ */}
@@ -204,7 +202,7 @@ export default function CoachGamesDashboard() {
           </div>
         </section>
       </main>
-    </div>
+    </SidebarLayout>
   );
 }
 
@@ -799,24 +797,28 @@ function IQBadge({
 
 function LoadingState() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A]">
-      <div className="text-center">
-        <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
-        <div className="text-sm text-slate-400">Loading dashboard...</div>
+    <SidebarLayout>
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
+          <div className="text-sm text-slate-400">Loading dashboard...</div>
+        </div>
       </div>
-    </div>
+    </SidebarLayout>
   );
 }
 
 function ErrorState() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A]">
-      <div className="text-center">
-        <AlertIcon className="mx-auto mb-4 h-12 w-12 text-[#FF6A3D]" />
-        <div className="text-lg font-bold text-white">Failed to load dashboard</div>
-        <div className="text-sm text-slate-400">Please try refreshing the page</div>
+    <SidebarLayout>
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <AlertIcon className="mx-auto mb-4 h-12 w-12 text-[#FF6A3D]" />
+          <div className="text-lg font-bold text-white">Failed to load dashboard</div>
+          <div className="text-sm text-slate-400">Please try refreshing the page</div>
+        </div>
       </div>
-    </div>
+    </SidebarLayout>
   );
 }
 

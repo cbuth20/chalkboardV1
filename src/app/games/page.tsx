@@ -1,6 +1,6 @@
 "use client";
 
-import PlayerNavbar from "@/components/PlayerNavbar";
+import { SidebarLayout } from "@/components/SidebarLayout";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -100,6 +100,21 @@ const GAMES = [
     isNew: false,
   },
   {
+    id: "play-name-id",
+    title: "PLAY NAME ID",
+    subtitle: "Play Recognition",
+    description: "Study the play diagram and select the correct play name. Master your playbook knowledge.",
+    icon: "book",
+    color: "teal",
+    difficulty: "ALL LEVELS",
+    avgTime: "90s",
+    plays: 10,
+    accuracy: 0,
+    streak: 0,
+    isHot: false,
+    isNew: true,
+  },
+  {
     id: "red-zone-scenarios",
     title: "RED ZONE",
     subtitle: "Scenario Decisions",
@@ -176,10 +191,8 @@ export default function GamesPage() {
   const xpProgress = (PLAYER_STATS.xp / PLAYER_STATS.xpToNextLevel) * 100;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] holographic-grid">
-      <PlayerNavbar />
-
-      <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-6">
+    <SidebarLayout>
+      <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-6 holographic-grid">
         {/* ═══════════════════════════════════════════════════════════════════
             TOP HUD BAR — Level, XP, Streak, Mode Toggle
         ═══════════════════════════════════════════════════════════════════ */}
@@ -351,10 +364,10 @@ export default function GamesPage() {
         ═══════════════════════════════════════════════════════════════════ */}
         <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-2">
           {[
-            { key: "all", label: "All Games", count: 8 },
+            { key: "all", label: "All Games", count: 9 },
             { key: "coverage", label: "Coverage & Blitz", count: 2 },
             { key: "routes", label: "Routes & Concepts", count: 3 },
-            { key: "situational", label: "Situational", count: 3 },
+            { key: "situational", label: "Situational", count: 4 },
           ].map((filter) => (
             <button
               key={filter.key}
@@ -440,7 +453,7 @@ export default function GamesPage() {
           <FooterNavItem icon={<UserIcon className="h-5 w-5" />} label="Profile" />
         </div>
       </nav>
-    </div>
+    </SidebarLayout>
   );
 }
 
@@ -458,6 +471,7 @@ function GameCard({ game }: { game: typeof GAMES[0] }) {
     "route-matching": "/games/route-tag",
     "formation-memory": "/games/formation",
     "play-responsibility": "/games/assignment",
+    "play-name-id": "/games/play-name-id",
     "red-zone-scenarios": "/games/red-zone",
     "two-minute-drill": "/games/two-minute",
     "film-reaction": "/games/film-clip",
@@ -770,6 +784,15 @@ function GameIcon({ type, className }: { type: string; className?: string }) {
           <rect x="8" y="2" width="8" height="4" rx="1" />
           <path d="M9 12h6" />
           <path d="M9 16h6" />
+        </svg>
+      );
+    case "book":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          <path d="M9 6h6" />
+          <path d="M9 10h6" />
         </svg>
       );
     case "target":

@@ -2,62 +2,62 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { UserActions } from "./UserActions";
 import { useMode } from "@/contexts/ModeContext";
+import { SidebarUserActions } from "./SidebarUserActions";
 
-export default function PlayerNavbar() {
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  disabled?: boolean;
+}
+
+export default function Sidebar() {
   const pathname = usePathname();
-  const [currentTime, setCurrentTime] = useState<string>("");
   const { mode } = useMode();
-  const navItems = [
-  { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon, disabled: false },
-  { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
-  { name: "GAMES", href: "/games", icon: GamesIcon, disabled: true },
-  { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon, disabled: false },
-  { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: true },
-  { name: "SETTINGS", href: "/settings", icon: SettingsIcon, disabled: false },
-  ...(mode === "coach"
-    ? [
-        { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
-        { name: "TEAM", href: "/coach/team", icon: TeamIcon }
-      ]
-    : []),
-];
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(
-        now.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
-      );
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
+
+  // Player navigation items (6 items)
+  const playerNavItems: NavItem[] = [
+    { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon },
+    { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
+    { name: "GAMES", href: "/games", icon: GamesIcon },
+    { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon },
+    { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: true },
+    { name: "SETTINGS", href: "/settings", icon: SettingsIcon },
+  ];
+
+  // Coach navigation items (5 items)
+  const coachNavItems: NavItem[] = [
+    { name: "PLAYS", href: "/play-recognition", icon: ScannerIcon },
+    { name: "TEAM", href: "/coach/team", icon: TeamIcon },
+    { name: "ASSIGNMENT LIBRARY", href: "/coach/assignments", icon: AssignmentLibraryIcon },
+    { name: "LEADERBOARD", href: "/coach/leaderboard", icon: LeaderboardIcon },
+    { name: "PERFORMANCE", href: "/coach/performance", icon: PerformanceIcon },
+  ];
+
+  // Select navigation based on mode
+  const navItems = mode === "coach" ? coachNavItems : playerNavItems;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[#1B1E20]/80 bg-[#0A0A0A]/95 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-4 lg:px-6">
-        {/* Left Section: Logo + Status */}
-        <div className="flex items-center gap-4">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#00F6E5] to-[#00d4c5] shadow-lg shadow-[#00F6E5]/20 transition-shadow group-hover:shadow-[#00F6E5]/40">
-              <LightningIcon className="h-5 w-5 text-[#0A0A0A]" />
-            </div>
-            <span className="text-xl font-bold tracking-wide text-white">
-              CHALKBOARD
-            </span>
-          </Link>
-        </div>
+    <aside className="fixed left-0 top-0 h-screen w-60 z-50 bg-[#0A0A0A]/95 backdrop-blur-xl border-r border-[#1B1E20]/80 flex flex-col">
+      {/* Logo section */}
+      <div className="p-6 border-b border-[#1B1E20]/80">
+        <Link href="/" className="flex items-center gap-2.5 group">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#00F6E5] to-[#00d4c5] shadow-lg shadow-[#00F6E5]/20 transition-shadow group-hover:shadow-[#00F6E5]/40">
+            <LightningIcon className="h-5 w-5 text-[#0A0A0A]" />
+          </div>
+          <span className="text-xl font-bold tracking-wide text-white">
+            CHALKBOARD
+          </span>
+        </Link>
+      </div>
 
-        {/* Center Section: Navigation */}
-        <nav className="flex items-center gap-1">
+      {/* UserActions section */}
+      <SidebarUserActions />
+
+      {/* Navigation items */}
+      <nav className="flex-1 overflow-y-auto px-4 py-2">
+        <div className="space-y-1">
           {navItems.map((item) => {
             const isActive =
               pathname === item.href ||
@@ -69,12 +69,12 @@ export default function PlayerNavbar() {
               return (
                 <div
                   key={item.name}
-                  className="group relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold uppercase tracking-wide cursor-not-allowed opacity-50"
+                  className="group relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold uppercase tracking-wide cursor-not-allowed opacity-50"
                   title="Coming Soon"
                 >
-                  <item.icon className="h-4 w-4 text-slate-600" />
-                  {item.name}
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block whitespace-nowrap rounded-md bg-[#1B1E20] px-3 py-1.5 text-xs font-medium text-slate-300 shadow-lg">
+                  <item.icon className="h-5 w-5 text-slate-600" />
+                  <span className="text-slate-600">{item.name}</span>
+                  <span className="absolute left-full ml-4 hidden group-hover:block whitespace-nowrap rounded-md bg-[#1B1E20] px-3 py-1.5 text-xs font-medium text-slate-300 shadow-lg">
                     Coming Soon
                   </span>
                 </div>
@@ -85,32 +85,24 @@ export default function PlayerNavbar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold uppercase tracking-wide transition-all duration-200 ${
+                className={`group relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold uppercase tracking-wide transition-all duration-200 ${
                   isActive
-                    ? "bg-[#00F6E5]/10 text-[#00F6E5]"
+                    ? "bg-[#00F6E5]/10 text-[#00F6E5] border-l-4 border-[#00F6E5] -ml-[1px] pl-[15px]"
                     : "text-slate-400 hover:bg-[#1B1E20]/50 hover:text-white"
                 }`}
               >
                 <item.icon
-                  className={`h-4 w-4 ${
+                  className={`h-5 w-5 ${
                     isActive ? "text-[#00F6E5]" : "text-slate-500 group-hover:text-slate-300"
                   }`}
                 />
-                {item.name}
-                {isActive && (
-                  <span className="absolute bottom-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-[#00F6E5] shadow-[0_0_8px_rgba(0,246,229,0.6)]"></span>
-                )}
+                <span>{item.name}</span>
               </Link>
             );
           })}
-        </nav>
-
-        {/* Right Section: Actions */}
-        <div className="flex items-center gap-2">
-          <UserActions />
         </div>
-      </div>
-    </header>
+      </nav>
+    </aside>
   );
 }
 
@@ -234,40 +226,6 @@ function AssignmentIcon({ className }: { className?: string }) {
   );
 }
 
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
-
-function BellIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
-
 function ScannerIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -325,6 +283,65 @@ function TeamIcon({ className }: { className?: string }) {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function AssignmentLibraryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="13" width="7" height="7" rx="1" />
+      <rect x="13" y="3" width="7" height="7" rx="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1" />
+      <path d="M6 6v2m0 0v2m0-2h2m-2 0H4" />
+      <path d="M16 6v2m0 0v2m0-2h2m-2 0h-2" />
+    </svg>
+  );
+}
+
+function LeaderboardIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 21h8" />
+      <path d="M12 21v-4" />
+      <path d="M6 13H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2" />
+      <path d="M18 13h2a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2" />
+      <rect x="6" y="7" width="12" height="14" rx="1" />
+      <line x1="9" y1="3" x2="15" y2="3" />
+      <line x1="12" y1="3" x2="12" y2="7" />
+    </svg>
+  );
+}
+
+function PerformanceIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
     </svg>
   );
 }
