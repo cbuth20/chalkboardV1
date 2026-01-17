@@ -92,7 +92,8 @@ export interface DbTeamMember {
   user_id: string;
   team_id: string;
   role: UserRole;
-  position: SkillPosition | null;  // NULL for coaches/admins, required for players
+  position: SkillPosition | null;  // Deprecated - use positions array. Kept for backwards compatibility
+  positions: SkillPosition[];       // Array of positions this member plays
   position_group: string | null;
   team_xp: number;
   team_rank: number | null;
