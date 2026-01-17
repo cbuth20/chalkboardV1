@@ -5,8 +5,8 @@
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Insert new user into public.users table
-  INSERT INTO public.users (auth_id, email, first_name, last_name, display_name, total_xp, current_level, football_iq_rating)
+  -- Insert new user into public.users table (only required columns)
+  INSERT INTO public.users (auth_id, email, first_name, last_name, display_name)
   VALUES (
     NEW.id,
     NEW.email,
@@ -16,10 +16,7 @@ BEGIN
       NEW.raw_user_meta_data->>'display_name',
       SPLIT_PART(NEW.email, '@', 1),
       'Player'
-    ),
-    0,  -- total_xp
-    1,  -- current_level
-    0   -- football_iq_rating
+    )
   )
   ON CONFLICT (auth_id) DO NOTHING;  -- Skip if already exists
 
@@ -35,7 +32,7 @@ CREATE TRIGGER on_auth_user_created
   EXECUTE FUNCTION public.handle_new_user();
 
 -- Backfill existing auth users that don't have public.users records
-INSERT INTO public.users (auth_id, email, first_name, last_name, display_name, total_xp, current_level, football_iq_rating)
+INSERT INTO public.users (auth_id, email, first_name, last_name, display_name)
 SELECT
   au.id as auth_id,
   au.email,
@@ -45,10 +42,7 @@ SELECT
     au.raw_user_meta_data->>'display_name',
     SPLIT_PART(au.email, '@', 1),
     'Player'
-  ) as display_name,
-  0 as total_xp,
-  1 as current_level,
-  0 as football_iq_rating
+  ) as display_name
 FROM auth.users au
 LEFT JOIN public.users pu ON pu.auth_id = au.id
 WHERE pu.id IS NULL;

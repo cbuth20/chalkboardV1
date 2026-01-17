@@ -49,7 +49,7 @@ export async function PUT(request: NextRequest) {
         );
       }
 
-      // Create user in public.users
+      // Create user in public.users (only required columns to avoid schema mismatches)
       const { data: newUser, error: userCreateError } = await supabase
         .from('users')
         .insert({
@@ -58,9 +58,6 @@ export async function PUT(request: NextRequest) {
           first_name: authUser.user.user_metadata?.first_name || '',
           last_name: authUser.user.user_metadata?.last_name || '',
           display_name: authUser.user.user_metadata?.display_name || authUser.user.email?.split('@')[0] || 'Player',
-          total_xp: 0,
-          current_level: 1,
-          football_iq_rating: 0,
         })
         .select('id, auth_id')
         .single();
