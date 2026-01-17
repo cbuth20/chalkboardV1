@@ -71,25 +71,46 @@ function PlaybookBuilder() {
       try {
         setIsLoading(true);
 
-        // Fetch approved plays with insights from database
-        const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&type=all`);
+        // Add timeout to prevent infinite hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch approved plays');
+        try {
+          // Fetch approved plays with insights from database
+          const response = await fetch(
+            `/api/get-approved-plays?teamId=${teamId}&type=all`,
+            { signal: controller.signal }
+          );
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error("API error response:", errorData);
+            throw new Error(errorData.error || 'Failed to fetch approved plays');
+          }
+
+          const data = await response.json();
+          console.log("Fetched plays:", data.plays?.length || 0);
+          setPlays(data.plays || []);
+
+          // Select first play by default
+          if (data.plays && data.plays.length > 0) {
+            setSelectedPlayId(data.plays[0].id);
+          }
+
+          setIsLoaded(true);
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            console.error("Request timed out after 10 seconds");
+            throw new Error("Request timed out. Please check your connection and try again.");
+          }
+          throw fetchError;
         }
-
-        const data = await response.json();
-        setPlays(data.plays || []);
-
-        // Select first play by default
-        if (data.plays && data.plays.length > 0) {
-          setSelectedPlayId(data.plays[0].id);
-        }
-
-        setIsLoaded(true);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load approved plays:", err);
-        showToast("Failed to load playbook. Please ensure your coach has approved plays.", "error");
+        showToast(err.message || "Failed to load playbook. Please try again.", "error");
         setPlays([]);
         setIsLoaded(true);
       } finally {

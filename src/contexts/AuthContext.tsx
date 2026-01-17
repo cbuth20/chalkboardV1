@@ -213,18 +213,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Add timeout to prevent hanging
+    const initializeAuth = async () => {
+      try {
+        // Create timeout promise
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Auth initialization timeout')), 8000);
+        });
 
-      // Fetch team member data if user exists
-      if (session?.user) {
-        await fetchTeamMemberData(session.user.id);
+        // Race between getSession and timeout
+        const sessionPromise = supabase.auth.getSession();
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        // Fetch team member data if user exists
+        if (session?.user) {
+          await fetchTeamMemberData(session.user.id);
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('[AuthContext] Failed to initialize auth:', error);
+        // Set loading to false even on error so the app doesn't hang
+        setLoading(false);
       }
+    };
 
-      setLoading(false);
-    });
+    initializeAuth();
 
     // Listen for auth changes
     const {
