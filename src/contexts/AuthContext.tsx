@@ -238,25 +238,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // New: Multiple positions update
   const updateUserPositions = async (positions: SkillPosition[]) => {
-    if (!user) return;
-
-    const updateData: any = { positions };
-    // Also update old position field with first position for backwards compatibility
-    if (positions.length > 0) {
-      updateData.position = positions[0];
+    if (!user) {
+      throw new Error('No user logged in');
     }
 
-    const { error } = await supabase
-      .from('team_members')
-      .update(updateData)
-      .eq('user_id', user.id);
+    console.log('[AuthContext] Updating positions to:', positions);
 
-    if (error) {
-      console.error('Error updating positions:', error);
-      throw error;
+    try {
+      // Call server-side API to update positions (bypasses RLS)
+      const response = await fetch('/api/team-members/positions', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          positions,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[AuthContext] API error:', errorData);
+        throw new Error(errorData.error || 'Failed to update positions');
+      }
+
+      const data = await response.json();
+      console.log('[AuthContext] Positions updated successfully:', data.teamMember);
+
+      // Update local state
+      setUserPositions(positions);
+
+      // Also update team_id and role from the returned data
+      if (data.teamMember?.team_id) {
+        setTeamId(data.teamMember.team_id);
+      }
+      if (data.teamMember?.role) {
+        setUserRole(data.teamMember.role);
+      }
+    } catch (error: any) {
+      console.error('[AuthContext] Failed to update positions:', error);
+      throw new Error(error.message || 'Failed to update positions');
     }
-
-    setUserPositions(positions);
   };
 
   const refreshUserData = async () => {

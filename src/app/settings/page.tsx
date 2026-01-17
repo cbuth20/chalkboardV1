@@ -48,20 +48,26 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!hasChanges) return;
+    if (!hasChanges) {
+      console.log('[Settings] No changes to save');
+      return;
+    }
 
+    console.log('[Settings] Saving positions:', selectedPositions);
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
     try {
       await updateUserPositions(selectedPositions);
+      console.log('[Settings] Positions saved successfully');
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error: any) {
-      console.error('Failed to update positions:', error);
+      console.error('[Settings] Failed to update positions:', error);
       setSaveError(error.message || 'Failed to save positions. Please try again.');
     } finally {
+      console.log('[Settings] Save complete, resetting isSaving');
       setIsSaving(false);
     }
   };
