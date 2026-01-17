@@ -89,14 +89,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fetch team member data (positions, role, team_id)
   const fetchTeamMemberData = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Add timeout to prevent hanging
+      const fetchPromise = supabase
         .from('team_members')
         .select('position, positions, role, team_id')
         .eq('user_id', userId)
-        .maybeSingle(); // Use maybeSingle instead of single to handle 0 or 1 rows
+        .maybeSingle();
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Fetch timeout')), 5000)
+      );
+
+      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
       if (error) {
         console.error('Error fetching team member data:', error);
+        // Set defaults on error to prevent blocking
+        setTeamId(DEFAULT_TEAM_ID);
+        setUserRole('player');
+        setUserPositions([]);
         return;
       }
 
@@ -114,11 +125,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Old single position exists, convert to array
           positionsToSet = [data.position as SkillPosition];
           console.log('[AuthContext] Migrating single position to array:', positionsToSet);
-          // Update DB with positions array
-          await supabase
+          // Update DB with positions array (non-blocking background update)
+          supabase
             .from('team_members')
             .update({ positions: positionsToSet })
-            .eq('user_id', userId);
+            .eq('user_id', userId)
+            .then(() => console.log('[AuthContext] Background migration complete'))
+            .catch(err => console.error('[AuthContext] Background migration failed:', err));
         } else {
           // No positions in DB - check localStorage
           const savedPositionsStr = typeof window !== "undefined" ? localStorage.getItem(POSITIONS_STORAGE_KEY) : null;
@@ -126,11 +139,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
               const savedPositions = JSON.parse(savedPositionsStr) as SkillPosition[];
               console.log('[AuthContext] DB has no positions, but localStorage has:', savedPositions);
-              // Update DB with the localStorage positions
-              await supabase
+              // Update DB with the localStorage positions (non-blocking background update)
+              supabase
                 .from('team_members')
                 .update({ positions: savedPositions })
-                .eq('user_id', userId);
+                .eq('user_id', userId)
+                .then(() => console.log('[AuthContext] Background sync complete'))
+                .catch(err => console.error('[AuthContext] Background sync failed:', err));
               positionsToSet = savedPositions;
             } catch (e) {
               console.error('Failed to parse positions from localStorage', e);
@@ -142,35 +157,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserRole(data.role as UserRole);
         setTeamId(data.team_id);
       } else {
-        // User not in any team yet - auto-assign to default team
-        console.log('User not in team, auto-assigning to default team...');
+        // User not in any team yet - set defaults immediately, auto-assign in background
+        console.log('User not in team, setting defaults and auto-assigning...');
+        setTeamId(DEFAULT_TEAM_ID);
+        setUserRole('player');
+        setUserPositions([]);
 
-        const { data: newMember, error: insertError } = await supabase
+        // Auto-assign in background (non-blocking)
+        supabase
           .from('team_members')
           .insert({
             user_id: userId,
             team_id: DEFAULT_TEAM_ID,
-            role: 'player', // Default to player role
-            positions: [], // No positions yet
+            role: 'player',
+            positions: [],
           })
           .select('positions, role, team_id')
-          .single();
-
-        if (insertError) {
-          // If insert fails (e.g., duplicate), just use defaults
-          console.log('Team member record already exists or insert failed, using defaults');
-          setTeamId(DEFAULT_TEAM_ID);
-          setUserRole('player');
-          setUserPositions([]);
-        } else if (newMember) {
-          setUserPositions((newMember.positions as SkillPosition[]) || []);
-          setUserRole(newMember.role as UserRole);
-          setTeamId(newMember.team_id);
-          console.log('✅ Auto-assigned to default team');
-        }
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.log('[AuthContext] Background team assignment failed (may already exist):', error.message);
+            } else {
+              console.log('✅ Auto-assigned to default team');
+            }
+          });
       }
     } catch (error) {
       console.error('Error in fetchTeamMemberData:', error);
+      // Set safe defaults so app doesn't break
+      setTeamId(DEFAULT_TEAM_ID);
+      setUserRole('player');
+      setUserPositions([]);
     }
   };
 
