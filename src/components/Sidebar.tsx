@@ -26,9 +26,10 @@ export default function Sidebar() {
     { name: "SETTINGS", href: "/settings", icon: SettingsIcon },
   ];
 
-  // Coach navigation items (5 items)
+  // Coach navigation items (6 items)
   const coachNavItems: NavItem[] = [
-    { name: "PLAYS", href: "/play-recognition", icon: ScannerIcon },
+    { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
+    { name: "PLAYBOOK", href: "/coach/playbook", icon: PlaybookIcon },
     { name: "TEAM", href: "/coach/team", icon: TeamIcon },
     { name: "ASSIGNMENT LIBRARY", href: "/coach/assignments", icon: AssignmentLibraryIcon },
     { name: "LEADERBOARD", href: "/coach/leaderboard", icon: LeaderboardIcon },

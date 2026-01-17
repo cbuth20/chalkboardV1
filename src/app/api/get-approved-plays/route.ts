@@ -249,3 +249,66 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// DELETE - Delete an approved play and all related data
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const playId = searchParams.get('playId');
+
+    if (!playId) {
+      return NextResponse.json(
+        { error: 'playId is required' },
+        { status: 400 }
+      );
+    }
+
+    console.log('[Delete Play] Deleting play:', playId);
+
+    // Delete in order: child tables first, then parent
+    // 1. Delete assignments
+    const { error: assignmentsError } = await supabase
+      .from('play_assignments')
+      .delete()
+      .eq('play_id', playId);
+
+    if (assignmentsError) {
+      console.error('[Delete Play] Error deleting assignments:', assignmentsError);
+      // Continue anyway - assignments might not exist
+    }
+
+    // 2. Delete flashcard templates
+    const { error: flashcardsError } = await supabase
+      .from('flashcard_templates')
+      .delete()
+      .eq('play_id', playId);
+
+    if (flashcardsError) {
+      console.error('[Delete Play] Error deleting flashcards:', flashcardsError);
+      // Continue anyway
+    }
+
+    // 3. Delete the play itself
+    const { error: playError } = await supabase
+      .from('plays')
+      .delete()
+      .eq('id', playId);
+
+    if (playError) {
+      console.error('[Delete Play] Error deleting play:', playError);
+      return NextResponse.json(
+        { error: 'Failed to delete play', details: playError.message },
+        { status: 500 }
+      );
+    }
+
+    console.log('[Delete Play] Successfully deleted play:', playId);
+    return NextResponse.json({ success: true, message: 'Play deleted successfully' });
+  } catch (error: any) {
+    console.error('[Delete Play] Unexpected error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete play', message: error.message },
+      { status: 500 }
+    );
+  }
+}
