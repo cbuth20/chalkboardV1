@@ -92,7 +92,7 @@ export interface DbTeamMember {
   user_id: string;
   team_id: string;
   role: UserRole;
-  position: string | null;
+  position: SkillPosition | null;  // NULL for coaches/admins, required for players
   position_group: string | null;
   team_xp: number;
   team_rank: number | null;

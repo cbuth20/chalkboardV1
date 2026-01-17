@@ -9,9 +9,9 @@ import { PlayContentLoadingIndicator } from '../../components/play-recognition/P
 import { PlayContentGenerationProvider } from '@/contexts/PlayContentGenerationContext';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
-import PlayerNavbar from '@/components/PlayerNavbar';
+import { SidebarLayout } from '@/components/SidebarLayout';
 
-type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER';
+type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER' | 'CREATE_PLAY';
 
 interface SelectedFile {
   url: string;
@@ -27,6 +27,10 @@ export default function PlayRecognitionPage() {
   // Handlers for state transitions
   const handleStartUpload = () => {
     setCurrentView('UPLOAD');
+  };
+
+  const handleStartCreatePlay = () => {
+    setCurrentView('CREATE_PLAY');
   };
 
   const handleUploadComplete = async (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => {
@@ -72,6 +76,38 @@ export default function PlayRecognitionPage() {
     setCurrentView('LIBRARY');
   };
 
+  const handlePlayBuilt = async (playData: any, metadata?: PlaybookMetadataInput) => {
+    try {
+      const teamId = '00000000-0000-0000-0000-000000000000'; // TODO: Get from auth context
+
+      const apiUrl = getPlaybooksApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: `built-play-${Date.now()}.json`,
+          playData, // Structured play data instead of fileData
+          metadata,
+          teamId,
+          isBuiltPlay: true, // Flag to indicate this is a built play, not uploaded image
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save built play');
+      }
+
+      // Refresh library and go back to it
+      setRefreshKey(prev => prev + 1);
+      setCurrentView('LIBRARY');
+    } catch (error) {
+      console.error('Error saving built play:', error);
+      alert('Failed to save play. Please try again.');
+    }
+  };
+
   // Render the current view
   const renderView = () => {
     switch (currentView) {
@@ -102,19 +138,24 @@ export default function PlayRecognitionPage() {
           );
         }
 
+      case 'CREATE_PLAY':
+        // Import dynamically to avoid loading play designer on initial page load
+        const PlayBuilder = require('@/components/play-recognition/PlayBuilder').PlayBuilder;
+        return <PlayBuilder onSave={handlePlayBuilt} onBack={handleBackToLibrary} />;
+
       case 'LIBRARY':
       default:
         return (
-          <>
-            <PlayerNavbar />
-            <div className="h-[calc(100vh-64px)] overflow-hidden">
+          <SidebarLayout>
+            <div className="h-screen overflow-hidden">
               <SavedPlayLibrary
                 key={refreshKey}
                 onSelectPlay={handleSelectFile}
-                onNewScan={handleStartUpload}
+                onFileUpload={handleStartUpload}
+                onCreatePlay={handleStartCreatePlay}
               />
             </div>
-          </>
+          </SidebarLayout>
         );
     }
   };

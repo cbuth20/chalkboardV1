@@ -80,10 +80,43 @@ export async function GET() {
       return {
         ...playbook,
         metadata: metadata || null,
+        isBuiltPlay: metadata?.is_built_play || false,
       };
     });
 
-    return NextResponse.json(playbooksWithMetadata);
+    // Also fetch built plays (those with is_built_play = true but might not have files in storage)
+    const { data: builtPlays, error: builtPlaysError } = await supabase
+      .from('playbook_metadata')
+      .select('*')
+      .eq('is_built_play', true);
+
+    if (builtPlaysError) {
+      console.warn('Failed to fetch built plays:', builtPlaysError);
+    }
+
+    // Add built plays that aren't already in the list
+    const builtPlayRecords = (builtPlays || [])
+      .filter(bp => {
+        // Only include if not already in playbooksWithMetadata
+        const filePath = bp.file_paths?.[0] || '';
+        return !playbooksWithMetadata.some(p => `${FOLDER_PATH}/${p.fileName}` === filePath);
+      })
+      .map(bp => ({
+        id: bp.id,
+        name: bp.formation_name || 'Built Play',
+        fileName: `built-play-${bp.id}.json`,
+        type: 'built-play',
+        uploadedAt: bp.created_at || new Date().toISOString(),
+        tags: [],
+        playType: bp.play_data?.metadata?.playType || 'Unknown',
+        url: '', // No URL for built plays
+        metadata: bp,
+        isBuiltPlay: true,
+      }));
+
+    const allPlaybooks = [...playbooksWithMetadata, ...builtPlayRecords];
+
+    return NextResponse.json(allPlaybooks);
   } catch (error: any) {
     console.error('Error fetching playbooks:', error);
     return NextResponse.json(
@@ -100,58 +133,84 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, fileData, metadata, teamId } = body as {
+    const { fileName, fileData, playData, metadata, teamId, isBuiltPlay } = body as {
       fileName: string;
-      fileData: string;
+      fileData?: string;
+      playData?: any; // Structured play data from PlayBuilder
       metadata?: PlaybookMetadataInput;
       teamId?: string;
+      isBuiltPlay?: boolean;
     };
 
-    if (!fileName || !fileData) {
+    // Validation: Either fileData (for uploads) or playData (for built plays) must be provided
+    if (!fileName || (!fileData && !playData)) {
       return NextResponse.json(
-        { error: 'fileName and fileData are required' },
+        { error: 'fileName and either fileData or playData are required' },
         { status: 400 }
       );
     }
 
-    // Convert base64 to buffer
-    const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
-    const buffer = Buffer.from(base64Data, 'base64');
+    let filePath: string;
+    let publicUrl: string;
+    let ext: string | undefined;
 
-    // Determine content type from file extension
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    const contentType = ext === 'pdf'
-      ? 'application/pdf'
-      : ext === 'png'
-      ? 'image/png'
-      : ext === 'jpg' || ext === 'jpeg'
-      ? 'image/jpeg'
-      : 'application/octet-stream';
+    // Handle built plays differently from file uploads
+    if (isBuiltPlay && playData) {
+      // For built plays, we don't upload a file to storage
+      // Instead, we'll store the play data in metadata
+      filePath = `${FOLDER_PATH}/${fileName}`;
+      ext = 'json'; // Built plays are JSON
+      publicUrl = ''; // No public URL for built plays
 
-    // Upload to Supabase Storage
-    const filePath = `${FOLDER_PATH}/${fileName}`;
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(filePath, buffer, {
-        contentType,
-        upsert: true, // Replace if file already exists
-      });
+      console.log('[Built Play] Skipping file upload, will store play data in metadata');
+    } else if (fileData) {
+      // Standard file upload path
+      // Convert base64 to buffer
+      const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
+      const buffer = Buffer.from(base64Data, 'base64');
 
-    if (error) {
-      console.error('Supabase upload error:', error);
+      // Determine content type from file extension
+      ext = fileName.split('.').pop()?.toLowerCase();
+      const contentType = ext === 'pdf'
+        ? 'application/pdf'
+        : ext === 'png'
+        ? 'image/png'
+        : ext === 'jpg' || ext === 'jpeg'
+        ? 'image/jpeg'
+        : 'application/octet-stream';
+
+      // Upload to Supabase Storage
+      filePath = `${FOLDER_PATH}/${fileName}`;
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(filePath, buffer, {
+          contentType,
+          upsert: true, // Replace if file already exists
+        });
+
+      if (error) {
+        console.error('Supabase upload error:', error);
+        return NextResponse.json(
+          {
+            error: 'Failed to upload to storage',
+            message: error.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      // Get public URL for the uploaded file
+      const { data: urlData } = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(filePath);
+
+      publicUrl = urlData.publicUrl;
+    } else {
       return NextResponse.json(
-        {
-          error: 'Failed to upload to storage',
-          message: error.message,
-        },
-        { status: 500 }
+        { error: 'Invalid request: either fileData or playData must be provided' },
+        { status: 400 }
       );
     }
-
-    // Get public URL for the uploaded file
-    const { data: urlData } = supabase.storage
-      .from(BUCKET_NAME)
-      .getPublicUrl(filePath);
 
     // Ensure team exists (create default team if using placeholder UUID)
     if (teamId === '00000000-0000-0000-0000-000000000000') {
@@ -185,6 +244,8 @@ export async function POST(request: NextRequest) {
         formation_name: metadata.formation_name,
         concept_name: metadata.concept_name,
         custom_notes: metadata.custom_notes,
+        is_built_play: isBuiltPlay || false, // Mark if this is a built play
+        play_data: isBuiltPlay && playData ? playData : null, // Store structured play data
       };
 
       const { data: metadataData, error: metadataError } = await supabase
@@ -213,12 +274,13 @@ export async function POST(request: NextRequest) {
       id: fileName,
       name: fileName.replace(/\.[^/.]+$/, ''),
       fileName,
-      type: ext === 'pdf' ? 'pdf' : 'image',
+      type: isBuiltPlay ? 'built-play' : (ext === 'pdf' ? 'pdf' : 'image'),
       uploadedAt: new Date().toISOString(),
       tags: [],
-      playType: 'Unknown',
-      url: urlData.publicUrl,
+      playType: isBuiltPlay && playData ? playData.metadata.playType : 'Unknown',
+      url: publicUrl,
       metadata: savedMetadata,
+      isBuiltPlay: isBuiltPlay || false,
     };
 
     return NextResponse.json(newPlay);

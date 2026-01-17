@@ -1,6 +1,7 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { GLOSSARY_CONTEXT } from '../../src/lib/football-glossary';
+import { playDataToText } from '../../src/lib/playDataToText';
 
 // Initialize Supabase client with service role key for admin operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -50,6 +51,7 @@ export const handler: Handler = async (event, context) => {
     const {
       playId: inputPlayId,
       imageUrl,
+      playData, // Structured play data from Play Builder
       fileName,
       generateInsights = true,
       generateAssignments = true,
@@ -60,13 +62,13 @@ export const handler: Handler = async (event, context) => {
 
     console.log('📝 Processing play:', playId);
 
-    // Validation
-    if (!playId || !imageUrl) {
+    // Validation: Either imageUrl (for uploads) or playData (for built plays) must be provided
+    if (!playId || (!imageUrl && !playData)) {
       return {
         statusCode: 400,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          error: 'Missing required fields: playId, imageUrl',
+          error: 'Missing required fields: playId, (imageUrl or playData)',
         }),
       };
     }
@@ -94,24 +96,6 @@ export const handler: Handler = async (event, context) => {
     const metadata = (play as any).playbook_metadata;
     console.log('✅ Play and metadata found:', metadata?.formation_name);
 
-    // Fetch image for AI processing
-    console.log('🖼️  Fetching image from:', imageUrl);
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      console.error('❌ Failed to fetch image:', imageResponse.status);
-      return {
-        statusCode: 404,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Failed to fetch image from URL' }),
-      };
-    }
-
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const base64Image = Buffer.from(imageBuffer).toString('base64');
-    const contentType = imageResponse.headers.get('content-type');
-    const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
-    console.log('✅ Image fetched, size:', imageBuffer.byteLength, 'bytes');
-
     // Build metadata context for AI
     const metadataContext = buildMetadataContext(metadata);
 
@@ -122,15 +106,45 @@ export const handler: Handler = async (event, context) => {
     let insights: string | null = null;
     let knowledgeCards: any[] = [];
 
-    // 1. Generate assignments via GPT-4o Vision
+    // Determine whether we're analyzing an image or structured play data
     if (generateAssignments) {
-      console.log('1️⃣  Generating assignments via GPT-4o Vision...');
-      playAnalysis = await analyzePlayWithVision(base64Image, mimeType, metadataContext);
-      console.log('✅ Play analysis complete:', {
-        name: playAnalysis?.name,
-        playType: playAnalysis?.playType,
-        positionCount: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
-      });
+      if (playData) {
+        // Built play: Convert structured data to text and analyze
+        console.log('1️⃣  Analyzing built play with structured data...');
+        const playDescription = playDataToText(playData);
+        playAnalysis = await analyzePlayWithText(playDescription, metadataContext, playData);
+        console.log('✅ Play analysis complete:', {
+          name: playAnalysis?.name,
+          playType: playAnalysis?.playType,
+          positionCount: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
+        });
+      } else if (imageUrl) {
+        // Uploaded image: Fetch and analyze with vision
+        console.log('🖼️  Fetching image from:', imageUrl);
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          console.error('❌ Failed to fetch image:', imageResponse.status);
+          return {
+            statusCode: 404,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Failed to fetch image from URL' }),
+          };
+        }
+
+        const imageBuffer = await imageResponse.arrayBuffer();
+        const base64Image = Buffer.from(imageBuffer).toString('base64');
+        const contentType = imageResponse.headers.get('content-type');
+        const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        console.log('✅ Image fetched, size:', imageBuffer.byteLength, 'bytes');
+
+        console.log('1️⃣  Generating assignments via GPT-4o Vision...');
+        playAnalysis = await analyzePlayWithVision(base64Image, mimeType, metadataContext);
+        console.log('✅ Play analysis complete:', {
+          name: playAnalysis?.name,
+          playType: playAnalysis?.playType,
+          positionCount: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
+        });
+      }
     }
 
     // 2. Generate insights via GPT-4
@@ -417,6 +431,67 @@ ${GLOSSARY_CONTEXT}`;
     return JSON.parse(jsonString);
   } catch (parseError) {
     console.error('Failed to parse GPT Vision response:', analysisText);
+    throw new Error('Failed to parse play analysis');
+  }
+}
+
+async function analyzePlayWithText(
+  playDescription: string,
+  metadataContext: string,
+  playData: any
+): Promise<any> {
+  const userPrompt = `Analyze this football play based on the structured play data provided below. Extract position assignments, reads, and adjustments.${metadataContext}
+
+${playDescription}
+
+${GLOSSARY_CONTEXT}`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: PLAY_ANALYSIS_SYSTEM_PROMPT,
+        },
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+      ],
+      max_tokens: 4000,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`GPT-4 Text API error: ${error}`);
+  }
+
+  const data = await response.json();
+  const analysisText = data.choices[0].message.content;
+
+  try {
+    const jsonMatch = analysisText.match(/```json\n([\s\S]*?)\n```/);
+    const jsonString = jsonMatch ? jsonMatch[1] : analysisText;
+    const parsedAnalysis = JSON.parse(jsonString);
+
+    // Merge with metadata from playData to ensure we have all required fields
+    return {
+      ...parsedAnalysis,
+      name: parsedAnalysis.name || playData.metadata.name,
+      formation: parsedAnalysis.formation || playData.metadata.formation,
+      concept: parsedAnalysis.concept || playData.metadata.concept,
+      playType: parsedAnalysis.playType || playData.metadata.playType,
+    };
+  } catch (parseError) {
+    console.error('Failed to parse GPT Text response:', analysisText);
     throw new Error('Failed to parse play analysis');
   }
 }

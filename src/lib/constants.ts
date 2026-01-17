@@ -2,9 +2,12 @@
  * Global constants for the application
  */
 
-// Development team ID - use this for testing without authentication
-// In production, replace with actual team ID from auth context
-export const DEV_TEAM_ID = '00000000-0000-0000-0000-000000000000';
+// Default team ID - single-team setup
+// All users are automatically assigned to this team
+export const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000000';
+
+// Alias for backwards compatibility
+export const DEV_TEAM_ID = DEFAULT_TEAM_ID;
 
 // Position groupings
 export const OFFENSE_POSITIONS = ['QB', 'RB', 'FB', 'X', 'Z', 'H', 'Y', 'TE'] as const;
