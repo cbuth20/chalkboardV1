@@ -577,11 +577,11 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   };
 
 
-  // Delete play
+  // Delete play (cascades to metadata and associated play records)
   const handleDeletePlay = async () => {
     if (!selectedPlay) return;
 
-    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play image/PDF\n• All generated content (insights, assignments, flashcards)\n• Metadata\n\nThis cannot be undone.`;
+    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play file (image/PDF)\n• Metadata record\n• Associated play record (if exists)\n• All assignments\n• All flashcards\n\nThis cannot be undone.`;
 
     if (!confirm(confirmMessage)) return;
 
@@ -590,24 +590,24 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       const response = await fetch(apiUrl, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: selectedPlay.fileName }),
+        body: JSON.stringify({
+          fileName: selectedPlay.fileName,
+          metadataId: selectedPlay.metadata?.id, // Include metadata ID for cascade delete
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete play');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete play');
       }
 
       const result = await response.json();
-      console.log('Deleted:', result);
+      console.log('[Delete Play] Success:', result);
 
-      // Show success message with counts
-      if (result.deleted) {
-        const { plays, assignments, flashcards, metadata } = result.deleted;
-        alert(
-          `Successfully deleted:\n• ${plays} play(s)\n• ${assignments} assignment(s)\n• ${flashcards} flashcard(s)\n• ${metadata} metadata record(s)\n• 1 file from storage`
-        );
-      }
+      // Show success message
+      alert('Playbook deleted successfully!\n\nDeleted:\n• File from storage\n• Metadata record\n• Associated play records\n• All assignments and flashcards');
 
+      // Remove from local state
       setPlays((prev) => {
         const newPlays = prev.filter((p) => p.id !== selectedPlayId);
         if (newPlays.length > 0) {
@@ -617,9 +617,68 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         }
         return newPlays;
       });
-    } catch (err) {
-      console.error('Failed to delete play:', err);
-      alert('Failed to delete play. Check console for details.');
+    } catch (err: any) {
+      console.error('[Delete Play] Error:', err);
+      alert(`Failed to delete play: ${err.message}\n\nCheck console for details.`);
+    }
+  };
+
+  // Delete multiple selected plays
+  const handleDeleteSelected = async () => {
+    if (selectedPlayIds.size === 0) return;
+
+    const count = selectedPlayIds.size;
+    const confirmMessage = `Delete ${count} selected playbook${count > 1 ? 's' : ''}?\n\nThis will permanently delete:\n• ${count} play file${count > 1 ? 's' : ''}\n• ${count} metadata record${count > 1 ? 's' : ''}\n• Associated play records\n• All assignments and flashcards\n\nThis cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      setIsGenerating(true); // Reuse loading state
+      const apiUrl = getPlaybooksApiUrl();
+
+      // Get selected plays data
+      const playsToDelete = plays.filter((p) => selectedPlayIds.has(p.id));
+
+      // Delete each play
+      const deletePromises = playsToDelete.map((play) =>
+        fetch(apiUrl, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: play.fileName,
+            metadataId: play.metadata?.id,
+          }),
+        })
+      );
+
+      const results = await Promise.all(deletePromises);
+      const failedCount = results.filter((r) => !r.ok).length;
+
+      if (failedCount > 0) {
+        alert(`${count - failedCount} of ${count} playbooks deleted successfully.\n${failedCount} failed - check console for details.`);
+      } else {
+        alert(`Successfully deleted ${count} playbook${count > 1 ? 's' : ''}!`);
+      }
+
+      // Remove deleted plays from local state
+      setPlays((prev) => {
+        const newPlays = prev.filter((p) => !selectedPlayIds.has(p.id));
+        if (newPlays.length > 0 && !newPlays.find((p) => p.id === selectedPlayId)) {
+          setSelectedPlayId(newPlays[0].id);
+        } else if (newPlays.length === 0) {
+          setSelectedPlayId(null);
+        }
+        return newPlays;
+      });
+
+      // Clear selection and exit multi-select mode
+      setSelectedPlayIds(new Set());
+      setIsMultiSelectMode(false);
+    } catch (err: any) {
+      console.error('[Delete Selected] Error:', err);
+      alert(`Failed to delete playbooks: ${err.message}\n\nCheck console for details.`);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -695,13 +754,22 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
               {isMultiSelectMode ? `Selected (${selectedPlayIds.size})` : 'Multi-Select'}
             </button>
             {isMultiSelectMode && (
-              <button
-                onClick={handleGenerateMultiplePlays}
-                disabled={selectedPlayIds.size === 0}
-                className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#00F6E5] text-black hover:bg-[#3DF3FF] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
-              >
-                Generate
-              </button>
+              <>
+                <button
+                  onClick={handleGenerateMultiplePlays}
+                  disabled={selectedPlayIds.size === 0}
+                  className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#00F6E5] text-black hover:bg-[#3DF3FF] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
+                >
+                  Generate
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={selectedPlayIds.size === 0}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-red-900/20 text-red-400 hover:bg-red-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Delete
+                </button>
+              </>
             )}
           </div>
         </div>
