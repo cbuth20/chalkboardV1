@@ -19,9 +19,17 @@ CREATE INDEX IF NOT EXISTS idx_team_members_positions
 ON team_members USING GIN (positions);
 
 -- Add check constraint: ensure positions is always an array
-ALTER TABLE team_members
-ADD CONSTRAINT IF NOT EXISTS positions_is_array
-CHECK (jsonb_typeof(positions) = 'array');
+-- Note: DROP first in case it exists from previous run
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'positions_is_array'
+  ) THEN
+    ALTER TABLE team_members
+    ADD CONSTRAINT positions_is_array
+    CHECK (jsonb_typeof(positions) = 'array');
+  END IF;
+END $$;
 
 -- Optional: Add comment for documentation
 COMMENT ON COLUMN team_members.positions IS 'Array of positions this team member plays. For backwards compatibility, position column is kept and synced with first element of positions array.';
