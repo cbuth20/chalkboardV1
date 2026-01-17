@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           supabase
             .from('team_members')
             .update({ positions: positionsToSet })
-            .eq('user_id', userId)
+            .eq('user_id', publicUserId)  // Use public.users.id
             .then(() => console.log('[AuthContext] Background migration complete'))
             .catch(err => console.error('[AuthContext] Background migration failed:', err));
         } else {
@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               supabase
                 .from('team_members')
                 .update({ positions: savedPositions })
-                .eq('user_id', userId)
+                .eq('user_id', publicUserId)  // Use public.users.id
                 .then(() => console.log('[AuthContext] Background sync complete'))
                 .catch(err => console.error('[AuthContext] Background sync failed:', err));
               positionsToSet = savedPositions;
@@ -184,10 +184,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserPositions([]);
 
         // Auto-assign in background (non-blocking)
+        // Note: This uses publicUserId for the foreign key constraint
         supabase
           .from('team_members')
           .insert({
-            user_id: userId,
+            user_id: publicUserId,  // Use public.users.id, not auth id
             team_id: DEFAULT_TEAM_ID,
             role: 'player',
             positions: [],
