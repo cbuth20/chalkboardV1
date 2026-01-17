@@ -4,7 +4,21 @@ import { createClient } from '@supabase/supabase-js';
 // Initialize Supabase client with service role key for admin operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Verify environment variables are set
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('[Playbooks] CRITICAL: Missing Supabase credentials!', {
+    hasUrl: !!supabaseUrl,
+    hasServiceKey: !!supabaseServiceKey,
+  });
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 const BUCKET_NAME = 'Chalkboard Bucket';
 const FOLDER_PATH = 'public'; // Store files in public folder within bucket
@@ -429,37 +443,65 @@ export const handler: Handler = async (event, context) => {
 
         // Step 2: Delete the metadata record
         console.log('[Delete Playbook] Deleting metadata record:', metadataId);
-        const { data: deletedMetadata, error: metadataDeleteError, count } = await supabase
+        console.log('[Delete Playbook] Using service role key:', supabaseServiceKey ? 'YES (key exists)' : 'NO (MISSING!)');
+
+        const { data: deletedMetadata, error: metadataDeleteError, count, status, statusText } = await supabase
           .from('playbook_metadata')
           .delete()
           .eq('id', metadataId)
           .select();
 
+        console.log('[Delete Playbook] Delete response:', {
+          error: metadataDeleteError,
+          count,
+          status,
+          statusText,
+          deletedCount: deletedMetadata?.length || 0,
+        });
+
         if (metadataDeleteError) {
-          console.error('[Delete Playbook] Error deleting metadata:', metadataDeleteError);
+          console.error('[Delete Playbook] Error deleting metadata:', {
+            message: metadataDeleteError.message,
+            details: metadataDeleteError.details,
+            hint: metadataDeleteError.hint,
+            code: metadataDeleteError.code,
+          });
           return {
             statusCode: 500,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               error: 'Failed to delete metadata',
-              details: metadataDeleteError.message
+              details: metadataDeleteError.message,
+              hint: metadataDeleteError.hint,
+              code: metadataDeleteError.code,
             }),
           };
         }
 
         if (!deletedMetadata || deletedMetadata.length === 0) {
           console.error('[Delete Playbook] Metadata was not deleted (no rows affected)');
+
+          // Double-check if record still exists
+          const { data: stillExists } = await supabase
+            .from('playbook_metadata')
+            .select('id')
+            .eq('id', metadataId)
+            .maybeSingle();
+
+          console.error('[Delete Playbook] Record still exists after delete:', !!stillExists);
+
           return {
             statusCode: 500,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               error: 'Failed to delete metadata',
-              details: 'No rows were deleted. The metadata record may not exist or there may be a permissions issue.'
+              details: 'No rows were deleted. The record may be protected by RLS policies.',
+              stillExists: !!stillExists,
             }),
           };
         }
 
-        console.log('[Delete Playbook] Metadata deleted successfully:', deletedMetadata);
+        console.log('[Delete Playbook] Metadata deleted successfully. Rows deleted:', deletedMetadata.length);
       }
 
       // Step 3: Delete the file from storage (if not a built play)
