@@ -9,6 +9,7 @@ import {
   fillPromptTemplate,
   type ContentType,
 } from './content-generation-prompts';
+import { generateAssignmentFlashcards } from './flashcard-templates';
 
 // Initialize Supabase client with service role key for admin operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -276,6 +277,32 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
+    // Generate assignment flashcards (position-specific multiple choice questions)
+    if (playAnalysis?.positions && generateAssignments && assignments.length > 0) {
+      console.log('Generating assignment flashcards...');
+      const assignmentFlashcards = await generateAssignmentFlashcards(
+        playAnalysis,
+        assignments,
+        playId,
+        metadata,
+        shuffleArray
+      );
+
+      if (assignmentFlashcards.length > 0) {
+        const { data: insertedAssignmentCards, error: assignmentCardsError } = await supabase
+          .from('flashcard_templates')
+          .insert(assignmentFlashcards)
+          .select();
+
+        if (assignmentCardsError) {
+          console.error('Failed to insert assignment flashcards:', assignmentCardsError);
+        } else {
+          flashcards.push(...(insertedAssignmentCards || []));
+          console.log(`Inserted ${insertedAssignmentCards?.length || 0} assignment flashcards`);
+        }
+      }
+    }
+
     // Generation complete
     const duration = Date.now() - startTime;
     console.log(`✅ Content generation completed in ${(duration / 1000).toFixed(2)}s`);
@@ -343,6 +370,15 @@ const POSITION_MAPPING: Record<string, string> = {
   'RIGHTGUARD': 'RG',
   'RIGHTTACKLE': 'RT',
 };
+
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 function normalizePosition(position: string): string | null {
   const upperPos = position.toUpperCase().trim();

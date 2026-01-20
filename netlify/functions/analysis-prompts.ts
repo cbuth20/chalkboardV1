@@ -23,6 +23,17 @@ For each position assignment, extract:
 - landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
 - assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
 - read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
+- category: The assignment category - use ONE of these exact values:
+  - "formation" for alignment/formation details
+  - "route" for routes and route running
+  - "coverage" for coverage reads and adjustments
+  - "protection" for pass protection
+  - "blocking" for run blocking
+  - "run_fits" for run game fits and gaps
+  - "adjustments" for play adjustments
+  - "hot_routes" for hot routes and audibles
+  - "checks" for pre-snap checks
+  - "general" for general assignments that don't fit other categories
 - adjustments: How they adjust vs different coverages
   - vsMan: What to do vs man coverage
   - vsZone: What to do vs zone coverage
@@ -41,9 +52,9 @@ Return your analysis as a JSON object with this structure:
   "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
   "bestAgainst": ["Coverage 1", "Coverage 2"],
   "positions": {
-    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
-    "RB": { ... },
-    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
+    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "formation", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
+    "RB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "blocking" },
+    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "route", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
     ... (include all visible positions)
   }
 }
@@ -69,6 +80,14 @@ For each defensive position, extract:
 - landmark: Their key/aiming point (e.g., "Inside receiver", "Strong side A-gap", "#2 receiver")
 - assignment: Their coverage responsibility (e.g., "Deep half", "Flat zone", "Man on #1", "Spy QB")
 - read: What they're reading (e.g., "Release of #2", "QB dropback", "Run/pass key")
+- category: The assignment category - use ONE of these exact values:
+  - "coverage" for coverage responsibilities (USE THIS for most defensive assignments)
+  - "run_fits" for run defense fits and gap assignments
+  - "formation" for alignment details
+  - "adjustments" for coverage adjustments
+  - "checks" for pre-snap checks
+  - "general" for general assignments that don't fit other categories
+  Note: For defensive content, prioritize "coverage" and "run_fits" categories
 - adjustments: How coverage adjusts vs different formations/routes
   - vsTrips: What to do vs trips formation
   - vs2x2: What to do vs 2x2 sets
@@ -87,13 +106,13 @@ Return your analysis as a JSON object with this structure:
   "strengths": ["What this coverage is good against"],
   "weaknesses": ["What this coverage struggles against"],
   "positions": {
-    "FS": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsTrips": "...", "vs2x2": "...", "vsEmpty": "..." } },
-    "SS": { ... },
-    "CB1": { ... },
-    "CB2": { ... },
-    "MIKE": { ... },
-    "WILL": { ... },
-    "SAM": { ... },
+    "FS": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage", "adjustments": { "vsTrips": "...", "vs2x2": "...", "vsEmpty": "..." } },
+    "SS": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
+    "CB1": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
+    "CB2": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
+    "MIKE": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
+    "WILL": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
+    "SAM": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
     ... (include all visible positions)
   }
 }
