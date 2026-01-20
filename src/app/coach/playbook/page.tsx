@@ -31,14 +31,21 @@ export default function CoachPlaybookPage() {
 
   // Fetch approved plays
   const fetchPlays = async () => {
-    if (!teamId) return;
+    console.log('[Coach Playbook] fetchPlays called with teamId:', teamId);
+    if (!teamId) {
+      console.warn('[Coach Playbook] No teamId available, skipping fetch');
+      return;
+    }
 
     try {
       setLoading(true);
+      console.log('[Coach Playbook] Fetching from:', `/api/get-approved-plays?teamId=${teamId}&type=all`);
       const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&type=all`);
+      console.log('[Coach Playbook] Response status:', response.status);
       if (!response.ok) throw new Error('Failed to fetch plays');
 
       const data = await response.json();
+      console.log('[Coach Playbook] Received data:', data);
       setPlays(data.plays || []);
     } catch (error) {
       console.error('[Coach Playbook] Error fetching plays:', error);
@@ -161,6 +168,29 @@ export default function CoachPlaybookPage() {
           <div className="text-center">
             <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
             <p className="text-slate-400">Loading playbook...</p>
+            {!authLoading && !teamId && (
+              <p className="text-xs text-red-400 mt-2">No team ID found - check authentication</p>
+            )}
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
+
+  // Show message if no teamId after loading completes
+  if (!authLoading && !loading && !teamId) {
+    return (
+      <SidebarLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md">
+            <div className="text-red-400 text-5xl mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-white mb-2">Authentication Issue</h2>
+            <p className="text-slate-400 mb-4">
+              No team ID found. Please sign in or check your browser console for errors.
+            </p>
+            <p className="text-xs text-slate-500">
+              Team ID: {teamId || 'null'} | Auth Loading: {authLoading.toString()}
+            </p>
           </div>
         </div>
       </SidebarLayout>

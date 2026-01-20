@@ -55,10 +55,12 @@ export default function AssignmentLibraryPage() {
 
   // Fetch assignments
   useEffect(() => {
+    console.log('[Coach Assignments] useEffect triggered - teamId:', teamId, 'authLoading:', authLoading);
     if (teamId) {
       fetchAssignments();
     } else if (!authLoading) {
       // Auth is done loading but no teamId - stop loading
+      console.warn('[Coach Assignments] No teamId and auth loading complete');
       setLoading(false);
     }
   }, [teamId, authLoading]);
@@ -261,6 +263,29 @@ export default function AssignmentLibraryPage() {
           <div className="text-center">
             <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
             <p className="text-slate-400">Loading...</p>
+            {!teamId && (
+              <p className="text-xs text-red-400 mt-2">No team ID found - check authentication</p>
+            )}
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
+
+  // Show error if no teamId
+  if (!authLoading && !loading && !teamId) {
+    return (
+      <SidebarLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md">
+            <div className="text-red-400 text-5xl mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-white mb-2">Authentication Issue</h2>
+            <p className="text-slate-400 mb-4">
+              No team ID found. Please sign in or check your browser console for errors.
+            </p>
+            <p className="text-xs text-slate-500">
+              Team ID: {teamId || 'null'} | Auth Loading: {authLoading.toString()}
+            </p>
           </div>
         </div>
       </SidebarLayout>
