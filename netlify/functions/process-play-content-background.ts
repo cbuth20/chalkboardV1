@@ -172,12 +172,22 @@ export const handler: Handler = async (event, context) => {
     // --- Update Play Record ---
     console.log('💾 Updating play with AI-generated content...');
 
+    // Validate and normalize play_type to match database enum
+    const validPlayTypes = ['PASS', 'RUN', 'RPO', 'SCREEN'];
+    let playType = playAnalysis?.playType?.toUpperCase() || 'PASS';
+
+    // If AI returned an invalid type (e.g., 'COVERAGE', 'DEFENSE', 'INSTRUCTION'), default to PASS
+    if (!validPlayTypes.includes(playType)) {
+      console.log(`[Play Type] Invalid play_type "${playType}" returned by AI. Defaulting to PASS.`);
+      playType = 'PASS';
+    }
+
     const { error: updateError } = await supabase
       .from('plays')
       .update({
         name: playAnalysis?.name || metadata.formation_name || 'Untitled Play',
         short_name: playAnalysis?.shortName || playAnalysis?.name?.substring(0, 50) || 'Untitled',
-        play_type: playAnalysis?.playType?.toUpperCase() || 'PASS',
+        play_type: playType,
         concept: playAnalysis?.concept || metadata.concept_name,
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
@@ -208,12 +218,18 @@ export const handler: Handler = async (event, context) => {
     // Insert play_assignments
     const assignments: any[] = [];
     if (playAnalysis?.positions && generateAssignments) {
+      // Build source_metadata_ids array (track which metadata was used for this play)
+      const sourceMetadataIds = metadata?.id ? [metadata.id] : [];
+
       const assignmentRecords = Object.entries(playAnalysis.positions)
         .map(([position, posData]: [string, any]) => {
           const normalizedPosition = normalizePosition(position);
           if (!normalizedPosition) {
             return null; // Skip invalid positions
           }
+
+          // Determine category (default to 'general' if not provided)
+          const category = posData.category || 'general';
 
           return {
             play_id: playId,
@@ -224,6 +240,9 @@ export const handler: Handler = async (event, context) => {
             key_read: posData.read || '',
             route_id: posData.routeId || null,
             route_depth: posData.depth || null,
+            category: category,
+            source_metadata_ids: sourceMetadataIds,
+            display_order: posData.display_order || 0,
             coverage_adjustments: {
               vs_man: posData.adjustments?.vsMan || '',
               vs_zone: posData.adjustments?.vsZone || '',
@@ -708,6 +727,17 @@ For each position assignment, extract:
 - landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
 - assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
 - read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
+- category: The assignment category - use ONE of these exact values:
+  - "formation" for alignment/formation details
+  - "route" for routes and route running
+  - "coverage" for coverage reads and adjustments
+  - "protection" for pass protection
+  - "blocking" for run blocking
+  - "run_fits" for run game fits and gaps
+  - "adjustments" for play adjustments
+  - "hot_routes" for hot routes and audibles
+  - "checks" for pre-snap checks
+  - "general" for general assignments that don't fit other categories
 - adjustments: How they adjust vs different coverages
   - vsMan: What to do vs man coverage
   - vsZone: What to do vs zone coverage
@@ -726,9 +756,9 @@ Return your analysis as a JSON object with this structure:
   "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
   "bestAgainst": ["Coverage 1", "Coverage 2"],
   "positions": {
-    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
-    "RB": { ... },
-    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
+    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "formation", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
+    "RB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "blocking" },
+    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "route", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
     ... (include all visible positions)
   }
 }
