@@ -1303,28 +1303,24 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                     {getPositionsForSideOfBall(getCurrentMetadataValue('side_of_ball') as SideOfBall).map((pos) => {
                       const currentPositions = (getCurrentMetadataValue('position_relevance') as string[]) || ["all"];
                       const isSelected = currentPositions.includes(pos) || currentPositions.includes('all');
-                      const isAllSelected = currentPositions.includes('all');
                       const posInfo = ALL_POSITIONS[pos];
 
                       return (
                         <button
                           key={pos}
                           onClick={() => {
-                            if (isAllSelected) return; // Don't allow toggling if "all" is selected
-
-                            const updated = isSelected
+                            const updated = isSelected && !currentPositions.includes('all')
                               ? currentPositions.filter((p) => p !== pos)
                               : [...currentPositions.filter((p) => p !== "all"), pos];
                             handleMetadataChange({
                               position_relevance: updated.length === 0 ? ["all"] : updated,
                             });
                           }}
-                          disabled={isAllSelected}
                           className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase transition-all ${
                             isSelected
                               ? "bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30"
                               : "bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]"
-                          } ${isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          }`}
                           title={posInfo?.name || pos}
                         >
                           {pos}

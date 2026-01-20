@@ -481,12 +481,11 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                                 key={pos}
                                 type="button"
                                 onClick={() => handlePositionToggle(pos)}
-                                disabled={selectedPositions.includes('all')}
                                 className={`p-2 rounded-lg border transition-all text-xs font-bold ${
                                   isSelected
                                     ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
                                     : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                                } ${selectedPositions.includes('all') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                }`}
                                 title={posInfo?.name || pos}
                               >
                                 {pos}

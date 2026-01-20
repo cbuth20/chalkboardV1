@@ -173,7 +173,6 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
                   {/* Positions for selected side of ball */}
                   {getPositionsForSideOfBall(formData.side_of_ball).map((pos) => {
                     const isSelected = selectedPositions.includes(pos) || selectedPositions.includes('all');
-                    const isAllSelected = selectedPositions.includes('all');
                     const posInfo = ALL_POSITIONS[pos];
 
                     return (
@@ -181,12 +180,11 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
                         key={pos}
                         type="button"
                         onClick={() => handlePositionToggle(pos)}
-                        disabled={isAllSelected}
                         className={`p-2 rounded-lg border transition-all text-xs font-medium ${
                           isSelected
                             ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
                             : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                        } ${isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        }`}
                         title={posInfo?.name || pos}
                       >
                         {pos}
