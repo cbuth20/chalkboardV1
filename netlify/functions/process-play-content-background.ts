@@ -87,7 +87,7 @@ export const handler: Handler = async (event, context) => {
       .from('plays')
       .select(`
         *,
-        playbook_metadata (*)
+        playbook_metadata!plays_playbook_metadata_id_fkey (*)
       `)
       .eq('id', playId)
       .single();
