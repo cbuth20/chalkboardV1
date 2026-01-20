@@ -7,6 +7,34 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Map frontend content types to database enum values
+// Frontend types -> Database enum values
+function mapContentTypeToDatabase(frontendType: string | null | undefined): string | null {
+  if (!frontendType) return null;
+
+  const mapping: Record<string, string> = {
+    // Frontend type mappings
+    'single_play': 'play',
+    'notes': 'legend',
+    'install_notes': 'legend',
+    'full_playbook': 'index',
+    'concept': 'reference',
+    // Types that match database enum pass through: play, coverage, formation, legend, index, coaching_points, technique, terminology, reference, other
+  };
+
+  const mappedType = mapping[frontendType] || frontendType;
+
+  // Validate the mapped type is valid for database (fallback to 'other' if not recognized)
+  const validTypes = ['play', 'coverage', 'formation', 'legend', 'index', 'coaching_points', 'technique', 'terminology', 'reference', 'other'];
+
+  if (!validTypes.includes(mappedType)) {
+    console.warn(`[Content Type Mapping] Unknown type "${frontendType}" mapped to "${mappedType}", using "other" as fallback`);
+    return 'other';
+  }
+
+  return mappedType;
+}
+
 // GET - Fetch all playbook metadata
 export async function GET() {
   try {
@@ -85,11 +113,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Map frontend content type to database enum value
+    const dbContentType = mapContentTypeToDatabase(metadata.content_type);
+
     const insertData = {
       team_id: metadata.team_id,
       file_paths: metadata.file_paths,
       side_of_ball: metadata.side_of_ball,
-      content_type: metadata.content_type,
+      content_type: dbContentType,
       position_relevance: metadata.position_relevance || ['all'],
       level: metadata.level,
       formation_name: metadata.formation_name,
@@ -97,6 +128,7 @@ export async function POST(request: NextRequest) {
       custom_notes: metadata.custom_notes,
     };
 
+    console.log('[Metadata Mapping] Frontend content_type:', metadata.content_type, '-> Database:', dbContentType);
     console.log('Inserting metadata with data:', insertData);
 
     const { data, error } = await supabase
@@ -150,11 +182,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Map frontend content type to database enum value
+    const dbContentType = mapContentTypeToDatabase(updates.content_type);
+
     const { data, error } = await supabase
       .from('playbook_metadata')
       .update({
         side_of_ball: updates.side_of_ball,
-        content_type: updates.content_type,
+        content_type: dbContentType,
         position_relevance: updates.position_relevance,
         level: updates.level,
         formation_name: updates.formation_name,
@@ -165,6 +200,8 @@ export async function PUT(request: NextRequest) {
       .eq('id', id)
       .select()
       .single();
+
+    console.log('[Metadata Mapping] UPDATE - Frontend content_type:', updates.content_type, '-> Database:', dbContentType);
 
     if (error) {
       console.error('Supabase update error:', error);

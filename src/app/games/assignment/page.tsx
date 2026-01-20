@@ -16,17 +16,48 @@ import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPosit
 
 interface Assignment {
   id: string;
-  position: string;
-  alignment: string;
-  landmark: string;
-  assignment: string;
-  key_read: string;
+  position?: string;
+  alignment?: string;
+  landmark?: string;
+  assignment?: string;
+  key_read?: string;
   route_id?: string;
   route_depth?: number;
   read_progression?: string[];
   blocking_assignment?: string;
   coverage_adjustments?: any;
-  play: {
+
+  // Fields for different content types
+  contentType?: 'play' | 'coverage' | 'formation' | 'notes';
+
+  // Formation-specific fields
+  personnel?: string;
+  keyFeatures?: string[];
+  commonPlays?: string[];
+  formations?: any[];
+  isMultiFormation?: boolean;
+
+  // Notes-specific fields
+  sections?: Array<{
+    heading: string;
+    content: string;
+    keyPoints: string[];
+  }>;
+  terminology?: Array<{
+    term: string;
+    definition: string;
+  }>;
+  diagrams?: Array<{
+    description: string;
+    keyPoints: string[];
+  }>;
+  coachingPoints?: string[];
+  noteType?: string;
+
+  // Coverage-specific fields
+  weaknesses?: string[];
+
+  play?: {
     id: string;
     name: string;
     formation_name: string;
@@ -44,6 +75,13 @@ interface Assignment {
       custom_notes: string;
     } | null;
   };
+
+  // For non-play content types that don't have a play object
+  name?: string;
+  shortName?: string;
+  description?: string;
+  keyPoints?: string[];
+  notes?: string;
 }
 
 interface Flashcard {
@@ -190,7 +228,7 @@ function AssignmentTracker() {
       filterFormation === 'all' || assignment.play?.formation_name === filterFormation;
 
     // Position category filter
-    const matchesCategory = filterPositionCategory === 'all' || getPositionCategory(assignment.position) === filterPositionCategory;
+    const matchesCategory = filterPositionCategory === 'all' || (assignment.position && getPositionCategory(assignment.position as SkillPosition) === filterPositionCategory);
 
     return matchesSearch && matchesPlayType && matchesFormation && matchesCategory;
   });
@@ -199,8 +237,8 @@ function AssignmentTracker() {
   // HANDLERS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const handleViewAssignment = (assignment: Assignment) => {
-    setSelectedAssignment(assignment);
+  const handleViewAssignment = (selectedAssignment: Assignment) => {
+    setSelectedAssignment(selectedAssignment);
     setViewMode("detail");
   };
 
@@ -515,184 +553,17 @@ function AssignmentTracker() {
         {/* ASSIGNMENT DETAIL VIEW */}
         {viewMode === "detail" && selectedAssignment && (
           <div>
-            {/* Quiz Button - Moved to Top */}
-            {userPositions.length > 0 ? (
-              <button
-                onClick={() => handleStartQuiz(selectedAssignment.play.id)}
-                className="w-full glass-card p-4 text-[#00F6E5] font-semibold hover:bg-[#00F6E5]/5 transition flex items-center justify-center gap-2 mb-6"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 11l3 3L22 4" />
-                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-                </svg>
-                Take Quiz for This Play
-              </button>
+            {/* Render based on content type */}
+            {selectedAssignment.contentType === 'formation' ? (
+              <FormationDetailView assignment={selectedAssignment} />
+            ) : selectedAssignment.contentType === 'notes' ? (
+              <NotesDetailView assignment={selectedAssignment} />
+            ) : selectedAssignment.contentType === 'coverage' ? (
+              <CoverageDetailView assignment={selectedAssignment} userPositions={userPositions} handleStartQuiz={handleStartQuiz} />
             ) : (
-              <div className="glass-card p-4 text-center text-slate-400 text-sm mb-6">
-                To take quizzes, <Link href="/settings" className="text-[#00F6E5] hover:underline">set your positions in settings</Link>
-              </div>
+              /* Default: Play/Assignment detail view */
+              <PlayDetailView assignment={selectedAssignment} userPositions={userPositions} handleStartQuiz={handleStartQuiz} />
             )}
-
-            <div className="glass-card p-6">
-              {/* Play Info Header */}
-              <div className="mb-6 pb-6 border-b border-[#1B1E20]">
-                <h2 className="text-2xl font-bold text-white mb-2">{selectedAssignment.play?.name}</h2>
-                <div className="flex flex-wrap gap-2 text-sm text-slate-400">
-                  <span>{selectedAssignment.play?.formation_name}</span>
-                  <span>•</span>
-                  <span>{selectedAssignment.play?.concept}</span>
-                  <span>•</span>
-                  <span className="px-2 py-0.5 bg-[#1B1E20] rounded text-slate-300">
-                    {selectedAssignment.play?.play_type}
-                  </span>
-                </div>
-              </div>
-
-              {/* Position Badge */}
-              <div className="mb-6">
-                <span className="inline-flex items-center px-4 py-2 rounded-lg bg-[#00F6E5]/10 text-[#00F6E5] text-lg font-bold border border-[#00F6E5]/30">
-                  {selectedAssignment.position}
-                </span>
-                {userPositions.includes(selectedAssignment.position as SkillPosition) && (
-                  <span className="ml-3 text-sm text-[#00F6E5] font-semibold">YOUR POSITION</span>
-                )}
-              </div>
-
-              {/* Main Content Grid - Coach Insights + Assignment Details */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Coach-Approved Insights */}
-                <div className="bg-gradient-to-br from-[#151a1e] to-[#0f1215] border border-[#1B1E20] rounded-xl p-5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center shrink-0">
-                      <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-white">Coach-Approved Insights</h3>
-                      <p className="text-xs text-slate-500">AI-generated and reviewed by your coach</p>
-                    </div>
-                  </div>
-
-                  {/* AI Insights Content */}
-                  {selectedAssignment.play?.ai_insights ? (
-                    <div className="text-slate-300 whitespace-pre-wrap leading-relaxed text-sm max-h-[400px] overflow-y-auto pr-2">
-                      {selectedAssignment.play.ai_insights}
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center text-slate-500">
-                      <svg className="h-12 w-12 mx-auto mb-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <p className="text-sm">No insights available for this play</p>
-                      <p className="text-xs mt-1">Ask your coach to generate insights</p>
-                    </div>
-                  )}
-
-                  {/* Play Metadata */}
-                  {selectedAssignment.play?.playbook_metadata && (
-                    <div className="mt-4 pt-4 border-t border-[#1B1E20]">
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        {selectedAssignment.play.playbook_metadata.level && (
-                          <div>
-                            <div className="text-slate-500 mb-1">Level</div>
-                            <div className="text-white capitalize">
-                              {selectedAssignment.play.playbook_metadata.level.replace('_', ' ')}
-                            </div>
-                          </div>
-                        )}
-                        {selectedAssignment.play.playbook_metadata.content_type && (
-                          <div>
-                            <div className="text-slate-500 mb-1">Type</div>
-                            <div className="text-white capitalize">
-                              {selectedAssignment.play.playbook_metadata.content_type.replace('_', ' ')}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {selectedAssignment.play.playbook_metadata.custom_notes && (
-                        <div className="mt-3">
-                          <div className="text-slate-500 mb-1">Coach Notes</div>
-                          <div className="text-slate-300 text-sm">{selectedAssignment.play.playbook_metadata.custom_notes}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Core Assignment Details - Compact Grid */}
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
-                    <div className="text-white text-lg">{selectedAssignment.alignment}</div>
-                  </div>
-
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
-                    <div className="text-white text-lg">{selectedAssignment.landmark}</div>
-                  </div>
-
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
-                    <div className="text-white text-lg">{selectedAssignment.assignment}</div>
-                  </div>
-
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
-                    <div className="text-white text-lg">{selectedAssignment.key_read}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Details - Full Width Below */}
-              <div className="space-y-4">
-                {selectedAssignment.read_progression && selectedAssignment.read_progression.length > 0 && (
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Read Progression</div>
-                    <ol className="list-decimal list-inside space-y-1">
-                      {selectedAssignment.read_progression.map((read, idx) => (
-                        <li key={idx} className="text-white">{read}</li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-
-                {selectedAssignment.route_id && (
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Route</div>
-                    <div className="text-white text-lg">
-                      {selectedAssignment.route_id}
-                      {selectedAssignment.route_depth && (
-                        <span className="text-slate-400 text-base ml-2">({selectedAssignment.route_depth} yards)</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {selectedAssignment.blocking_assignment && (
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Blocking Assignment</div>
-                    <div className="text-white text-lg">{selectedAssignment.blocking_assignment}</div>
-                  </div>
-                )}
-
-                {selectedAssignment.coverage_adjustments && Object.keys(selectedAssignment.coverage_adjustments).length > 0 && (
-                  <div className="glass-card p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Coverage Adjustments</div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Object.entries(selectedAssignment.coverage_adjustments).map(([coverage, adjustment]) => (
-                        <div key={coverage} className="bg-[#1B1E20]/50 rounded p-3">
-                          <div className="text-xs text-[#00F6E5] font-semibold mb-1">
-                            {coverage.replace('vs_', 'vs ').replace(/_/g, ' ').toUpperCase()}
-                          </div>
-                          <div className="text-white text-sm">{String(adjustment)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         )}
 
@@ -797,6 +668,402 @@ function AssignmentTracker() {
         )}
       </main>
     </SidebarLayout>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DETAIL VIEW COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Play/Assignment Detail View Component
+function PlayDetailView({ assignment, userPositions, handleStartQuiz }: {
+  assignment: Assignment;
+  userPositions: SkillPosition[];
+  handleStartQuiz: (playId: string) => void;
+}) {
+  return (
+    <>
+            {/* Quiz Button - Moved to Top */}
+            {userPositions.length > 0 ? (
+              <button
+                onClick={() => assignment.play && handleStartQuiz(assignment.play.id)}
+                className="w-full glass-card p-4 text-[#00F6E5] font-semibold hover:bg-[#00F6E5]/5 transition flex items-center justify-center gap-2 mb-6"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+                Take Quiz for This Play
+              </button>
+            ) : (
+              <div className="glass-card p-4 text-center text-slate-400 text-sm mb-6">
+                To take quizzes, <Link href="/settings" className="text-[#00F6E5] hover:underline">set your positions in settings</Link>
+              </div>
+            )}
+
+            <div className="glass-card p-6">
+              {/* Play Info Header */}
+              <div className="mb-6 pb-6 border-b border-[#1B1E20]">
+                <h2 className="text-2xl font-bold text-white mb-2">{assignment.play?.name}</h2>
+                <div className="flex flex-wrap gap-2 text-sm text-slate-400">
+                  <span>{assignment.play?.formation_name}</span>
+                  <span>•</span>
+                  <span>{assignment.play?.concept}</span>
+                  <span>•</span>
+                  <span className="px-2 py-0.5 bg-[#1B1E20] rounded text-slate-300">
+                    {assignment.play?.play_type}
+                  </span>
+                </div>
+              </div>
+
+              {/* Position Badge */}
+              <div className="mb-6">
+                <span className="inline-flex items-center px-4 py-2 rounded-lg bg-[#00F6E5]/10 text-[#00F6E5] text-lg font-bold border border-[#00F6E5]/30">
+                  {assignment.position}
+                </span>
+                {userPositions.includes(assignment.position as SkillPosition) && (
+                  <span className="ml-3 text-sm text-[#00F6E5] font-semibold">YOUR POSITION</span>
+                )}
+              </div>
+
+              {/* Main Content Grid - Coach Insights + Assignment Details */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Coach-Approved Insights */}
+                <div className="bg-gradient-to-br from-[#151a1e] to-[#0f1215] border border-[#1B1E20] rounded-xl p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">Coach-Approved Insights</h3>
+                      <p className="text-xs text-slate-500">AI-generated and reviewed by your coach</p>
+                    </div>
+                  </div>
+
+                  {/* AI Insights Content */}
+                  {assignment.play?.ai_insights ? (
+                    <div className="text-slate-300 whitespace-pre-wrap leading-relaxed text-sm max-h-[400px] overflow-y-auto pr-2">
+                      {assignment.play.ai_insights}
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center text-slate-500">
+                      <svg className="h-12 w-12 mx-auto mb-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm">No insights available for this play</p>
+                      <p className="text-xs mt-1">Ask your coach to generate insights</p>
+                    </div>
+                  )}
+
+                  {/* Play Metadata */}
+                  {assignment.play?.playbook_metadata && (
+                    <div className="mt-4 pt-4 border-t border-[#1B1E20]">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {assignment.play.playbook_metadata.level && (
+                          <div>
+                            <div className="text-slate-500 mb-1">Level</div>
+                            <div className="text-white capitalize">
+                              {assignment.play.playbook_metadata.level.replace('_', ' ')}
+                            </div>
+                          </div>
+                        )}
+                        {assignment.play.playbook_metadata.content_type && (
+                          <div>
+                            <div className="text-slate-500 mb-1">Type</div>
+                            <div className="text-white capitalize">
+                              {assignment.play.playbook_metadata.content_type.replace('_', ' ')}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {assignment.play.playbook_metadata.custom_notes && (
+                        <div className="mt-3">
+                          <div className="text-slate-500 mb-1">Coach Notes</div>
+                          <div className="text-slate-300 text-sm">{assignment.play.playbook_metadata.custom_notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Core Assignment Details - Compact Grid */}
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
+                    <div className="text-white text-lg">{assignment.alignment}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
+                    <div className="text-white text-lg">{assignment.landmark}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
+                    <div className="text-white text-lg">{assignment.assignment}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
+                    <div className="text-white text-lg">{assignment.key_read}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Details - Full Width Below */}
+              <div className="space-y-4">
+                {assignment.read_progression && assignment.read_progression.length > 0 && (
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Read Progression</div>
+                    <ol className="list-decimal list-inside space-y-1">
+                      {assignment.read_progression.map((read, idx) => (
+                        <li key={idx} className="text-white">{read}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {assignment.route_id && (
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Route</div>
+                    <div className="text-white text-lg">
+                      {assignment.route_id}
+                      {assignment.route_depth && (
+                        <span className="text-slate-400 text-base ml-2">({assignment.route_depth} yards)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {assignment.blocking_assignment && (
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Blocking Assignment</div>
+                    <div className="text-white text-lg">{assignment.blocking_assignment}</div>
+                  </div>
+                )}
+
+                {assignment.coverage_adjustments && Object.keys(assignment.coverage_adjustments).length > 0 && (
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Coverage Adjustments</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Object.entries(assignment.coverage_adjustments).map(([coverage, adjustment]) => (
+                        <div key={coverage} className="bg-[#1B1E20]/50 rounded p-3">
+                          <div className="text-xs text-[#00F6E5] font-semibold mb-1">
+                            {coverage.replace('vs_', 'vs ').replace(/_/g, ' ').toUpperCase()}
+                          </div>
+                          <div className="text-white text-sm">{String(adjustment)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+    </>
+  );
+}
+
+// Coverage Detail View Component
+function CoverageDetailView({ assignment, userPositions, handleStartQuiz }: {
+  assignment: Assignment;
+  userPositions: SkillPosition[];
+  handleStartQuiz: (playId: string) => void;
+}) {
+  // Similar to PlayDetailView but tailored for defensive coverage
+  return <PlayDetailView assignment={assignment} userPositions={userPositions} handleStartQuiz={handleStartQuiz} />;
+}
+
+// Formation Detail View Component
+function FormationDetailView({ assignment }: { assignment: Assignment }) {
+  return (
+    <div className="glass-card p-6">
+      <div className="mb-6 pb-6 border-b border-[#1B1E20]">
+        <h2 className="text-2xl font-bold text-white mb-2">{assignment.name || 'Formation'}</h2>
+        <p className="text-slate-400">{assignment.description}</p>
+      </div>
+
+      {assignment.isMultiFormation && assignment.formations ? (
+        /* Multi-Formation Sheet */
+        <div className="space-y-6">
+          {assignment.formations.map((formation: any, idx: number) => (
+            <div key={idx} className="glass-card p-5">
+              <h3 className="text-xl font-bold text-white mb-3">{formation.name}</h3>
+              {formation.personnel && (
+                <div className="text-sm text-slate-400 mb-2">
+                  <span className="font-semibold">Personnel:</span> {formation.personnel}
+                </div>
+              )}
+              {formation.alignment && (
+                <div className="text-sm text-slate-300 mb-3">{formation.alignment}</div>
+              )}
+              {formation.keyFeatures && formation.keyFeatures.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Features</div>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-slate-300">
+                    {formation.keyFeatures.map((feature: string, i: number) => (
+                      <li key={i}>{feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {formation.commonPlays && formation.commonPlays.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Common Plays</div>
+                  <div className="flex flex-wrap gap-2">
+                    {formation.commonPlays.map((play: string, i: number) => (
+                      <span key={i} className="px-3 py-1 bg-[#1B1E20] rounded text-sm text-slate-300">{play}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        /* Single Formation */
+        <div className="space-y-4">
+          {assignment.personnel && (
+            <div className="glass-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Personnel</div>
+              <div className="text-white text-lg">{assignment.personnel}</div>
+            </div>
+          )}
+          {assignment.alignment && (
+            <div className="glass-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
+              <div className="text-white text-lg">{assignment.alignment}</div>
+            </div>
+          )}
+          {assignment.keyFeatures && assignment.keyFeatures.length > 0 && (
+            <div className="glass-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Features</div>
+              <ul className="list-disc list-inside space-y-1 text-white">
+                {assignment.keyFeatures.map((feature, i) => (
+                  <li key={i}>{feature}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {assignment.commonPlays && assignment.commonPlays.length > 0 && (
+            <div className="glass-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Common Plays</div>
+              <div className="flex flex-wrap gap-2">
+                {assignment.commonPlays.map((play, i) => (
+                  <span key={i} className="px-3 py-1 bg-[#1B1E20] rounded text-slate-300">{play}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {assignment.notes && (
+        <div className="mt-6 glass-card p-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Notes</div>
+          <div className="text-slate-300 whitespace-pre-wrap">{assignment.notes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Notes/Reference Material Detail View Component
+function NotesDetailView({ assignment }: { assignment: Assignment }) {
+  return (
+    <div className="glass-card p-6">
+      <div className="mb-6 pb-6 border-b border-[#1B1E20]">
+        <h2 className="text-2xl font-bold text-white mb-2">{assignment.name || 'Reference Material'}</h2>
+        <p className="text-slate-400">{assignment.description}</p>
+        {assignment.noteType && (
+          <div className="mt-2">
+            <span className="inline-block px-3 py-1 bg-[#00F6E5]/10 text-[#00F6E5] rounded text-sm font-semibold capitalize">
+              {assignment.noteType.replace('_', ' ')}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-6">
+        {/* Sections */}
+        {assignment.sections && assignment.sections.length > 0 && (
+          <div>
+            <h3 className="text-lg font-bold text-white mb-4">Content</h3>
+            {assignment.sections.map((section, idx) => (
+              <div key={idx} className="glass-card p-5 mb-4">
+                <h4 className="text-md font-semibold text-[#00F6E5] mb-2">{section.heading}</h4>
+                <p className="text-slate-300 mb-3">{section.content}</p>
+                {section.keyPoints && section.keyPoints.length > 0 && (
+                  <ul className="list-disc list-inside space-y-1 text-sm text-slate-400">
+                    {section.keyPoints.map((point, i) => (
+                      <li key={i}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Terminology */}
+        {assignment.terminology && assignment.terminology.length > 0 && (
+          <div className="glass-card p-5">
+            <h3 className="text-lg font-bold text-white mb-4">Terminology</h3>
+            <div className="space-y-3">
+              {assignment.terminology.map((term, idx) => (
+                <div key={idx} className="border-l-2 border-[#00F6E5] pl-3">
+                  <div className="font-semibold text-[#00F6E5]">{term.term}</div>
+                  <div className="text-slate-300 text-sm">{term.definition}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Diagrams */}
+        {assignment.diagrams && assignment.diagrams.length > 0 && (
+          <div>
+            <h3 className="text-lg font-bold text-white mb-4">Diagrams</h3>
+            {assignment.diagrams.map((diagram, idx) => (
+              <div key={idx} className="glass-card p-5 mb-4">
+                <p className="text-white mb-2">{diagram.description}</p>
+                {diagram.keyPoints && diagram.keyPoints.length > 0 && (
+                  <ul className="list-disc list-inside space-y-1 text-sm text-slate-400">
+                    {diagram.keyPoints.map((point, i) => (
+                      <li key={i}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Coaching Points */}
+        {assignment.coachingPoints && assignment.coachingPoints.length > 0 && (
+          <div className="glass-card p-5 bg-gradient-to-br from-[#00F6E5]/5 to-transparent border-[#00F6E5]/20">
+            <h3 className="text-lg font-bold text-white mb-4">Coaching Points</h3>
+            <ul className="space-y-2">
+              {assignment.coachingPoints.map((point, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-slate-300">
+                  <span className="text-[#00F6E5] mt-1">•</span>
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* General Notes */}
+        {assignment.notes && (
+          <div className="glass-card p-5">
+            <h3 className="text-lg font-bold text-white mb-3">Additional Notes</h3>
+            <div className="text-slate-300 whitespace-pre-wrap">{assignment.notes}</div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

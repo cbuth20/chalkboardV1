@@ -3,6 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 import { GLOSSARY_CONTEXT } from '@/lib/football-glossary';
 import { playDataToText } from '@/lib/playDataToText';
 import convert from 'heic-convert';
+import {
+  getInsightsPrompt,
+  getKnowledgeCardsPrompt,
+  buildInsightsContext,
+  fillPromptTemplate,
+  type ContentType,
+} from '@/lib/content-generation-prompts';
 
 // Initialize Supabase client with service role for server-side operations
 // Service role bypasses RLS which is appropriate for server-side API routes
@@ -630,31 +637,21 @@ ${GLOSSARY_CONTEXT}`;
 }
 
 async function generatePlayInsights(metadata: any, playAnalysis: any): Promise<string> {
-  const context = [
-    metadata.formation_name && `Formation: ${metadata.formation_name}`,
-    metadata.concept_name && `Concept: ${metadata.concept_name}`,
-    playAnalysis.name && `Play: ${playAnalysis.name}`,
-    metadata.side_of_ball && `Side of Ball: ${metadata.side_of_ball}`,
-    metadata.content_type && `Content Type: ${metadata.content_type}`,
-    metadata.level && `Level: ${metadata.level}`,
-    metadata.position_relevance && `Relevant Positions: ${metadata.position_relevance.join(', ')}`,
-    metadata.custom_notes && `Notes: ${metadata.custom_notes}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  // Determine content type from metadata (default to 'play' if not specified)
+  const contentType: ContentType = (metadata.content_type as ContentType) || 'play';
 
-  const prompt = `You are a professional football coach analyzing play metadata. Based on the following play information, provide quick coaching insights in a concise, actionable format.
+  // Get dynamic prompts based on content type
+  const promptConfig = getInsightsPrompt(contentType);
 
-${context}
+  // Build context from metadata and analysis
+  const context = buildInsightsContext(metadata, playAnalysis);
 
-Provide insights in the following format:
-- Play Type: [Brief description of what this play is]
-- Common Uses: [When and why this play is used]
-- Best Against: [What defensive schemes this works well against]
-- Key Coaching Points: [2-3 critical execution points]
-- Position Focus: [Key responsibilities for relevant positions]
+  // Fill template with context
+  const userPrompt = fillPromptTemplate(promptConfig.userPromptTemplate, {
+    CONTEXT: context,
+  });
 
-Keep each section brief (1-2 sentences max). Be specific and actionable.`;
+  console.log(`[Insights] Generating insights for content type: ${contentType}`);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -667,15 +664,15 @@ Keep each section brief (1-2 sentences max). Be specific and actionable.`;
       messages: [
         {
           role: 'system',
-          content: 'You are an expert football coach providing concise, actionable play analysis.',
+          content: promptConfig.systemPrompt,
         },
         {
           role: 'user',
-          content: prompt,
+          content: userPrompt,
         },
       ],
-      max_tokens: 500,
-      temperature: 0.7,
+      max_tokens: promptConfig.maxTokens,
+      temperature: promptConfig.temperature,
     }),
   });
 
@@ -690,30 +687,50 @@ Keep each section brief (1-2 sentences max). Be specific and actionable.`;
 }
 
 async function generateKnowledgeCards(playAnalysis: any, metadata: any): Promise<any[]> {
-  const prompt = `Based on this football play, generate 4-5 general knowledge quiz cards that test understanding of the play.
+  // Determine content type from metadata (default to 'play' if not specified)
+  const contentType: ContentType = (metadata.content_type as ContentType) || 'play';
 
-Play Information:
-- Name: ${playAnalysis.name || 'Unknown'}
-- Formation: ${playAnalysis.formation || metadata.formation_name || 'Unknown'}
-- Concept: ${playAnalysis.concept || metadata.concept_name || 'Unknown'}
-- Play Type: ${playAnalysis.playType || 'Unknown'}
-- Description: ${playAnalysis.description || 'N/A'}
+  // Get dynamic prompts based on content type
+  const promptConfig = getKnowledgeCardsPrompt(contentType);
 
-Generate flashcards that test:
-1. When to use this play (situational understanding)
-2. What coverage it works best against
-3. Key execution points
-4. Formation identification
-5. Concept understanding
-
-Return ONLY a JSON array with this structure (no markdown, no extra text):
-[
-  {
-    "question": "The question text",
-    "correct_answer": "The correct answer",
-    "category": "play_concept" | "formation_key" | "coverage_read" | "execution_key"
+  // Build context string based on content type
+  let context = '';
+  if (contentType === 'play') {
+    // For plays, use structured template variables
+    context = fillPromptTemplate(promptConfig.userPromptTemplate, {
+      NAME: playAnalysis.name || 'Unknown',
+      FORMATION: playAnalysis.formation || metadata.formation_name || 'Unknown',
+      CONCEPT: playAnalysis.concept || metadata.concept_name || 'Unknown',
+      PLAY_TYPE: playAnalysis.playType || 'Unknown',
+      DESCRIPTION: playAnalysis.description || 'N/A',
+    });
+  } else if (contentType === 'coverage') {
+    // For coverage, use coverage-specific fields
+    context = fillPromptTemplate(promptConfig.userPromptTemplate, {
+      NAME: playAnalysis.name || metadata.formation_name || 'Unknown',
+      COVERAGE_TYPE: playAnalysis.coverageType || 'Unknown',
+      COVERAGE_FAMILY: playAnalysis.coverageFamily || 'Unknown',
+      FRONT: playAnalysis.front || 'Unknown',
+      DESCRIPTION: playAnalysis.description || 'N/A',
+    });
+  } else if (contentType === 'formation') {
+    // For formations, use formation-specific fields
+    context = fillPromptTemplate(promptConfig.userPromptTemplate, {
+      NAME: playAnalysis.name || metadata.formation_name || 'Unknown',
+      PERSONNEL: playAnalysis.personnel || metadata.personnel || 'Unknown',
+      ALIGNMENT: playAnalysis.alignment || 'Unknown',
+      KEY_FEATURES: playAnalysis.keyFeatures ? playAnalysis.keyFeatures.join(', ') : 'N/A',
+      COMMON_PLAYS: playAnalysis.commonPlays ? playAnalysis.commonPlays.join(', ') : 'N/A',
+    });
+  } else {
+    // For other content types, build generic context
+    const contextData = buildInsightsContext(metadata, playAnalysis);
+    context = fillPromptTemplate(promptConfig.userPromptTemplate, {
+      CONTEXT: contextData,
+    });
   }
-]`;
+
+  console.log(`[Knowledge Cards] Generating ${promptConfig.cardCount} cards for content type: ${contentType}`);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -726,16 +743,15 @@ Return ONLY a JSON array with this structure (no markdown, no extra text):
       messages: [
         {
           role: 'system',
-          content:
-            'You are a football coach creating quiz cards. Return only valid JSON arrays, no markdown or extra text.',
+          content: promptConfig.systemPrompt,
         },
         {
           role: 'user',
-          content: prompt,
+          content: context,
         },
       ],
-      max_tokens: 800,
-      temperature: 0.7,
+      max_tokens: promptConfig.maxTokens,
+      temperature: promptConfig.temperature,
     }),
   });
 

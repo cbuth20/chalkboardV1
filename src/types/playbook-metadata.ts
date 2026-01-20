@@ -4,12 +4,25 @@ import { POSITIONS_BY_CATEGORY } from '@/lib/positions';
 
 export type SideOfBall = 'offense' | 'defense' | 'special_teams';
 
+/**
+ * Frontend content type values
+ *
+ * NOTE: These values are mapped to database enum values in netlify/functions/playbook-metadata.ts:
+ * - 'single_play' -> 'play'
+ * - 'notes' -> 'legend'
+ * - 'install_notes' -> 'legend'
+ * - 'full_playbook' -> 'index'
+ * - 'concept' -> 'reference'
+ * - Other values pass through if they match database enum: play, coverage, formation, legend, index, coaching_points, technique, terminology, reference, other
+ */
 export type ContentType =
   | 'full_playbook'
   | 'single_play'
   | 'formation'
   | 'concept'
-  | 'install_notes';
+  | 'coverage'
+  | 'install_notes'
+  | 'notes';
 
 export type Level = 'high_school' | 'college' | 'pro';
 
@@ -77,7 +90,9 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
   single_play: 'Single Play',
   formation: 'Formation',
   concept: 'Concept',
-  install_notes: 'Install Notes',
+  coverage: 'Coverage',
+  install_notes: "Install Notes",
+  notes: 'Notes',
 };
 
 export const LEVEL_LABELS: Record<Level, string> = {

@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
           concept,
           play_type,
           ai_insights,
-          playbook_metadata(
+          playbook_metadata!plays_playbook_metadata_id_fkey(
             id,
             formation_name,
             concept_name,

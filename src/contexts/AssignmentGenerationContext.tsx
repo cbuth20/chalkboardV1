@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { useRouter } from 'next/navigation';
 import { getAnalyzePlaysApiUrl } from '@/lib/api-config';
 import { usePlays } from './PlaysContext';
-import { convertGPTPlayToDefinition, type GPTPlayAnalysis } from '@/lib/generateQuizQuestions';
+import { convertGPTAnalysisToDefinition, type GPTAnalysis } from '@/lib/generateQuizQuestions';
 
 interface ImagePlaybook {
   id: string;
@@ -108,10 +108,10 @@ export function AssignmentGenerationProvider({ children }: { children: React.Rea
             throw new Error(`Failed to analyze ${playbook.fileName}`);
           }
 
-          const gptAnalysis: GPTPlayAnalysis = await response.json();
+          const gptAnalysis: GPTAnalysis = await response.json();
 
-          // Convert GPT analysis to PlayDefinition format
-          const analyzedPlay = convertGPTPlayToDefinition(gptAnalysis, playbook.id);
+          // Convert GPT analysis to appropriate format based on content type
+          const analyzedPlay = convertGPTAnalysisToDefinition(gptAnalysis, playbook.id);
 
           analyzedPlays.push(analyzedPlay);
           addAnalyzedPlay(playbook.id, analyzedPlay);

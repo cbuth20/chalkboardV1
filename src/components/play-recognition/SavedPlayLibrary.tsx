@@ -1251,7 +1251,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
                     <option value="single_play">Single Play</option>
                     <option value="formation">Formation</option>
                     <option value="concept">Concept</option>
-                    <option value="install_notes">Install Notes</option>
+                    <option value="coverage">Coverage</option>
+                    <option value="notes">Notes</option>
                   </select>
                 </div>
               </div>

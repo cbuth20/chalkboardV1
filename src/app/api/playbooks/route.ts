@@ -11,6 +11,34 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const BUCKET_NAME = 'Chalkboard Bucket';
 const FOLDER_PATH = 'public'; // Store files in public folder within bucket
 
+// Map frontend content types to database enum values
+// Frontend types -> Database enum values
+function mapContentTypeToDatabase(frontendType: string | null | undefined): string | null {
+  if (!frontendType) return null;
+
+  const mapping: Record<string, string> = {
+    // Frontend type mappings
+    'single_play': 'play',
+    'notes': 'legend',
+    'install_notes': 'legend',
+    'full_playbook': 'index',
+    'concept': 'reference',  // Generic concept sheets map to reference
+    // Types that match database enum pass through: play, coverage, formation, legend, index, coaching_points, technique, terminology, reference, other
+  };
+
+  const mappedType = mapping[frontendType] || frontendType;
+
+  // Validate the mapped type is valid for database (fallback to 'other' if not recognized)
+  const validTypes = ['play', 'coverage', 'formation', 'legend', 'index', 'coaching_points', 'technique', 'terminology', 'reference', 'other'];
+
+  if (!validTypes.includes(mappedType)) {
+    console.warn(`[Content Type Mapping] Unknown type "${frontendType}" mapped to "${mappedType}", using "other" as fallback`);
+    return 'other';
+  }
+
+  return mappedType;
+}
+
 // GET - List all playbooks from Supabase Storage with metadata
 export async function GET() {
   try {
@@ -257,11 +285,14 @@ export async function POST(request: NextRequest) {
     // Save metadata - ALWAYS create metadata for uploaded files
     let savedMetadata = null;
     if (teamId) {
+      // Map frontend content type to database enum value
+      const dbContentType = mapContentTypeToDatabase(metadata?.content_type);
+
       const metadataToSave = {
         team_id: teamId,
         file_paths: [filePath],
         side_of_ball: metadata?.side_of_ball || null,
-        content_type: metadata?.content_type || null,
+        content_type: dbContentType,
         position_relevance: metadata?.position_relevance || ['all'],
         level: metadata?.level || null,
         formation_name: metadata?.formation_name || null,
@@ -272,6 +303,7 @@ export async function POST(request: NextRequest) {
         play_data: isBuiltPlay && playData ? playData : null,
       };
 
+      console.log('[Metadata Mapping] Frontend content_type:', metadata?.content_type, '-> Database:', dbContentType);
       console.log('[Upload] Saving metadata:', metadataToSave);
 
       const { data: metadataData, error: metadataError } = await supabase

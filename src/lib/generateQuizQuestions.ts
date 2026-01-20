@@ -21,7 +21,7 @@ interface GPTPositionData {
   motion?: string;
 }
 
-// GPT Vision API response format
+// GPT Vision API response format for plays
 export interface GPTPlayAnalysis {
   name: string;
   shortName: string;
@@ -37,6 +37,121 @@ export interface GPTPlayAnalysis {
   fileName?: string;
   imageUrl?: string;
   analyzedAt?: string;
+  contentType?: 'play' | 'coverage' | 'formation' | 'notes';
+}
+
+// Formation analysis response
+export interface GPTFormationAnalysis {
+  name?: string;
+  title?: string;
+  personnel?: string;
+  alignment?: string;
+  description?: string;
+  keyFeatures?: string[];
+  commonPlays?: string[];
+  formations?: Array<{
+    name: string;
+    personnel?: string;
+    alignment?: string;
+    keyFeatures?: string[];
+    commonPlays?: string[];
+    positions?: {
+      [key: string]: { alignment: string };
+    };
+  }>;
+  positions?: {
+    [key: string]: { alignment: string };
+  };
+  notes?: string;
+  fileName?: string;
+  imageUrl?: string;
+  analyzedAt?: string;
+  contentType: 'formation';
+}
+
+// Coverage analysis response
+export interface GPTCoverageAnalysis {
+  name: string;
+  shortName: string;
+  coverageType: string;
+  coverageFamily: string;
+  front: string;
+  description: string;
+  keyPoints: string[];
+  strengths: string[];
+  weaknesses: string[];
+  positions: {
+    [key: string]: {
+      alignment: string;
+      landmark: string;
+      assignment: string;
+      read: string;
+      adjustments?: {
+        vsTrips?: string;
+        vs2x2?: string;
+        vsEmpty?: string;
+        vsMotion?: string;
+      };
+    };
+  };
+  fileName?: string;
+  imageUrl?: string;
+  analyzedAt?: string;
+  contentType: 'coverage';
+}
+
+// Notes/reference material analysis response
+export interface GPTNotesAnalysis {
+  title: string;
+  contentType: 'legend' | 'index' | 'coaching_points' | 'technique' | 'terminology' | 'reference' | 'other';
+  description: string;
+  sections?: Array<{
+    heading: string;
+    content: string;
+    keyPoints: string[];
+  }>;
+  terminology?: Array<{
+    term: string;
+    definition: string;
+  }>;
+  diagrams?: Array<{
+    description: string;
+    keyPoints: string[];
+  }>;
+  coachingPoints?: string[];
+  notes?: string;
+  fileName?: string;
+  imageUrl?: string;
+  analyzedAt?: string;
+}
+
+// Union type for all analysis types
+export type GPTAnalysis = GPTPlayAnalysis | GPTFormationAnalysis | GPTCoverageAnalysis | GPTNotesAnalysis;
+
+/**
+ * Detect content type from GPT analysis response
+ */
+function detectContentType(analysis: any): 'play' | 'coverage' | 'formation' | 'notes' {
+  // Check explicit contentType field
+  if (analysis.contentType) {
+    return analysis.contentType as 'play' | 'coverage' | 'formation' | 'notes';
+  }
+
+  // Detect based on response structure
+  if (analysis.coverageType || analysis.coverageFamily) {
+    return 'coverage';
+  }
+
+  if (analysis.formations || (analysis.title && analysis.personnel)) {
+    return 'formation';
+  }
+
+  if (analysis.sections || analysis.terminology || analysis.diagrams) {
+    return 'notes';
+  }
+
+  // Default to play
+  return 'play';
 }
 
 /**
@@ -82,6 +197,129 @@ export function convertGPTPlayToDefinition(
     bestAgainst: gptPlay?.bestAgainst || [],
     diagramType: gptPlay?.playType === 'run' ? 'run' : 'pass',
   };
+}
+
+/**
+ * Convert GPT-analyzed coverage data to a format suitable for assignments
+ */
+export function convertGPTCoverageToDefinition(
+  gptCoverage: GPTCoverageAnalysis,
+  playId?: string
+): any {
+  const positions = gptCoverage?.positions || {};
+
+  const assignments: PositionAssignment[] = Object.entries(positions).map(
+    ([position, data]) => ({
+      position: position as SkillPosition,
+      alignment: data?.alignment || 'Unknown',
+      landmark: data?.landmark || 'Unknown',
+      assignment: data?.assignment || 'Unknown',
+      read: data?.read || 'Unknown',
+      adjustments: {
+        vsMan: data?.adjustments?.vsTrips || 'No adjustment',
+        vsZone: data?.adjustments?.vs2x2 || 'No adjustment',
+        vsBlitz: data?.adjustments?.vsEmpty,
+      },
+    })
+  );
+
+  return {
+    id: playId || gptCoverage?.fileName?.replace(/\.[^/.]+$/, '') || `coverage-${Date.now()}`,
+    name: gptCoverage?.name || 'Unnamed Coverage',
+    shortName: gptCoverage?.shortName || 'Unknown',
+    formation: gptCoverage?.front || 'Unknown',
+    playType: 'defense' as any,
+    concept: gptCoverage?.coverageType || 'Unknown Coverage',
+    assignments,
+    description: gptCoverage?.description || 'No description available',
+    keyPoints: gptCoverage?.keyPoints || [],
+    bestAgainst: gptCoverage?.strengths || [],
+    weaknesses: gptCoverage?.weaknesses || [],
+    diagramType: 'defense' as any,
+    contentType: 'coverage' as const,
+  };
+}
+
+/**
+ * Convert GPT-analyzed formation data to a format suitable for reference
+ */
+export function convertGPTFormationToDefinition(
+  gptFormation: GPTFormationAnalysis,
+  playId?: string
+): any {
+  // Handle multi-formation sheets
+  if (gptFormation.formations && gptFormation.formations.length > 0) {
+    return {
+      id: playId || gptFormation?.fileName?.replace(/\.[^/.]+$/, '') || `formations-${Date.now()}`,
+      name: gptFormation?.title || 'Formation Sheet',
+      shortName: gptFormation?.title?.substring(0, 20) || 'Formations',
+      description: gptFormation?.description || 'No description available',
+      formations: gptFormation.formations,
+      notes: gptFormation.notes,
+      contentType: 'formation' as const,
+      isMultiFormation: true,
+    };
+  }
+
+  // Handle single formation
+  return {
+    id: playId || gptFormation?.fileName?.replace(/\.[^/.]+$/, '') || `formation-${Date.now()}`,
+    name: gptFormation?.name || 'Unnamed Formation',
+    shortName: gptFormation?.name?.substring(0, 20) || 'Formation',
+    personnel: gptFormation?.personnel,
+    alignment: gptFormation?.alignment,
+    description: gptFormation?.description || 'No description available',
+    keyFeatures: gptFormation?.keyFeatures || [],
+    commonPlays: gptFormation?.commonPlays || [],
+    positions: gptFormation?.positions || {},
+    notes: gptFormation?.notes,
+    contentType: 'formation' as const,
+    isMultiFormation: false,
+  };
+}
+
+/**
+ * Convert GPT-analyzed notes/reference material to a format suitable for study
+ */
+export function convertGPTNotesToDefinition(
+  gptNotes: GPTNotesAnalysis,
+  playId?: string
+): any {
+  return {
+    id: playId || gptNotes?.fileName?.replace(/\.[^/.]+$/, '') || `notes-${Date.now()}`,
+    name: gptNotes?.title || 'Reference Material',
+    shortName: gptNotes?.title?.substring(0, 20) || 'Reference',
+    description: gptNotes?.description || 'No description available',
+    sections: gptNotes?.sections || [],
+    terminology: gptNotes?.terminology || [],
+    diagrams: gptNotes?.diagrams || [],
+    coachingPoints: gptNotes?.coachingPoints || [],
+    notes: gptNotes?.notes,
+    contentType: 'notes' as const,
+    noteType: gptNotes?.contentType || 'reference',
+  };
+}
+
+/**
+ * Universal converter that detects content type and routes to appropriate converter
+ */
+export function convertGPTAnalysisToDefinition(
+  analysis: GPTAnalysis,
+  playId?: string
+): any {
+  const contentType = detectContentType(analysis);
+
+  switch (contentType) {
+    case 'coverage':
+      return convertGPTCoverageToDefinition(analysis as GPTCoverageAnalysis, playId);
+    case 'formation':
+      return convertGPTFormationToDefinition(analysis as GPTFormationAnalysis, playId);
+    case 'notes':
+      return convertGPTNotesToDefinition(analysis as GPTNotesAnalysis, playId);
+    case 'play':
+    default:
+      return convertGPTPlayToDefinition(analysis as GPTPlayAnalysis, playId);
+  }
 }
 
 /**

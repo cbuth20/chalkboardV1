@@ -1,6 +1,7 @@
 import { Handler } from '@netlify/functions';
 import fs from 'fs';
 import path from 'path';
+import { getSystemPrompt, getUserPrompt, buildMetadataContext } from './analysis-prompts';
 
 export const handler: Handler = async (event, context) => {
   const { httpMethod } = event;
@@ -73,8 +74,8 @@ export const handler: Handler = async (event, context) => {
       const base64Image = Buffer.from(imageBuffer).toString('base64');
 
       // Determine mime type from file extension or content-type header
-      const contentType = imageResponse.headers.get('content-type');
-      const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+      const imageMimeType = imageResponse.headers.get('content-type');
+      const mimeType = imageMimeType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
 
       const openaiApiKey = process.env.GPT_KEY;
       if (!openaiApiKey) {
@@ -84,25 +85,15 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
-      // Build context from metadata if provided
-      let metadataContext = '';
-      if (metadata) {
-        const contextParts = [];
-        if (metadata.side_of_ball) contextParts.push(`Side of ball: ${metadata.side_of_ball}`);
-        if (metadata.content_type) contextParts.push(`Content type: ${metadata.content_type}`);
-        if (metadata.level) contextParts.push(`Level: ${metadata.level}`);
-        if (metadata.formation_name) contextParts.push(`Formation: ${metadata.formation_name}`);
-        if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
-        if (metadata.position_relevance && metadata.position_relevance.length > 0) {
-          contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
-        }
+      // Get content-type specific prompts
+      const contentType = metadata?.content_type;
+      const systemPrompt = getSystemPrompt(contentType);
+      const baseUserPrompt = getUserPrompt(contentType);
+      const metadataContext = buildMetadataContext(metadata);
 
-        if (contextParts.length > 0) {
-          metadataContext = `\n\nAdditional context about this image:\n${contextParts.join('\n')}`;
-        }
-      }
+      const userPrompt = `${baseUserPrompt}${metadataContext}`;
 
-      const userPrompt = `Analyze this football play image and extract the play information, formations, routes, and position assignments.${metadataContext}`;
+      console.log('[Analyze Plays Netlify] Using content type:', contentType || 'play (default)');
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -115,7 +106,7 @@ export const handler: Handler = async (event, context) => {
           messages: [
             {
               role: 'system',
-              content: PLAY_ANALYSIS_SYSTEM_PROMPT,
+              content: systemPrompt,
             },
             {
               role: 'user',
@@ -188,48 +179,5 @@ export const handler: Handler = async (event, context) => {
   };
 };
 
-const PLAY_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach and analyst. Your job is to analyze football play diagrams and extract structured information about the play.
-
-When analyzing a play diagram, identify:
-1. The play name and formation
-2. The play type (pass, run, RPO, screen)
-3. The concept being used (e.g., Mesh, Flood, Power, Zone, etc.)
-4. Position assignments for each skill position (QB, RB, FB, X, Z, H, Y, TE)
-
-For each position assignment, extract:
-- alignment: Where they line up (e.g., "Slot left", "Split right 12 yards", "Pistol")
-- landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
-- assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
-- read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
-- adjustments: How they adjust vs different coverages
-  - vsMan: What to do vs man coverage
-  - vsZone: What to do vs zone coverage
-  - vsBlitz: What to do vs blitz (if applicable)
-- routeId: The route name if it's a passing play (e.g., "go", "out", "slant", "post", "corner", "dig", "curl", "seam")
-- depth: Route depth in yards (if applicable)
-
-Return your analysis as a JSON object with this structure:
-{
-  "name": "Full play name",
-  "shortName": "Short name (max 20 chars)",
-  "formation": "Formation name",
-  "playType": "pass" | "run" | "rpo" | "screen",
-  "concept": "Play concept",
-  "description": "Brief description of the play",
-  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
-  "bestAgainst": ["Coverage 1", "Coverage 2"],
-  "positions": {
-    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
-    "RB": { ... },
-    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
-    ... (include all visible positions)
-  }
-}
-
-If the image is unclear or doesn't contain a football play, return:
-{
-  "error": "Unable to identify a football play in this image",
-  "suggestion": "Please provide a clear football play diagram"
-}
-
-Only return valid JSON, no additional text or markdown.`;
+// System prompts are now imported from shared library
+// See netlify/functions/analysis-prompts.ts for prompt definitions

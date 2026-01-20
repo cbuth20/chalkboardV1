@@ -62,6 +62,20 @@ export type UserRole = 'player' | 'coach' | 'admin';
 
 export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert';
 
+export type ContentType =
+  | 'play'
+  | 'coverage'
+  | 'formation'
+  | 'legend'
+  | 'index'
+  | 'coaching_points'
+  | 'technique'
+  | 'terminology'
+  | 'reference'
+  | 'other';
+
+export type SideOfBall = 'offense' | 'defense' | 'special_teams' | 'general';
+
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
 // BASE TYPES (from existing schema)
@@ -195,6 +209,8 @@ export interface DbPlaybook {
   updated_at: string;
 }
 
+export type ContentStatus = 'pending_review' | 'approved' | 'rejected';
+
 export interface DbPlay {
   id: string;
   team_id: string | null;
@@ -213,6 +229,9 @@ export interface DbPlay {
   is_published: boolean;
   is_archived: boolean;
   version: number;
+  content_type: ContentType;  // NEW: Added in migration 004
+  content_status: ContentStatus;  // NEW: Added in migration 004
+  playbook_metadata_id: string | null;  // NEW: Added in migration 004
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -341,9 +360,9 @@ export interface DbPlayAssignment {
   key_read: string;
   coverage_adjustments: CoverageAdjustments;
   motion: MotionInfo | null;
-  category: AssignmentCategory;
-  source_metadata_ids: string[];
-  display_order: number;
+  category: AssignmentCategory;  // UPDATED: Made required in migration 004
+  source_metadata_ids: string[];  // NEW: Added in migration 004
+  display_order: number;  // NEW: Added in migration 004
   created_at: string;
   updated_at: string;
 }
@@ -568,6 +587,183 @@ export interface DbAIRecommendation {
 
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
+// CONTENT TYPES (Added in migration 004)
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+export interface DbPlaybookMetadata {
+  id: string;
+  team_id: string;
+
+  // File information
+  file_name: string | null;  // Nullable - auto-generated from file_paths if not provided
+  file_url: string | null;
+  storage_path: string | null;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  file_paths: string[];  // NEW: Added for backwards compatibility
+
+  // Content classification
+  content_type: ContentType;
+  side_of_ball: SideOfBall | null;
+
+  // Play/formation context
+  formation_name: string | null;
+  concept_name: string | null;
+  play_type: string | null;
+
+  // Organization
+  level: string | null;
+  position_relevance: string[] | null;
+  tags: string[] | null;
+
+  // User annotations
+  custom_notes: string | null;
+  custom_title: string | null;
+
+  // AI analysis metadata
+  analyzed_at: string | null;
+  ai_model_version: string | null;
+  ai_confidence_score: number | null;
+
+  // Status
+  is_active: boolean;
+  is_archived: boolean;
+  is_built_play: boolean;  // NEW: Whether this is a built/generated play
+
+  // Additional data
+  play_data: Record<string, unknown> | null;  // NEW: Additional play data/metadata (JSONB)
+
+  // Links
+  play_id: string | null;
+
+  // Metadata
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbFormationDefinition {
+  id: string;
+  metadata_id: string;
+  play_id: string | null;
+
+  // Formation identity
+  name: string;
+  short_name: string | null;
+  personnel: string | null;
+  alignment: string | null;
+
+  // Single formation content
+  description: string | null;
+  key_features: string[] | null;
+  common_plays: string[] | null;
+  positions: Record<string, unknown> | null;
+
+  // Multi-formation support
+  is_multi_formation: boolean;
+  formations: Record<string, unknown>[] | null;
+
+  // Additional info
+  notes: string | null;
+  diagram_data: Record<string, unknown> | null;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbCoverageDefinition {
+  id: string;
+  metadata_id: string;
+  play_id: string | null;
+
+  // Coverage identity
+  name: string;
+  short_name: string | null;
+  coverage_type: string | null;
+  coverage_family: string | null;
+  front: string | null;
+
+  // Content
+  description: string | null;
+  key_points: string[] | null;
+  strengths: string[] | null;
+  weaknesses: string[] | null;
+  best_against: string[] | null;
+
+  // Position assignments (defensive)
+  positions: Record<string, unknown> | null;
+
+  // Coverage keys
+  coverage_keys: string[] | null;
+
+  // Additional info
+  coaching_points: string[] | null;
+  diagram_data: Record<string, unknown> | null;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbReferenceContent {
+  id: string;
+  metadata_id: string;
+
+  // Content identity
+  title: string;
+  subtitle: string | null;
+  content_subtype: string | null;
+
+  // General content
+  description: string | null;
+
+  // Structured content
+  sections: Record<string, unknown>[] | null;
+  terminology: Record<string, unknown>[] | null;
+  diagrams: Record<string, unknown>[] | null;
+  coaching_points: string[] | null;
+  techniques: Record<string, unknown>[] | null;
+
+  // Index/menu specific
+  play_references: Record<string, unknown>[] | null;
+
+  // Legend specific
+  symbols: Record<string, unknown>[] | null;
+
+  // Additional info
+  notes: string | null;
+  related_play_ids: string[] | null;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbGptAnalysisCache {
+  id: string;
+  metadata_id: string;
+
+  // Request info
+  model_version: string;
+  prompt_version: string | null;
+  request_timestamp: string;
+
+  // Response
+  raw_response: Record<string, unknown>;
+  response_tokens: number | null;
+  processing_time_ms: number | null;
+
+  // Status
+  is_successful: boolean;
+  error_message: string | null;
+
+  // Metadata
+  created_at: string;
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
 // VIEW TYPES (for common queries)
 // ───────────────────────────────────────────────────────────────────────────────────────────
 
@@ -691,6 +887,13 @@ export interface Database {
       // AI Insights
       ai_insights: { Row: DbAIInsight; Insert: Partial<DbAIInsight>; Update: Partial<DbAIInsight> };
       ai_recommendations: { Row: DbAIRecommendation; Insert: Partial<DbAIRecommendation>; Update: Partial<DbAIRecommendation> };
+
+      // Content Types (Added in migration 004)
+      playbook_metadata: { Row: DbPlaybookMetadata; Insert: Partial<DbPlaybookMetadata>; Update: Partial<DbPlaybookMetadata> };
+      formation_definitions: { Row: DbFormationDefinition; Insert: Partial<DbFormationDefinition>; Update: Partial<DbFormationDefinition> };
+      coverage_definitions: { Row: DbCoverageDefinition; Insert: Partial<DbCoverageDefinition>; Update: Partial<DbCoverageDefinition> };
+      reference_content: { Row: DbReferenceContent; Insert: Partial<DbReferenceContent>; Update: Partial<DbReferenceContent> };
+      gpt_analysis_cache: { Row: DbGptAnalysisCache; Insert: Partial<DbGptAnalysisCache>; Update: Partial<DbGptAnalysisCache> };
     };
     Views: {
       install_plays_detail_view: { Row: InstallPlayDetail };
@@ -726,6 +929,8 @@ export interface Database {
       install_status: InstallStatus;
       ai_insight_type: AIInsightType;
       coverage_effectiveness: CoverageEffectiveness;
+      content_type: ContentType;  // Added in migration 004
+      content_status_enum: ContentStatus;  // Added in migration 004
     };
   };
 }

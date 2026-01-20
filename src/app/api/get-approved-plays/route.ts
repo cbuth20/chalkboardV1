@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         formation_name,
         concept,
         play_type,
+        content_type,
         ai_insights,
         created_at,
         playbook_metadata:playbook_metadata_id (

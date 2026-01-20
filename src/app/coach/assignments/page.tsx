@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMode } from '@/contexts/ModeContext';
@@ -50,6 +50,8 @@ export default function AssignmentLibraryPage() {
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isQuizExpanded, setIsQuizExpanded] = useState(false); // Collapsed by default
+  const [reviewFlashcards, setReviewFlashcards] = useState<any[]>([]);
 
   // Fetch assignments
   useEffect(() => {
@@ -83,6 +85,28 @@ export default function AssignmentLibraryPage() {
     }
   };
 
+  // Fetch quiz questions automatically when assignment is selected
+  const loadQuizQuestions = useCallback(async (playId: string, position: SkillPosition) => {
+    try {
+      const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&playId=${playId}&type=assignment-flashcards&position=${position}`);
+      if (!response.ok) throw new Error('Failed to fetch flashcards');
+
+      const data = await response.json();
+      setReviewFlashcards(data.flashcards || []);
+    } catch (error) {
+      console.error('Failed to load quiz questions:', error);
+      setReviewFlashcards([]);
+    }
+  }, [teamId]);
+
+  // Load quiz questions when assignment is selected
+  useEffect(() => {
+    if (showEditor && selectedAssignment && teamId) {
+      loadQuizQuestions(selectedAssignment.play_id, selectedAssignment.position);
+      setIsQuizExpanded(false); // Collapsed by default
+    }
+  }, [showEditor, selectedAssignment, teamId, loadQuizQuestions]);
+
   // Delete single assignment
   const handleDeleteAssignment = async (assignmentId: string) => {
     if (!confirm('Delete this assignment? This action cannot be undone.')) return;
@@ -101,6 +125,8 @@ export default function AssignmentLibraryPage() {
       setAssignments(prev => prev.filter(a => a.id !== assignmentId));
       setShowEditor(false);
       setSelectedAssignment(null);
+      setIsQuizExpanded(false);
+      setReviewFlashcards([]);
       alert('Assignment deleted successfully');
     } catch (error) {
       console.error('[Coach Assignments] Error deleting assignment:', error);
@@ -518,8 +544,10 @@ export default function AssignmentLibraryPage() {
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => {
           setShowEditor(false);
           setSelectedAssignment(null);
+          setIsQuizExpanded(false);
+          setReviewFlashcards([]);
         }}>
-          <div className="bg-[#0A0A0A] border border-[#1B1E20] rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-[#0A0A0A] border border-[#1B1E20] rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-start justify-between mb-6">
               <div>
@@ -530,6 +558,7 @@ export default function AssignmentLibraryPage() {
                 onClick={() => {
                   setShowEditor(false);
                   setSelectedAssignment(null);
+                  setReviewFlashcards([]);
                 }}
                 className="text-slate-400 hover:text-white transition"
               >
@@ -546,32 +575,175 @@ export default function AssignmentLibraryPage() {
               </span>
             </div>
 
-            {/* Assignment Details Grid */}
-            <div className="space-y-4">
-              {/* Alignment */}
-              <div className="glass-card p-4">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
-                <div className="text-white text-lg">{selectedAssignment.alignment}</div>
+            {/* Quiz Review Section - Collapsible, Always Visible */}
+            {reviewFlashcards.length > 0 && (
+              <div className="mb-6 glass-card overflow-hidden">
+                {/* Collapsible Header */}
+                <button
+                  onClick={() => setIsQuizExpanded(!isQuizExpanded)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#1B1E20]/30 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-[#00F6E5]/10 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M9 11l3 3L22 4" />
+                        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                      </svg>
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-sm font-bold text-white">Quiz Questions for {selectedAssignment.position}</h3>
+                      <p className="text-xs text-slate-500">{reviewFlashcards.length} question{reviewFlashcards.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <svg
+                    className={`w-5 h-5 text-slate-400 transition-transform ${isQuizExpanded ? 'rotate-180' : ''}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Expandable Content */}
+                {isQuizExpanded && (
+                  <div className="px-4 pb-4 max-h-[500px] overflow-y-auto">
+                    <div className="space-y-3">
+                      {reviewFlashcards.map((card, idx) => (
+                        <div key={card.id} className="bg-[#1B1E20]/50 rounded-lg p-3">
+                          <div className="flex items-start justify-between mb-2">
+                            <span className="text-xs text-slate-500 uppercase tracking-wide">{card.category}</span>
+                            <span className="text-xs text-slate-500">Q{idx + 1}</span>
+                          </div>
+                          <div className="text-white font-medium mb-2 text-sm">{card.question_prompt}</div>
+                          <div className="space-y-1.5">
+                            {card.hints && card.hints.length > 0 ? (
+                              card.hints.map((option: string, optIdx: number) => {
+                                const isCorrect = option === card.correct_answer;
+                                return (
+                                  <div
+                                    key={optIdx}
+                                    className={`px-3 py-2 rounded border text-sm ${
+                                      isCorrect
+                                        ? 'bg-green-950/30 border-green-500/50 text-green-300'
+                                        : 'bg-[#0F1419] border-[#1E2732] text-slate-400'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="flex-1">{option}</span>
+                                      {isCorrect && (
+                                        <svg className="h-4 w-4 text-green-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                          <path d="M20 6L9 17l-5-5" />
+                                        </svg>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="px-3 py-2 rounded bg-green-950/30 border border-green-500/50">
+                                <div className="text-xs text-green-400 font-semibold mb-1">Correct Answer:</div>
+                                <div className="text-green-300 text-sm">{card.correct_answer}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Main Content Grid - Coach Insights + Assignment Details */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              {/* Coach-Approved Insights */}
+              <div className="bg-gradient-to-br from-[#151a1e] to-[#0f1215] border border-[#1B1E20] rounded-xl p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">AI-Generated Insights</h3>
+                    <p className="text-xs text-slate-500">Review and approve for players</p>
+                  </div>
+                </div>
+
+                {/* AI Insights Content */}
+                {selectedAssignment.play.ai_insights ? (
+                  <div className="text-slate-300 whitespace-pre-wrap leading-relaxed text-sm max-h-[400px] overflow-y-auto pr-2">
+                    {selectedAssignment.play.ai_insights}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-slate-500">
+                    <svg className="h-12 w-12 mx-auto mb-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-sm">No insights available for this play</p>
+                    <p className="text-xs mt-1">Generate insights from the playbook manager</p>
+                  </div>
+                )}
+
+                {/* Play Metadata */}
+                {selectedAssignment.play.playbook_metadata && (
+                  <div className="mt-4 pt-4 border-t border-[#1B1E20]">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      {selectedAssignment.play.playbook_metadata.level && (
+                        <div>
+                          <div className="text-slate-500 mb-1">Level</div>
+                          <div className="text-white capitalize">
+                            {selectedAssignment.play.playbook_metadata.level.replace('_', ' ')}
+                          </div>
+                        </div>
+                      )}
+                      {selectedAssignment.play.playbook_metadata.content_type && (
+                        <div>
+                          <div className="text-slate-500 mb-1">Type</div>
+                          <div className="text-white capitalize">
+                            {selectedAssignment.play.playbook_metadata.content_type.replace('_', ' ')}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {selectedAssignment.play.playbook_metadata.custom_notes && (
+                      <div className="mt-3">
+                        <div className="text-slate-500 mb-1">Coach Notes</div>
+                        <div className="text-slate-300 text-sm">{selectedAssignment.play.playbook_metadata.custom_notes}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Landmark */}
-              <div className="glass-card p-4">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
-                <div className="text-white text-lg">{selectedAssignment.landmark}</div>
-              </div>
+              {/* Core Assignment Details - Compact Grid */}
+              <div className="grid grid-cols-1 gap-4">
+                <div className="glass-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
+                  <div className="text-white text-lg">{selectedAssignment.alignment}</div>
+                </div>
 
-              {/* Assignment */}
-              <div className="glass-card p-4">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
-                <div className="text-white text-lg">{selectedAssignment.assignment}</div>
-              </div>
+                <div className="glass-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
+                  <div className="text-white text-lg">{selectedAssignment.landmark}</div>
+                </div>
 
-              {/* Key Read */}
-              <div className="glass-card p-4">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
-                <div className="text-white text-lg">{selectedAssignment.key_read}</div>
-              </div>
+                <div className="glass-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
+                  <div className="text-white text-lg">{selectedAssignment.assignment}</div>
+                </div>
 
+                <div className="glass-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
+                  <div className="text-white text-lg">{selectedAssignment.key_read}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Additional Details - Full Width Below */}
+            <div className="space-y-4 mb-6">
               {/* Read Progression */}
               {selectedAssignment.read_progression && selectedAssignment.read_progression.length > 0 && (
                 <div className="glass-card p-4">
@@ -640,7 +812,7 @@ export default function AssignmentLibraryPage() {
             </div>
 
             {/* Footer */}
-            <div className="mt-6 pt-6 border-t border-[#1B1E20] flex justify-between gap-3">
+            <div className="pt-6 border-t border-[#1B1E20] flex justify-between gap-3">
               <button
                 onClick={() => handleDeleteAssignment(selectedAssignment.id)}
                 disabled={isDeleting}
@@ -653,6 +825,8 @@ export default function AssignmentLibraryPage() {
                 onClick={() => {
                   setShowEditor(false);
                   setSelectedAssignment(null);
+                  setShowQuizReview(false);
+                  setReviewFlashcards([]);
                 }}
                 className="px-6 py-2 rounded-lg bg-[#1B1E20] text-white hover:bg-[#252a2e] transition"
               >
