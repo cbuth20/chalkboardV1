@@ -32,6 +32,17 @@ interface Assignment {
     formation_name: string;
     concept: string;
     play_type: string;
+    ai_insights?: string;
+    playbook_metadata?: {
+      id: string;
+      formation_name: string;
+      concept_name: string;
+      side_of_ball: string;
+      content_type: string;
+      level: string;
+      position_relevance: string[];
+      custom_notes: string;
+    } | null;
   };
 }
 
@@ -504,8 +515,26 @@ function AssignmentTracker() {
         {/* ASSIGNMENT DETAIL VIEW */}
         {viewMode === "detail" && selectedAssignment && (
           <div>
-            <div className="glass-card p-6 mb-6">
-              {/* Play Info */}
+            {/* Quiz Button - Moved to Top */}
+            {userPositions.length > 0 ? (
+              <button
+                onClick={() => handleStartQuiz(selectedAssignment.play.id)}
+                className="w-full glass-card p-4 text-[#00F6E5] font-semibold hover:bg-[#00F6E5]/5 transition flex items-center justify-center gap-2 mb-6"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+                Take Quiz for This Play
+              </button>
+            ) : (
+              <div className="glass-card p-4 text-center text-slate-400 text-sm mb-6">
+                To take quizzes, <Link href="/settings" className="text-[#00F6E5] hover:underline">set your positions in settings</Link>
+              </div>
+            )}
+
+            <div className="glass-card p-6">
+              {/* Play Info Header */}
               <div className="mb-6 pb-6 border-b border-[#1B1E20]">
                 <h2 className="text-2xl font-bold text-white mb-2">{selectedAssignment.play?.name}</h2>
                 <div className="flex flex-wrap gap-2 text-sm text-slate-400">
@@ -529,28 +558,94 @@ function AssignmentTracker() {
                 )}
               </div>
 
-              {/* Assignment Details */}
+              {/* Main Content Grid - Coach Insights + Assignment Details */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Coach-Approved Insights */}
+                <div className="bg-gradient-to-br from-[#151a1e] to-[#0f1215] border border-[#1B1E20] rounded-xl p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">Coach-Approved Insights</h3>
+                      <p className="text-xs text-slate-500">AI-generated and reviewed by your coach</p>
+                    </div>
+                  </div>
+
+                  {/* AI Insights Content */}
+                  {selectedAssignment.play?.ai_insights ? (
+                    <div className="text-slate-300 whitespace-pre-wrap leading-relaxed text-sm max-h-[400px] overflow-y-auto pr-2">
+                      {selectedAssignment.play.ai_insights}
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center text-slate-500">
+                      <svg className="h-12 w-12 mx-auto mb-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm">No insights available for this play</p>
+                      <p className="text-xs mt-1">Ask your coach to generate insights</p>
+                    </div>
+                  )}
+
+                  {/* Play Metadata */}
+                  {selectedAssignment.play?.playbook_metadata && (
+                    <div className="mt-4 pt-4 border-t border-[#1B1E20]">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {selectedAssignment.play.playbook_metadata.level && (
+                          <div>
+                            <div className="text-slate-500 mb-1">Level</div>
+                            <div className="text-white capitalize">
+                              {selectedAssignment.play.playbook_metadata.level.replace('_', ' ')}
+                            </div>
+                          </div>
+                        )}
+                        {selectedAssignment.play.playbook_metadata.content_type && (
+                          <div>
+                            <div className="text-slate-500 mb-1">Type</div>
+                            <div className="text-white capitalize">
+                              {selectedAssignment.play.playbook_metadata.content_type.replace('_', ' ')}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {selectedAssignment.play.playbook_metadata.custom_notes && (
+                        <div className="mt-3">
+                          <div className="text-slate-500 mb-1">Coach Notes</div>
+                          <div className="text-slate-300 text-sm">{selectedAssignment.play.playbook_metadata.custom_notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Core Assignment Details - Compact Grid */}
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
+                    <div className="text-white text-lg">{selectedAssignment.alignment}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
+                    <div className="text-white text-lg">{selectedAssignment.landmark}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
+                    <div className="text-white text-lg">{selectedAssignment.assignment}</div>
+                  </div>
+
+                  <div className="glass-card p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
+                    <div className="text-white text-lg">{selectedAssignment.key_read}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Details - Full Width Below */}
               <div className="space-y-4">
-                <div className="glass-card p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Alignment</div>
-                  <div className="text-white text-lg">{selectedAssignment.alignment}</div>
-                </div>
-
-                <div className="glass-card p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Landmark</div>
-                  <div className="text-white text-lg">{selectedAssignment.landmark}</div>
-                </div>
-
-                <div className="glass-card p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment</div>
-                  <div className="text-white text-lg">{selectedAssignment.assignment}</div>
-                </div>
-
-                <div className="glass-card p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Key Read</div>
-                  <div className="text-white text-lg">{selectedAssignment.key_read}</div>
-                </div>
-
                 {selectedAssignment.read_progression && selectedAssignment.read_progression.length > 0 && (
                   <div className="glass-card p-4">
                     <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Read Progression</div>
@@ -598,24 +693,6 @@ function AssignmentTracker() {
                 )}
               </div>
             </div>
-
-            {/* Quiz Button */}
-            {userPositions.length > 0 ? (
-              <button
-                onClick={() => handleStartQuiz(selectedAssignment.play.id)}
-                className="w-full glass-card p-4 text-[#00F6E5] font-semibold hover:bg-[#00F6E5]/5 transition flex items-center justify-center gap-2"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 11l3 3L22 4" />
-                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-                </svg>
-                Take Quiz for This Play
-              </button>
-            ) : (
-              <div className="glass-card p-4 text-center text-slate-400 text-sm">
-                To take quizzes, <Link href="/settings" className="text-[#00F6E5] hover:underline">set your positions in settings</Link>
-              </div>
-            )}
           </div>
         )}
 

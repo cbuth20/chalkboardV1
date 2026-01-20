@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Fetch timeout')), 5000)
+        setTimeout(() => reject(new Error('Fetch timeout')), 2000)
       );
 
       const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
@@ -220,7 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Create timeout promise
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Auth initialization timeout')), 10000);
+          setTimeout(() => reject(new Error('Auth initialization timeout')), 2000);
         });
 
         // Race between getSession and timeout

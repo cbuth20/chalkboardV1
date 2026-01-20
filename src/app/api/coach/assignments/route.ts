@@ -33,7 +33,19 @@ export async function GET(request: NextRequest) {
           id,
           name,
           formation_name,
-          concept
+          concept,
+          play_type,
+          ai_insights,
+          playbook_metadata(
+            id,
+            formation_name,
+            concept_name,
+            side_of_ball,
+            content_type,
+            level,
+            position_relevance,
+            custom_notes
+          )
         )
       `)
       .eq('play.team_id', teamId);
