@@ -8,8 +8,9 @@ import {
   SIDE_OF_BALL_LABELS,
   CONTENT_TYPE_LABELS,
   LEVEL_LABELS,
-  POSITION_LABELS,
+  getPositionsForSideOfBall,
 } from '@/types/playbook-metadata';
+import { ALL_POSITIONS } from '@/lib/positions';
 
 interface MetadataFormProps {
   onSubmit: (metadata: PlaybookMetadataInput) => void;
@@ -24,6 +25,15 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
+  };
+
+  const handleSideOfBallChange = (sideOfBall: SideOfBall) => {
+    // When side of ball changes, reset positions to 'all'
+    setFormData(prev => ({
+      ...prev,
+      side_of_ball: sideOfBall,
+      position_relevance: ['all'],
+    }));
   };
 
   const handlePositionToggle = (position: Position) => {
@@ -76,7 +86,7 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setFormData(prev => ({ ...prev, side_of_ball: value }))}
+                  onClick={() => handleSideOfBallChange(value)}
                   className={`p-3 rounded-lg border transition-all text-sm font-medium ${
                     formData.side_of_ball === value
                       ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
@@ -113,7 +123,7 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
           </div>
 
           {/* Level */}
-          <div>
+          {/* <div>
             <label className="block text-sm font-semibold text-slate-300 mb-3">
               Level
             </label>
@@ -133,42 +143,68 @@ export const MetadataForm: React.FC<MetadataFormProps> = ({ onSubmit, onSkip }) 
                 </button>
               ))}
             </div>
-          </div>
+          </div> */}
 
           {/* Position Relevance */}
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-3">
               Position Relevance
+              {!formData.side_of_ball && (
+                <span className="ml-2 text-xs text-amber-400">Select "Side of Ball" first</span>
+              )}
             </label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {(Object.entries(POSITION_LABELS) as [Position, string][]).map(([value, label]) => {
-                const isSelected = selectedPositions.includes(value) ||
-                  (value !== 'all' && selectedPositions.includes('all'));
-                const isAllSelected = selectedPositions.includes('all');
-
-                return (
+            {formData.side_of_ball ? (
+              <>
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                  {/* "All" button */}
                   <button
-                    key={value}
                     type="button"
-                    onClick={() => handlePositionToggle(value)}
-                    disabled={value !== 'all' && isAllSelected}
+                    onClick={() => handlePositionToggle('all')}
                     className={`p-2 rounded-lg border transition-all text-xs font-medium ${
-                      isSelected
+                      selectedPositions.includes('all')
                         ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
                         : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                    } ${value !== 'all' && isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={label}
+                    }`}
+                    title="All Positions"
                   >
-                    {value}
+                    ALL
                   </button>
-                );
-              })}
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              {selectedPositions.includes('all')
-                ? 'All positions selected'
-                : `${selectedPositions.length} position(s) selected`}
-            </p>
+
+                  {/* Positions for selected side of ball */}
+                  {getPositionsForSideOfBall(formData.side_of_ball).map((pos) => {
+                    const isSelected = selectedPositions.includes(pos) || selectedPositions.includes('all');
+                    const isAllSelected = selectedPositions.includes('all');
+                    const posInfo = ALL_POSITIONS[pos];
+
+                    return (
+                      <button
+                        key={pos}
+                        type="button"
+                        onClick={() => handlePositionToggle(pos)}
+                        disabled={isAllSelected}
+                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
+                          isSelected
+                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                        } ${isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={posInfo?.name || pos}
+                      >
+                        {pos}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  {selectedPositions.includes('all')
+                    ? `All ${SIDE_OF_BALL_LABELS[formData.side_of_ball].toLowerCase()} positions selected`
+                    : `${selectedPositions.length} position(s) selected`}
+                </p>
+              </>
+            ) : (
+              <div className="p-4 rounded-lg bg-white/5 border border-white/10 text-center text-slate-400 text-sm">
+                Please select a "Side of Ball" to choose position relevance
+              </div>
+            )}
           </div>
 
           {/* Formation Name */}

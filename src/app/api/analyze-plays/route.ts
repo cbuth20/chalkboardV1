@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import convert from 'heic-convert';
 import { PlaybookMetadata } from '@/types/playbook-metadata';
 
 // This endpoint analyzes playbook files and generates dynamic content for the assignment tracker
@@ -16,7 +17,7 @@ export async function GET() {
     const files = fs.readdirSync(playbooksDir);
     const imageFiles = files.filter(file => {
       const ext = path.extname(file).toLowerCase();
-      return ['.png', '.jpg', '.jpeg'].includes(ext);
+      return ['.png', '.jpg', '.jpeg', '.heic', '.heif', '.gif', '.webp'].includes(ext);
     });
 
     // For now, return placeholder data structure
@@ -67,11 +68,46 @@ export async function POST(request: NextRequest) {
     }
 
     const imageBuffer = await imageResponse.arrayBuffer();
-    const base64Image = Buffer.from(imageBuffer).toString('base64');
-
-    // Determine mime type from file extension or content-type header
     const contentType = imageResponse.headers.get('content-type');
-    const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+
+    // Check if image is HEIC/HEIF format
+    const isHeic = contentType?.includes('heic') ||
+                   contentType?.includes('heif') ||
+                   fileName?.toLowerCase().endsWith('.heic') ||
+                   fileName?.toLowerCase().endsWith('.heif');
+
+    let base64Image: string;
+    let mimeType: string;
+
+    if (isHeic) {
+      console.log('[Analyze Plays] Detected HEIC/HEIF format, converting to JPEG...');
+      try {
+        // Convert HEIC to JPEG using heic-convert
+        const jpegBuffer = await convert({
+          buffer: Buffer.from(imageBuffer),
+          format: 'JPEG',
+          quality: 0.9, // 90% quality
+        });
+
+        base64Image = Buffer.from(jpegBuffer).toString('base64');
+        mimeType = 'image/jpeg';
+        console.log('[Analyze Plays] Successfully converted HEIC to JPEG');
+      } catch (conversionError: any) {
+        console.error('[Analyze Plays] Failed to convert HEIC:', conversionError);
+        return NextResponse.json(
+          {
+            error: 'Failed to convert HEIC image',
+            message: conversionError.message,
+            details: 'HEIC format detected but conversion failed. Please try converting to JPG or PNG manually.'
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      // Standard image formats (PNG, JPEG, etc.)
+      base64Image = Buffer.from(imageBuffer).toString('base64');
+      mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    }
 
     // Call ChatGPT Vision API
     const openaiApiKey = process.env.GPT_KEY;

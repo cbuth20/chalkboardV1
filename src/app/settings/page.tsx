@@ -4,22 +4,7 @@ import React, { useState } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { SkillPosition } from '@/lib/supabase/types/database';
-
-const POSITION_INFO: Record<SkillPosition, { name: string; description: string; group: string }> = {
-  QB: { name: 'Quarterback', description: 'Signal caller and field general', group: 'Skill' },
-  RB: { name: 'Running Back', description: 'Primary ball carrier', group: 'Skill' },
-  FB: { name: 'Fullback', description: 'Lead blocker and short yardage back', group: 'Skill' },
-  X: { name: 'X Receiver', description: 'Split end (left outside)', group: 'Skill' },
-  Z: { name: 'Z Receiver', description: 'Flanker (right outside)', group: 'Skill' },
-  H: { name: 'H Receiver', description: 'Slot receiver', group: 'Skill' },
-  Y: { name: 'Y Receiver', description: 'Tight end/Y receiver', group: 'Skill' },
-  TE: { name: 'Tight End', description: 'Inline blocker and receiver', group: 'Skill' },
-  LT: { name: 'Left Tackle', description: 'Blind side protector', group: 'O-Line' },
-  LG: { name: 'Left Guard', description: 'Interior pass protector', group: 'O-Line' },
-  C: { name: 'Center', description: 'Snap and line calls', group: 'O-Line' },
-  RG: { name: 'Right Guard', description: 'Interior pass protector', group: 'O-Line' },
-  RT: { name: 'Right Tackle', description: 'Edge protector', group: 'O-Line' },
-};
+import { ALL_POSITIONS, groupPositionsByGroup, CATEGORY_LABELS, type PositionCategory } from '@/lib/positions';
 
 export default function SettingsPage() {
   const { userPositions, updateUserPositions, loading: authLoading } = useAuth();
@@ -27,6 +12,7 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<PositionCategory>('offense');
 
   // Update selected positions when userPositions changes (from auth context)
   React.useEffect(() => {
@@ -85,9 +71,8 @@ export default function SettingsPage() {
     );
   }
 
-  // Group positions
-  const skillPositions = Object.entries(POSITION_INFO).filter(([_, info]) => info.group === 'Skill');
-  const oLinePositions = Object.entries(POSITION_INFO).filter(([_, info]) => info.group === 'O-Line');
+  // Get positions grouped by sub-group for the selected category
+  const groupedPositions = groupPositionsByGroup(selectedCategory);
 
   return (
     <SidebarLayout>
@@ -101,7 +86,7 @@ export default function SettingsPage() {
             </h1>
           </div>
           <p className="text-slate-400">
-            Configure your profile and position
+            Configure your profile and positions
           </p>
         </header>
 
@@ -122,95 +107,76 @@ export default function SettingsPage() {
                 {userPositions.map(pos => (
                   <div key={pos} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#00F6E5]/10 border border-[#00F6E5]/30">
                     <span className="text-sm font-bold text-[#00F6E5]">{pos}</span>
-                    <span className="text-xs text-slate-300">{POSITION_INFO[pos].name}</span>
+                    <span className="text-xs text-slate-300">{ALL_POSITIONS[pos]?.name}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Skill Positions */}
-          <div className="mb-8">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">
-              Skill Positions
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {skillPositions.map(([code, info]) => {
-                const isSelected = selectedPositions.includes(code as SkillPosition);
-                return (
-                  <button
-                    key={code}
-                    onClick={() => togglePosition(code as SkillPosition)}
-                    className={`group relative p-4 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'bg-[#00F6E5]/10 border-[#00F6E5] ring-2 ring-[#00F6E5]/30'
-                        : 'bg-[#1B1E20]/50 border-[#1B1E20] hover:border-[#00F6E5]/50 hover:bg-[#1B1E20]'
-                    }`}
-                  >
-                    {isSelected && (
-                      <div className="absolute top-2 right-2">
-                        <CheckIcon className="h-5 w-5 text-[#00F6E5]" />
-                      </div>
-                    )}
-                    <div className="text-center">
-                      <div className={`text-2xl font-black mb-2 ${isSelected ? 'text-[#00F6E5]' : 'text-white'}`}>
-                        {code}
-                      </div>
-                      <div className={`text-xs font-semibold mb-1 ${isSelected ? 'text-[#00F6E5]' : 'text-slate-300'}`}>
-                        {info.name}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {info.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Category Filter Tabs */}
+          <div className="mb-6 flex gap-2 border-b border-[#1B1E20] pb-2">
+            {(['offense', 'defense', 'special-teams'] as PositionCategory[]).map(category => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`px-4 py-2 rounded-t-lg font-semibold transition-all ${
+                  selectedCategory === category
+                    ? 'bg-[#00F6E5]/10 text-[#00F6E5] border-b-2 border-[#00F6E5]'
+                    : 'text-slate-400 hover:text-white hover:bg-[#1B1E20]/50'
+                }`}
+              >
+                {CATEGORY_LABELS[category]}
+              </button>
+            ))}
           </div>
 
-          {/* O-Line Positions */}
-          <div className="mb-8">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">
-              Offensive Line
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {oLinePositions.map(([code, info]) => {
-                const isSelected = selectedPositions.includes(code as SkillPosition);
-                return (
-                  <button
-                    key={code}
-                    onClick={() => togglePosition(code as SkillPosition)}
-                    className={`group relative p-4 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'bg-[#00F6E5]/10 border-[#00F6E5] ring-2 ring-[#00F6E5]/30'
-                        : 'bg-[#1B1E20]/50 border-[#1B1E20] hover:border-[#00F6E5]/50 hover:bg-[#1B1E20]'
-                    }`}
-                  >
-                    {isSelected && (
-                      <div className="absolute top-2 right-2">
-                        <CheckIcon className="h-5 w-5 text-[#00F6E5]" />
+          {/* Position Groups */}
+          {Object.entries(groupedPositions).map(([groupName, positions]) => (
+            <div key={groupName} className="mb-8">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">
+                {groupName}
+              </h3>
+              <div className={`grid grid-cols-2 gap-3 ${
+                positions.length > 4 ? 'md:grid-cols-4' : `md:grid-cols-${Math.min(positions.length, 5)}`
+              }`}>
+                {positions.map((posInfo) => {
+                  const isSelected = selectedPositions.includes(posInfo.code);
+                  return (
+                    <button
+                      key={posInfo.code}
+                      onClick={() => togglePosition(posInfo.code)}
+                      className={`group relative p-4 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? 'bg-[#00F6E5]/10 border-[#00F6E5] ring-2 ring-[#00F6E5]/30'
+                          : 'bg-[#1B1E20]/50 border-[#1B1E20] hover:border-[#00F6E5]/50 hover:bg-[#1B1E20]'
+                      }`}
+                    >
+                      {isSelected && (
+                        <div className="absolute top-2 right-2">
+                          <CheckIcon className="h-5 w-5 text-[#00F6E5]" />
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <div className={`text-2xl font-black mb-2 ${isSelected ? 'text-[#00F6E5]' : 'text-white'}`}>
+                          {posInfo.code}
+                        </div>
+                        <div className={`text-xs font-semibold mb-1 ${isSelected ? 'text-[#00F6E5]' : 'text-slate-300'}`}>
+                          {posInfo.name}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {posInfo.description}
+                        </div>
                       </div>
-                    )}
-                    <div className="text-center">
-                      <div className={`text-2xl font-black mb-2 ${isSelected ? 'text-[#00F6E5]' : 'text-white'}`}>
-                        {code}
-                      </div>
-                      <div className={`text-xs font-semibold mb-1 ${isSelected ? 'text-[#00F6E5]' : 'text-slate-300'}`}>
-                        {info.name}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {info.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ))}
 
           {/* Save Button & Feedback */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 mt-8">
             <button
               onClick={handleSave}
               disabled={!hasChanges || isSaving}
@@ -236,7 +202,7 @@ export default function SettingsPage() {
             {saveSuccess && (
               <div className="flex items-center gap-2 text-emerald-400">
                 <CheckIcon className="h-5 w-5" />
-                <span className="text-sm font-semibold">Position saved successfully!</span>
+                <span className="text-sm font-semibold">Positions saved successfully!</span>
               </div>
             )}
 

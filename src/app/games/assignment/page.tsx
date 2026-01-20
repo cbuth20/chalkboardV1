@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DEV_TEAM_ID } from "@/lib/constants";
 import { ChevronLeft, CheckCircle, XCircle } from "lucide-react";
 import { SkillPosition } from "@/lib/supabase/types/database";
+import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPositionCategory } from '@/lib/positions';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -72,6 +73,7 @@ function AssignmentTracker() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPlayType, setFilterPlayType] = useState<'all' | 'pass' | 'run'>('all');
   const [filterFormation, setFilterFormation] = useState<string>('all');
+  const [filterPositionCategory, setFilterPositionCategory] = useState<PositionCategory | 'all'>('all');
   const [formations, setFormations] = useState<string[]>([]);
 
   // Quiz state
@@ -176,7 +178,10 @@ function AssignmentTracker() {
     const matchesFormation =
       filterFormation === 'all' || assignment.play?.formation_name === filterFormation;
 
-    return matchesSearch && matchesPlayType && matchesFormation;
+    // Position category filter
+    const matchesCategory = filterPositionCategory === 'all' || getPositionCategory(assignment.position) === filterPositionCategory;
+
+    return matchesSearch && matchesPlayType && matchesFormation && matchesCategory;
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -355,6 +360,18 @@ function AssignmentTracker() {
                     className="w-full px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
                   />
                 </div>
+
+                {/* Position Category Filter */}
+                <select
+                  value={filterPositionCategory}
+                  onChange={(e) => setFilterPositionCategory(e.target.value as PositionCategory | 'all')}
+                  className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
+                >
+                  <option value="all">All Categories</option>
+                  <option value="offense">Offense</option>
+                  <option value="defense">Defense</option>
+                  <option value="special-teams">Special Teams</option>
+                </select>
 
                 {/* Play Type Filter */}
                 <select

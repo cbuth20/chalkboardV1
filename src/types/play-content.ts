@@ -1,5 +1,17 @@
 // Shared types for play content generation and review
 
+export type AssignmentCategory =
+  | 'formation'
+  | 'coverage'
+  | 'route'
+  | 'protection'
+  | 'blocking'
+  | 'run_fits'
+  | 'adjustments'
+  | 'hot_routes'
+  | 'checks'
+  | 'general';
+
 export interface PositionAssignment {
   id: string;
   position: string;
@@ -9,6 +21,9 @@ export interface PositionAssignment {
   key_read: string;
   route_id?: string | null;
   route_depth?: number | null;
+  category?: AssignmentCategory;
+  source_metadata_ids?: string[];
+  display_order?: number;
   coverage_adjustments?: {
     vs_man?: string;
     vs_zone?: string;

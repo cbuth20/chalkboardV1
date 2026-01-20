@@ -14,6 +14,12 @@ const FOLDER_PATH = 'public'; // Store files in public folder within bucket
 // GET - List all playbooks from Supabase Storage with metadata
 export async function GET() {
   try {
+    console.log('[Playbooks API] Attempting to list files...');
+    console.log('[Playbooks API] Bucket:', BUCKET_NAME);
+    console.log('[Playbooks API] Folder:', FOLDER_PATH);
+    console.log('[Playbooks API] Supabase URL:', supabaseUrl);
+    console.log('[Playbooks API] Has Service Key:', !!supabaseServiceKey);
+
     // List all files in the public folder
     const { data: files, error } = await supabase.storage
       .from(BUCKET_NAME)
@@ -24,21 +30,34 @@ export async function GET() {
       });
 
     if (error) {
-      console.error('Supabase Storage error:', error);
+      console.error('[Playbooks API] Supabase Storage error:', error);
+      console.error('[Playbooks API] Error details:', {
+        message: error.message,
+        name: error.name,
+        cause: error.cause,
+        stack: error.stack,
+      });
       return NextResponse.json(
         {
           error: 'Failed to fetch playbooks from storage',
           message: error.message,
+          details: {
+            bucket: BUCKET_NAME,
+            folder: FOLDER_PATH,
+            errorName: error.name,
+          },
         },
         { status: 500 }
       );
     }
 
+    console.log('[Playbooks API] Successfully listed files:', files?.length || 0);
+
     // Filter for supported file types and map to playbook format
     const playbooks = (files || [])
       .filter(file => {
         const ext = file.name.split('.').pop()?.toLowerCase();
-        return ext && ['pdf', 'png', 'jpg', 'jpeg'].includes(ext);
+        return ext && ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'heif'].includes(ext);
       })
       .map(file => {
         const ext = file.name.split('.').pop()?.toLowerCase();
@@ -52,7 +71,7 @@ export async function GET() {
           id: file.id || file.name,
           name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
           fileName: file.name,
-          type: ext === 'pdf' ? 'pdf' : 'image',
+          type: ext === 'pdf' ? 'pdf' : 'image', // HEIC/HEIF are image types
           uploadedAt: file.created_at || new Date().toISOString(),
           tags: [],
           playType: 'Unknown',
@@ -177,6 +196,10 @@ export async function POST(request: NextRequest) {
         ? 'image/png'
         : ext === 'jpg' || ext === 'jpeg'
         ? 'image/jpeg'
+        : ext === 'heic'
+        ? 'image/heic'
+        : ext === 'heif'
+        ? 'image/heif'
         : 'application/octet-stream';
 
       // Upload to Supabase Storage
@@ -231,22 +254,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Save metadata if provided
+    // Save metadata - ALWAYS create metadata for uploaded files
     let savedMetadata = null;
-    if (metadata && teamId) {
+    if (teamId) {
       const metadataToSave = {
         team_id: teamId,
-        file_paths: metadata.file_paths || [filePath],
-        side_of_ball: metadata.side_of_ball,
-        content_type: metadata.content_type,
-        position_relevance: metadata.position_relevance || ['all'],
-        level: metadata.level,
-        formation_name: metadata.formation_name,
-        concept_name: metadata.concept_name,
-        custom_notes: metadata.custom_notes,
-        is_built_play: isBuiltPlay || false, // Mark if this is a built play
-        play_data: isBuiltPlay && playData ? playData : null, // Store structured play data
+        file_paths: [filePath],
+        side_of_ball: metadata?.side_of_ball || null,
+        content_type: metadata?.content_type || null,
+        position_relevance: metadata?.position_relevance || ['all'],
+        level: metadata?.level || null,
+        formation_name: metadata?.formation_name || null,
+        concept_name: metadata?.concept_name || null,
+        custom_notes: metadata?.custom_notes || null,
+        tags: metadata?.tags || [], // NEW: Include tags field
+        is_built_play: isBuiltPlay || false,
+        play_data: isBuiltPlay && playData ? playData : null,
       };
+
+      console.log('[Upload] Saving metadata:', metadataToSave);
 
       const { data: metadataData, error: metadataError } = await supabase
         .from('playbook_metadata')
@@ -255,8 +281,8 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (metadataError) {
-        console.error('Failed to save metadata:', metadataError);
-        console.error('Metadata error details:', {
+        console.error('[Upload] Failed to save metadata:', metadataError);
+        console.error('[Upload] Metadata error details:', {
           code: metadataError.code,
           message: metadataError.message,
           details: metadataError.details,
@@ -264,10 +290,11 @@ export async function POST(request: NextRequest) {
         });
         // Continue without failing the upload
       } else {
+        console.log('[Upload] Metadata saved successfully:', metadataData.id);
         savedMetadata = metadataData;
       }
-    } else if (metadata && !teamId) {
-      console.warn('Metadata provided but teamId missing - skipping metadata save');
+    } else {
+      console.warn('[Upload] No teamId provided - cannot save metadata');
     }
 
     const newPlay = {

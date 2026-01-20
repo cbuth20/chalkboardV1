@@ -1,4 +1,6 @@
 // Playbook metadata types for Supabase storage
+import { SkillPosition } from '@/lib/supabase/types/database';
+import { POSITIONS_BY_CATEGORY } from '@/lib/positions';
 
 export type SideOfBall = 'offense' | 'defense' | 'special_teams';
 
@@ -11,20 +13,19 @@ export type ContentType =
 
 export type Level = 'high_school' | 'college' | 'pro';
 
-export type Position =
-  | 'QB'
-  | 'RB'
-  | 'FB'
-  | 'WR'
-  | 'TE'
-  | 'OL'
-  | 'DL'
-  | 'LB'
-  | 'CB'
-  | 'S'
-  | 'K'
-  | 'P'
-  | 'all';
+// Position can be a SkillPosition or 'all'
+export type Position = SkillPosition | 'all';
+
+export type PlaybookTag =
+  | 'Formation'
+  | 'Coverage'
+  | 'Route'
+  | 'Protection'
+  | 'Blocking'
+  | 'Run Fits'
+  | 'Adjustments'
+  | 'Hot Routes'
+  | 'Checks';
 
 export interface PlaybookMetadata {
   id: string;
@@ -45,6 +46,9 @@ export interface PlaybookMetadata {
   concept_name?: string;
   custom_notes?: string;
 
+  // Tags for multi-file organization
+  tags?: PlaybookTag[];
+
   // User info
   user_id?: string;
 }
@@ -58,6 +62,7 @@ export interface PlaybookMetadataInput {
   formation_name?: string;
   concept_name?: string;
   custom_notes?: string;
+  tags?: PlaybookTag[];
 }
 
 // UI labels for display
@@ -81,18 +86,39 @@ export const LEVEL_LABELS: Record<Level, string> = {
   pro: 'Professional',
 };
 
-export const POSITION_LABELS: Record<Position, string> = {
-  QB: 'Quarterback',
-  RB: 'Running Back',
-  FB: 'Fullback',
-  WR: 'Wide Receiver',
-  TE: 'Tight End',
-  OL: 'Offensive Line',
-  DL: 'Defensive Line',
-  LB: 'Linebacker',
-  CB: 'Cornerback',
-  S: 'Safety',
-  K: 'Kicker',
-  P: 'Punter',
-  all: 'All Positions',
-};
+export const PLAYBOOK_TAGS: PlaybookTag[] = [
+  'Formation',
+  'Coverage',
+  'Route',
+  'Protection',
+  'Blocking',
+  'Run Fits',
+  'Adjustments',
+  'Hot Routes',
+  'Checks',
+];
+
+// Helper function to get positions based on side of ball
+export function getPositionsForSideOfBall(sideOfBall: SideOfBall | undefined): SkillPosition[] {
+  if (!sideOfBall) return [];
+
+  switch (sideOfBall) {
+    case 'offense':
+      return POSITIONS_BY_CATEGORY.offense;
+    case 'defense':
+      return POSITIONS_BY_CATEGORY.defense;
+    case 'special_teams':
+      return POSITIONS_BY_CATEGORY['special-teams'];
+    default:
+      return [];
+  }
+}
+
+// Helper to get all available positions (for 'all' selection)
+export function getAllPositions(): SkillPosition[] {
+  return [
+    ...POSITIONS_BY_CATEGORY.offense,
+    ...POSITIONS_BY_CATEGORY.defense,
+    ...POSITIONS_BY_CATEGORY['special-teams'],
+  ];
+}

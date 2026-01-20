@@ -11,10 +11,20 @@
 
 export type PlayType = 'PASS' | 'RUN' | 'RPO' | 'SCREEN' | 'TRICK' | 'SPECIAL';
 
-export type SkillPosition = 
-  | 'QB' | 'RB' | 'FB' 
+export type SkillPosition =
+  // Offense - Skill Positions
+  | 'QB' | 'RB' | 'FB'
   | 'X' | 'Z' | 'H' | 'Y' | 'TE'
-  | 'LT' | 'LG' | 'C' | 'RG' | 'RT';
+  // Offense - Offensive Line
+  | 'LT' | 'LG' | 'C' | 'RG' | 'RT'
+  // Defense - Defensive Line
+  | 'DE' | 'DT' | 'NT'
+  // Defense - Linebackers
+  | 'MLB' | 'OLB' | 'ILB' | 'WILL' | 'MIKE' | 'SAM'
+  // Defense - Secondary
+  | 'CB' | 'FS' | 'SS' | 'S' | 'NB'
+  // Special Teams
+  | 'K' | 'P' | 'LS' | 'KR' | 'PR';
 
 export type MasteryLevel = 'new' | 'learning' | 'proficient' | 'mastered';
 
@@ -301,6 +311,18 @@ export interface MotionInfo {
   path: string;
 }
 
+export type AssignmentCategory =
+  | 'formation'
+  | 'coverage'
+  | 'route'
+  | 'protection'
+  | 'blocking'
+  | 'run_fits'
+  | 'adjustments'
+  | 'hot_routes'
+  | 'checks'
+  | 'general';
+
 export interface DbPlayAssignment {
   id: string;
   play_id: string;
@@ -319,6 +341,9 @@ export interface DbPlayAssignment {
   key_read: string;
   coverage_adjustments: CoverageAdjustments;
   motion: MotionInfo | null;
+  category: AssignmentCategory;
+  source_metadata_ids: string[];
+  display_order: number;
   created_at: string;
   updated_at: string;
 }

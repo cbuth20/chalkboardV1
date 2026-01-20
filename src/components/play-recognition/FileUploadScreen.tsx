@@ -8,91 +8,160 @@ import {
   SIDE_OF_BALL_LABELS,
   CONTENT_TYPE_LABELS,
   LEVEL_LABELS,
-  POSITION_LABELS,
+  PLAYBOOK_TAGS,
+  PlaybookTag,
+  getPositionsForSideOfBall,
 } from '@/types/playbook-metadata';
+import { ALL_POSITIONS } from '@/lib/positions';
+
+interface UploadedFile {
+  data: string;
+  name: string;
+  type: string;
+  preview: string;
+  metadata: PlaybookMetadataInput;
+}
 
 interface FileUploadScreenProps {
-  onUploadComplete: (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => void;
+  onUploadComplete: (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => void;
   onBack: () => void;
 }
 
 export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComplete, onBack }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [showMetadata, setShowMetadata] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<{data: string, name: string, type: string} | null>(null);
+  const [isUploadingAll, setIsUploadingAll] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Metadata form state
-  const [metadata, setMetadata] = useState<PlaybookMetadataInput>({
-    position_relevance: ['all'],
-  });
+  const currentFile = currentFileIndex !== null ? uploadedFiles[currentFileIndex] : null;
 
-  const handleFileSelect = async (file: File) => {
-    if (!file) return;
+  const handleFileSelect = async (files: FileList) => {
+    if (!files || files.length === 0) return;
 
     setIsUploading(true);
 
     try {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        setPreview(result);
-        setSelectedFile({ data: result, name: file.name, type: file.type });
-        setIsUploading(false);
-        setShowMetadata(true);
-      };
-      reader.readAsDataURL(file);
+      const filePromises = Array.from(files).map((file) => {
+        return new Promise<UploadedFile>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const result = e.target?.result as string;
+            resolve({
+              data: result,
+              name: file.name,
+              type: file.type,
+              preview: result,
+              metadata: { position_relevance: ['all'], tags: [] },
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      const newFiles = await Promise.all(filePromises);
+      setUploadedFiles(prev => [...prev, ...newFiles]);
+      setIsUploading(false);
+
+      // Auto-select first file if none selected
+      if (currentFileIndex === null && newFiles.length > 0) {
+        setCurrentFileIndex(uploadedFiles.length);
+      }
     } catch (error) {
-      console.error('Error reading file:', error);
+      console.error('Error reading files:', error);
       setIsUploading(false);
     }
   };
 
-  const handleUploadWithMetadata = () => {
-    if (!selectedFile) return;
-    onUploadComplete(selectedFile.data, selectedFile.name, selectedFile.type, metadata);
+  const handleUpdateMetadata = (updates: Partial<PlaybookMetadataInput>) => {
+    if (currentFileIndex === null) return;
+
+    setUploadedFiles(prev => prev.map((file, idx) =>
+      idx === currentFileIndex
+        ? { ...file, metadata: { ...file.metadata, ...updates } }
+        : file
+    ));
   };
 
-  const handleSkipMetadata = () => {
-    if (!selectedFile) return;
-    onUploadComplete(selectedFile.data, selectedFile.name, selectedFile.type);
+  const handleRemoveFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, idx) => idx !== index));
+
+    if (currentFileIndex === index) {
+      setCurrentFileIndex(uploadedFiles.length > 1 ? 0 : null);
+    } else if (currentFileIndex !== null && currentFileIndex > index) {
+      setCurrentFileIndex(currentFileIndex - 1);
+    }
+  };
+
+  const handleUploadAll = () => {
+    setIsUploadingAll(true);
+    const filesToUpload = uploadedFiles.map(file => ({
+      fileData: file.data,
+      fileName: file.name,
+      fileType: file.type,
+      metadata: file.metadata,
+    }));
+    onUploadComplete(filesToUpload);
   };
 
   const handlePositionToggle = (position: Position) => {
-    setMetadata(prev => {
-      const currentPositions = prev.position_relevance || ['all'];
+    if (currentFileIndex === null) return;
 
-      if (position === 'all') {
-        return { ...prev, position_relevance: ['all'] };
-      }
+    const currentMetadata = uploadedFiles[currentFileIndex].metadata;
+    const currentPositions = currentMetadata.position_relevance || ['all'];
 
+    let newPositions: Position[];
+    if (position === 'all') {
+      newPositions = ['all'];
+    } else {
       const withoutAll = currentPositions.filter(p => p !== 'all');
-
       if (withoutAll.includes(position)) {
-        const newPositions = withoutAll.filter(p => p !== position);
-        return {
-          ...prev,
-          position_relevance: newPositions.length === 0 ? ['all'] : newPositions,
-        };
+        newPositions = withoutAll.filter(p => p !== position);
+        if (newPositions.length === 0) newPositions = ['all'];
       } else {
-        return {
-          ...prev,
-          position_relevance: [...withoutAll, position],
-        };
+        newPositions = [...withoutAll, position];
       }
+    }
+
+    handleUpdateMetadata({ position_relevance: newPositions });
+  };
+
+  const handleSideOfBallChange = (sideOfBall: SideOfBall) => {
+    // When side of ball changes, reset positions to 'all'
+    handleUpdateMetadata({
+      side_of_ball: sideOfBall,
+      position_relevance: ['all'],
     });
+  };
+
+  const handleTagToggle = (tag: PlaybookTag) => {
+    if (currentFileIndex === null) return;
+
+    const currentTags = uploadedFiles[currentFileIndex].metadata.tags || [];
+    const newTags = currentTags.includes(tag)
+      ? currentTags.filter(t => t !== tag)
+      : [...currentTags, tag];
+
+    handleUpdateMetadata({ tags: newTags });
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
 
-    const file = e.dataTransfer.files[0];
-    if (file && (file.type.startsWith('image/') || file.type === 'application/pdf')) {
-      handleFileSelect(file);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const validFiles = Array.from(files).filter(file =>
+        file.type.startsWith('image/') || file.type === 'application/pdf'
+      );
+
+      if (validFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        validFiles.forEach(file => dataTransfer.items.add(file));
+        handleFileSelect(dataTransfer.files);
+      }
     }
   };
 
@@ -107,13 +176,14 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFileSelect(files);
     }
+    e.target.value = '';
   };
 
-  const selectedPositions = metadata.position_relevance || ['all'];
+  const selectedPositions = currentFile?.metadata.position_relevance || ['all'];
 
   return (
     <div className="relative h-full w-full bg-[#0A0F12] overflow-hidden flex flex-col">
@@ -127,273 +197,417 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
             <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
           </svg>
         </button>
-        <div className="text-white font-bold text-lg tracking-wide">IMPORT PLAYBOOK</div>
+        <div className="text-white font-bold text-lg tracking-wide">
+          IMPORT PLAYBOOK {uploadedFiles.length > 0 && `(${uploadedFiles.length} files)`}
+        </div>
         <div className="w-10"></div>
       </div>
 
-      {/* Main Upload Area */}
-      <div className="flex-1 flex items-center justify-center p-8 mt-16 overflow-y-auto">
-        <div className="w-full max-w-2xl">
-          {showMetadata && preview ? (
-            /* Metadata Form */
-            <div className="space-y-6 animate-fade-in">
-              {/* Preview */}
-              <div className="relative rounded-2xl overflow-hidden border border-white/10">
-                <img src={preview} alt="Preview" className="w-full h-48 object-contain bg-black" />
-              </div>
-
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
-                <div>
-                  <h3 className="text-xl font-bold text-white mb-2">Add Details (Optional)</h3>
-                  <p className="text-sm text-slate-400">Help organize your playbook by adding some optional tags</p>
-                </div>
-
-                {/* Side of Ball */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Side of Ball</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(Object.entries(SIDE_OF_BALL_LABELS) as [SideOfBall, string][]).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setMetadata(prev => ({ ...prev, side_of_ball: value }))}
-                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
-                          metadata.side_of_ball === value
-                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
-                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Content Type */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Content Type</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(Object.entries(CONTENT_TYPE_LABELS) as [ContentType, string][]).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setMetadata(prev => ({ ...prev, content_type: value }))}
-                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
-                          metadata.content_type === value
-                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
-                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Level */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Level</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(Object.entries(LEVEL_LABELS) as [Level, string][]).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setMetadata(prev => ({ ...prev, level: value }))}
-                        className={`p-2 rounded-lg border transition-all text-xs font-medium ${
-                          metadata.level === value
-                            ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
-                            : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Position Relevance */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Position Relevance</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {(Object.entries(POSITION_LABELS) as [Position, string][]).map(([value, label]) => {
-                      const isSelected = selectedPositions.includes(value) ||
-                        (value !== 'all' && selectedPositions.includes('all'));
-                      const isAllSelected = selectedPositions.includes('all');
-
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => handlePositionToggle(value)}
-                          disabled={value !== 'all' && isAllSelected}
-                          className={`p-2 rounded-lg border transition-all text-xs font-bold ${
-                            isSelected
-                              ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
-                              : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
-                          } ${value !== 'all' && isAllSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title={label}
-                        >
-                          {value}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Formation Name */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Formation Name</label>
-                  <input
-                    type="text"
-                    value={metadata.formation_name || ''}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, formation_name: e.target.value }))}
-                    placeholder="e.g., Spread, I-Formation, Shotgun"
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                  />
-                </div>
-
-                {/* Concept Name */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">Concept Name</label>
-                  <input
-                    type="text"
-                    value={metadata.concept_name || ''}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, concept_name: e.target.value }))}
-                    placeholder="e.g., Mesh, Power, Zone, Slant-Flat"
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                  />
-                </div>
-
-                {/* Additional Information */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-2">
-                    Additional Information
-                    <span className="ml-2 text-xs text-slate-500 font-normal">(Optional - helps AI understand the play better)</span>
-                  </label>
-                  <textarea
-                    value={metadata.custom_notes || ''}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, custom_notes: e.target.value }))}
-                    placeholder="Add detailed context about position assignments, blocking schemes, route progressions, protections, reads, adjustments, or any other information that would help the AI generate more accurate content..."
-                    rows={6}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors resize-none"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    Example: QB progressions, protection schemes, route details, blocking assignments, etc.
-                  </p>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleSkipMetadata}
-                    className="flex-1 px-6 py-3 bg-white/5 border border-white/10 rounded-lg text-slate-300 font-semibold hover:bg-white/10 transition-colors"
-                  >
-                    Skip
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUploadWithMetadata}
-                    className="flex-1 px-6 py-3 bg-[var(--neon-teal)] rounded-lg text-black font-bold hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)]"
-                  >
-                    Upload
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Upload Interface */
-            <>
-          {/* Drag and Drop Zone */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            className={`relative border-4 border-dashed rounded-3xl p-12 transition-all ${
-              isDragging
-                ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10'
-                : 'border-white/10 bg-white/5'
-            }`}
-          >
-            {isUploading ? (
-              <div className="flex flex-col items-center justify-center gap-4">
-                <div className="w-16 h-16 rounded-full border-4 border-[var(--neon-teal)]/30 border-t-[var(--neon-teal)] animate-spin"></div>
-                <p className="text-slate-400 text-lg">Processing file...</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center gap-6">
-                {/* Icon */}
-                <div className="w-24 h-24 rounded-full bg-[var(--neon-teal)]/10 flex items-center justify-center">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--neon-teal)" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                </div>
-
-                {/* Text */}
-                <div className="text-center">
-                  <h2 className="text-2xl font-bold text-white mb-2">Drop your playbook here</h2>
-                  <p className="text-slate-400 mb-4">or click to browse files</p>
-                  <p className="text-xs text-slate-500">Supports PDF, JPG, PNG files</p>
-                </div>
-
-                {/* Browse Button */}
+      {/* Main Content */}
+      <div className="flex-1 flex p-8 mt-16 overflow-hidden">
+        {uploadedFiles.length > 0 ? (
+          // File list + metadata editor
+          <div className="flex gap-6 w-full max-w-7xl mx-auto">
+            {/* Left: File List */}
+            <div className="w-64 flex-shrink-0 space-y-3">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-bold text-sm uppercase tracking-wider">Files ({uploadedFiles.length})</h3>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="bg-[var(--neon-teal)] text-black font-bold px-8 py-3 rounded-lg hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+                  className="text-[var(--neon-teal)] text-xs font-semibold hover:underline"
                 >
-                  BROWSE FILES
+                  + Add More
                 </button>
+              </div>
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
+              <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-250px)]">
+                {uploadedFiles.map((file, index) => (
+                  <div
+                    key={index}
+                    className={`group relative rounded-lg border p-3 cursor-pointer transition-all ${
+                      currentFileIndex === index
+                        ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10'
+                        : 'border-white/10 bg-white/5 hover:border-white/20'
+                    }`}
+                    onClick={() => setCurrentFileIndex(index)}
+                  >
+                    {/* Preview */}
+                    <div className="w-full h-20 rounded overflow-hidden bg-black mb-2">
+                      {file.type.startsWith('image/') && !file.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                        <img src={file.preview} alt={file.name} className="w-full h-full object-contain" />
+                      ) : file.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                            <polyline points="21 15 16 10 5 21"/>
+                          </svg>
+                          <span className="text-[8px] mt-1">HEIC</span>
+                        </div>
+                      ) : file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? (
+                        <div className="flex flex-col items-center justify-center h-full text-red-400">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                            <path d="M14 2v6h6" />
+                            <path d="M9 13h6" />
+                            <path d="M9 17h3" />
+                          </svg>
+                          <span className="text-[8px] mt-1">PDF</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-500">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                            <path d="M14 2v6h6" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* File name */}
+                    <p className="text-white text-xs font-medium truncate" title={file.name}>
+                      {file.name}
+                    </p>
+
+                    {/* Tags */}
+                    {file.metadata.tags && file.metadata.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {file.metadata.tags.slice(0, 2).map(tag => (
+                          <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-[var(--neon-teal)]/20 text-[var(--neon-teal)] rounded">
+                            {tag}
+                          </span>
+                        ))}
+                        {file.metadata.tags.length > 2 && (
+                          <span className="text-[9px] px-1.5 py-0.5 text-slate-400">
+                            +{file.metadata.tags.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Remove button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveFile(index);
+                      }}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Upload All Button */}
+              <button
+                onClick={handleUploadAll}
+                disabled={isUploadingAll}
+                className="w-full bg-[var(--neon-teal)] text-black font-bold py-3 rounded-lg hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isUploadingAll ? (
+                  <>
+                    <div className="w-5 h-5 rounded-full border-3 border-black/30 border-t-black animate-spin"></div>
+                    <span>UPLOADING...</span>
+                  </>
+                ) : (
+                  <span>UPLOAD ALL ({uploadedFiles.length})</span>
+                )}
+              </button>
+            </div>
+
+            {/* Right: Metadata Editor */}
+            {currentFile && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-6">
+                  {/* Preview */}
+                  <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black">
+                    {currentFile.type.startsWith('image/') && !currentFile.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                      <img src={currentFile.preview} alt="Preview" className="w-full h-64 object-contain" />
+                    ) : currentFile.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                          <circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21 15 16 10 5 21"/>
+                        </svg>
+                        <div className="mt-4 text-center">
+                          <p className="font-medium text-white">{currentFile.name}</p>
+                          <p className="text-sm text-slate-500 mt-1">HEIC Image</p>
+                          <p className="text-xs text-slate-600 mt-2">Preview not available</p>
+                          <p className="text-xs text-slate-600">Will be converted to JPEG during upload</p>
+                        </div>
+                      </div>
+                    ) : currentFile.type === 'application/pdf' || currentFile.name.toLowerCase().endsWith('.pdf') ? (
+                      <div className="w-full h-96">
+                        <iframe
+                          src={currentFile.preview}
+                          className="w-full h-full border-0"
+                          title={`PDF Preview: ${currentFile.name}`}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                          <path d="M14 2v6h6" />
+                        </svg>
+                        <p className="mt-4 text-sm">Document</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+                    <div>
+                      <h3 className="text-xl font-bold text-white mb-1">{currentFile.name}</h3>
+                      <p className="text-sm text-slate-400">Add metadata to help organize your playbook</p>
+                    </div>
+
+                    {/* Tags */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-300 mb-2">Tags</label>
+                      <div className="flex flex-wrap gap-2">
+                        {PLAYBOOK_TAGS.map((tag) => {
+                          const isSelected = currentFile.metadata.tags?.includes(tag);
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => handleTagToggle(tag)}
+                              className={`px-3 py-1.5 rounded-lg border transition-all text-xs font-medium ${
+                                isSelected
+                                  ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                                  : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        Tags help group related files for multi-file generation
+                      </p>
+                    </div>
+
+                    {/* Formation Name */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-300 mb-2">Formation Name</label>
+                      <input
+                        type="text"
+                        value={currentFile.metadata.formation_name || ''}
+                        onChange={(e) => handleUpdateMetadata({ formation_name: e.target.value })}
+                        placeholder="e.g., Trips, Shotgun, I-Formation"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                      />
+                    </div>
+
+                    {/* Concept Name */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-300 mb-2">Concept Name</label>
+                      <input
+                        type="text"
+                        value={currentFile.metadata.concept_name || ''}
+                        onChange={(e) => handleUpdateMetadata({ concept_name: e.target.value })}
+                        placeholder="e.g., Mesh, Power, Cover 3"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                      />
+                    </div>
+
+                    {/* Side of Ball & Content Type */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">Side of Ball</label>
+                        <select
+                          value={currentFile.metadata.side_of_ball || ''}
+                          onChange={(e) => handleSideOfBallChange(e.target.value as SideOfBall)}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        >
+                          <option value="">Select...</option>
+                          {(Object.entries(SIDE_OF_BALL_LABELS) as [SideOfBall, string][]).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">Content Type</label>
+                        <select
+                          value={currentFile.metadata.content_type || ''}
+                          onChange={(e) => handleUpdateMetadata({ content_type: e.target.value as ContentType })}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        >
+                          <option value="">Select...</option>
+                          {(Object.entries(CONTENT_TYPE_LABELS) as [ContentType, string][]).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Position Relevance */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-300 mb-2">
+                        Position Relevance
+                        {!currentFile.metadata.side_of_ball && (
+                          <span className="ml-2 text-xs text-amber-400">Select "Side of Ball" first</span>
+                        )}
+                      </label>
+                      {currentFile.metadata.side_of_ball ? (
+                        <div className="grid grid-cols-5 gap-2">
+                          {/* "All" button */}
+                          <button
+                            type="button"
+                            onClick={() => handlePositionToggle('all')}
+                            className={`p-2 rounded-lg border transition-all text-xs font-bold ${
+                              selectedPositions.includes('all')
+                                ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                                : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                            }`}
+                            title="All Positions"
+                          >
+                            ALL
+                          </button>
+
+                          {/* Positions for selected side of ball */}
+                          {getPositionsForSideOfBall(currentFile.metadata.side_of_ball).map((pos) => {
+                            const isSelected = selectedPositions.includes(pos) ||
+                              selectedPositions.includes('all');
+                            const posInfo = ALL_POSITIONS[pos];
+                            return (
+                              <button
+                                key={pos}
+                                type="button"
+                                onClick={() => handlePositionToggle(pos)}
+                                disabled={selectedPositions.includes('all')}
+                                className={`p-2 rounded-lg border transition-all text-xs font-bold ${
+                                  isSelected
+                                    ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10 text-[var(--neon-teal)]'
+                                    : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20'
+                                } ${selectedPositions.includes('all') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={posInfo?.name || pos}
+                              >
+                                {pos}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-lg bg-white/5 border border-white/10 text-center text-slate-400 text-sm">
+                          Please select a "Side of Ball" to choose position relevance
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Additional Information */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-300 mb-2">
+                        Additional Information
+                        <span className="ml-2 text-xs text-slate-500 font-normal">(Helps AI generate better content)</span>
+                      </label>
+                      <textarea
+                        value={currentFile.metadata.custom_notes || ''}
+                        onChange={(e) => handleUpdateMetadata({ custom_notes: e.target.value })}
+                        placeholder="Add context: formations, routes, protections, reads, adjustments, etc."
+                        rows={4}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-
-          {/* Divider */}
-          <div className="flex items-center gap-4 my-8">
-            <div className="flex-1 h-px bg-white/10"></div>
-            <span className="text-slate-500 text-sm font-medium">OR</span>
-            <div className="flex-1 h-px bg-white/10"></div>
-          </div>
-
-          {/* Camera Option */}
-          <div className="flex justify-center">
-            <button
-              onClick={() => cameraInputRef.current?.click()}
-              className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-8 py-4 hover:bg-white/10 hover:border-[var(--neon-teal)]/30 transition-all group"
+        ) : (
+          // Upload Interface
+          <div className="w-full max-w-2xl mx-auto">
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={`relative border-4 border-dashed rounded-3xl p-12 transition-all ${
+                isDragging
+                  ? 'border-[var(--neon-teal)] bg-[var(--neon-teal)]/10'
+                  : 'border-white/10 bg-white/5'
+              }`}
             >
-              <div className="w-12 h-12 rounded-full bg-[var(--neon-teal)]/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--neon-teal)" strokeWidth="2">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                  <circle cx="12" cy="13" r="4"/>
-                </svg>
-              </div>
-              <div className="text-left">
-                <div className="text-white font-bold">Take a Photo</div>
-                <div className="text-slate-400 text-sm">Use your device camera</div>
-              </div>
-            </button>
+              {isUploading ? (
+                <div className="flex flex-col items-center justify-center gap-4">
+                  <div className="w-16 h-16 rounded-full border-4 border-[var(--neon-teal)]/30 border-t-[var(--neon-teal)] animate-spin"></div>
+                  <p className="text-slate-400 text-lg">Processing files...</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-6">
+                  <div className="w-24 h-24 rounded-full bg-[var(--neon-teal)]/10 flex items-center justify-center">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--neon-teal)" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17 8 12 3 7 8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                  </div>
 
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
+                  <div className="text-center">
+                    <h2 className="text-2xl font-bold text-white mb-2">Drop your playbook files here</h2>
+                    <p className="text-slate-400 mb-2">or click to browse files</p>
+                    <p className="text-xs text-slate-500">Supports multiple PDF, JPG, PNG files</p>
+                  </div>
+
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-[var(--neon-teal)] text-black font-bold px-8 py-3 rounded-lg hover:bg-[#00d4c5] transition-colors shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+                  >
+                    BROWSE FILES
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.pdf"
+                    multiple
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Camera Option */}
+            <div className="flex items-center gap-4 my-8">
+              <div className="flex-1 h-px bg-white/10"></div>
+              <span className="text-slate-500 text-sm font-medium">OR</span>
+              <div className="flex-1 h-px bg-white/10"></div>
+            </div>
+
+            <div className="flex justify-center">
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-8 py-4 hover:bg-white/10 hover:border-[var(--neon-teal)]/30 transition-all group"
+              >
+                <div className="w-12 h-12 rounded-full bg-[var(--neon-teal)]/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--neon-teal)" strokeWidth="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </div>
+                <div className="text-left">
+                  <div className="text-white font-bold">Take a Photo</div>
+                  <div className="text-slate-400 text-sm">Use your device camera</div>
+                </div>
+              </button>
+
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+            </div>
           </div>
-          </>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

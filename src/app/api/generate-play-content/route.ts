@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GLOSSARY_CONTEXT } from '@/lib/football-glossary';
 import { playDataToText } from '@/lib/playDataToText';
+import convert from 'heic-convert';
 
 // Initialize Supabase client with service role for server-side operations
 // Service role bypasses RLS which is appropriate for server-side API routes
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       playbookMetadataId,
+      playbookMetadataIds, // NEW: Support for multiple metadata IDs
       imageUrl,
       playData, // Structured play data from Play Builder
       fileName,
@@ -23,34 +25,91 @@ export async function POST(request: NextRequest) {
       generateInsights = true,
       generateAssignments = true,
       generateKnowledge = true,
+      additionalContext = '', // NEW: User-provided context for multi-file generation
     } = body;
 
+    // Support both single and multiple metadata IDs
+    const metadataIdsArray = playbookMetadataIds || (playbookMetadataId ? [playbookMetadataId] : []);
+
     // Validation: Either imageUrl (for uploads) or playData (for built plays) must be provided
-    if (!playbookMetadataId || (!imageUrl && !playData) || !teamId) {
+    if ((!imageUrl && !playData) || !teamId) {
       return NextResponse.json(
         {
-          error: 'Missing required fields: playbookMetadataId, (imageUrl or playData), teamId',
+          error: 'Missing required fields: (imageUrl or playData), teamId',
         },
         { status: 400 }
       );
     }
 
-    // Fetch playbook metadata for context
-    const { data: metadata, error: metadataError } = await supabase
-      .from('playbook_metadata')
-      .select('*')
-      .eq('id', playbookMetadataId)
-      .single();
+    let metadataRecords: any[] = [];
 
-    if (metadataError || !metadata) {
+    // Fetch playbook metadata for context (fetch all if multiple)
+    if (metadataIdsArray.length > 0) {
+      const { data, error: metadataError } = await supabase
+        .from('playbook_metadata')
+        .select('*')
+        .in('id', metadataIdsArray);
+
+      if (!metadataError && data && data.length > 0) {
+        metadataRecords = data;
+      }
+    }
+
+    // If no metadata found but we have fileName, create metadata on the fly
+    if (metadataRecords.length === 0 && fileName) {
+      console.log('[Auto-create] Creating metadata for file without metadata:', fileName);
+
+      // Determine file path
+      const FOLDER_PATH = 'public';
+      const filePath = `${FOLDER_PATH}/${fileName}`;
+
+      // Create minimal metadata
+      const { data: newMetadata, error: createError } = await supabase
+        .from('playbook_metadata')
+        .insert({
+          team_id: teamId,
+          file_paths: [filePath],
+          formation_name: fileName.replace(/\.[^/.]+$/, ''), // Remove extension
+          custom_notes: 'Auto-created during AI generation',
+          position_relevance: ['all'],
+          tags: [],
+          is_built_play: false,
+          play_data: null,
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('[Auto-create] Failed to create metadata:', createError);
+        return NextResponse.json(
+          { error: 'Failed to create metadata for file', details: createError.message },
+          { status: 500 }
+        );
+      }
+
+      console.log('[Auto-create] Metadata created successfully:', newMetadata.id);
+      metadataRecords = [newMetadata];
+    }
+
+    // Final validation - we must have at least one metadata record
+    if (metadataRecords.length === 0) {
       return NextResponse.json(
-        { error: 'Playbook metadata not found' },
+        { error: 'Unable to create or find playbook metadata' },
         { status: 404 }
       );
     }
 
-    // Build metadata context for AI
-    const metadataContext = buildMetadataContext(metadata);
+    // Use first metadata as primary (for play record creation)
+    const primaryMetadata = metadataRecords[0];
+    const metadata = primaryMetadata; // backwards compatibility
+
+    // Build combined metadata context for AI (includes all files' context)
+    let metadataContext = buildCombinedMetadataContext(metadataRecords);
+
+    // Add user's additional context if provided
+    if (additionalContext && additionalContext.trim()) {
+      metadataContext += `\n\n--- USER'S PLAY DESCRIPTION ---\n${additionalContext.trim()}`;
+    }
 
     // --- AI Generation Phase ---
     let playAnalysis: any = null;
@@ -77,9 +136,46 @@ export async function POST(request: NextRequest) {
         }
 
         const imageBuffer = await imageResponse.arrayBuffer();
-        const base64Image = Buffer.from(imageBuffer).toString('base64');
         const contentType = imageResponse.headers.get('content-type');
-        const mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+
+        // Check if image is HEIC/HEIF format
+        const isHeic = contentType?.includes('heic') ||
+                       contentType?.includes('heif') ||
+                       fileName?.toLowerCase().endsWith('.heic') ||
+                       fileName?.toLowerCase().endsWith('.heif');
+
+        let base64Image: string;
+        let mimeType: string;
+
+        if (isHeic) {
+          console.log('[Image Conversion] Detected HEIC/HEIF format, converting to JPEG...');
+          try {
+            // Convert HEIC to JPEG using heic-convert
+            const jpegBuffer = await convert({
+              buffer: Buffer.from(imageBuffer),
+              format: 'JPEG',
+              quality: 0.9, // 90% quality
+            });
+
+            base64Image = Buffer.from(jpegBuffer).toString('base64');
+            mimeType = 'image/jpeg';
+            console.log('[Image Conversion] Successfully converted HEIC to JPEG');
+          } catch (conversionError: any) {
+            console.error('[Image Conversion] Failed to convert HEIC:', conversionError);
+            return NextResponse.json(
+              {
+                error: 'Failed to convert HEIC image',
+                message: conversionError.message,
+                details: 'HEIC format detected but conversion failed. Please try converting to JPG or PNG manually.'
+              },
+              { status: 500 }
+            );
+          }
+        } else {
+          // Standard image formats (PNG, JPEG, etc.)
+          base64Image = Buffer.from(imageBuffer).toString('base64');
+          mimeType = contentType || (fileName?.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        }
 
         playAnalysis = await analyzePlayWithVision(base64Image, mimeType, metadataContext);
       }
@@ -99,6 +195,16 @@ export async function POST(request: NextRequest) {
 
     // --- Database Insertion Phase ---
 
+    // Validate and normalize play_type to match database enum
+    const validPlayTypes = ['PASS', 'RUN', 'RPO', 'SCREEN'];
+    let playType = playAnalysis?.playType?.toUpperCase() || 'PASS';
+
+    // If AI returned an invalid type (e.g., 'COVERAGE', 'DEFENSE', 'INSTRUCTION'), default to PASS
+    if (!validPlayTypes.includes(playType)) {
+      console.log(`[Play Type] Invalid play_type "${playType}" returned by AI. Defaulting to PASS.`);
+      playType = 'PASS';
+    }
+
     // Insert into plays table
     const { data: play, error: playError } = await supabase
       .from('plays')
@@ -107,7 +213,7 @@ export async function POST(request: NextRequest) {
         playbook_metadata_id: playbookMetadataId,
         name: playAnalysis?.name || metadata.formation_name || 'Untitled Play',
         short_name: playAnalysis?.shortName || playAnalysis?.name?.substring(0, 50) || 'Untitled',
-        play_type: playAnalysis?.playType?.toUpperCase() || 'PASS',
+        play_type: playType,
         concept: playAnalysis?.concept || metadata.concept_name,
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
@@ -134,10 +240,20 @@ export async function POST(request: NextRequest) {
     // Insert play_assignments
     const assignments: any[] = [];
     if (playAnalysis?.positions && generateAssignments) {
-      // Valid position enum values from database
+      // Valid position enum values from database - ALL positions (offense, defense, special teams)
       const VALID_POSITIONS = new Set([
+        // Offense - Skill Positions
         'QB', 'RB', 'FB', 'X', 'Z', 'H', 'Y', 'TE',
-        'LT', 'LG', 'C', 'RG', 'RT'
+        // Offense - Offensive Line
+        'LT', 'LG', 'C', 'RG', 'RT',
+        // Defense - Defensive Line
+        'DE', 'DT', 'NT',
+        // Defense - Linebackers
+        'MLB', 'OLB', 'ILB', 'WILL', 'MIKE', 'SAM',
+        // Defense - Secondary
+        'CB', 'FS', 'SS', 'S', 'NB',
+        // Special Teams
+        'K', 'P', 'LS', 'KR', 'PR'
       ]);
 
       // Map position names to valid enum values
@@ -171,6 +287,9 @@ export async function POST(request: NextRequest) {
             routeDepth = !isNaN(depthNum) ? depthNum : null;
           }
 
+          // Determine category (default to 'general' if not provided)
+          const category = posData.category || 'general';
+
           return {
             play_id: playId,
             position: mappedPosition,
@@ -180,6 +299,9 @@ export async function POST(request: NextRequest) {
             key_read: posData.read || '',
             route_id: posData.routeId || null,
             route_depth: routeDepth,
+            category: category,
+            source_metadata_ids: metadataIdsArray,
+            display_order: posData.display_order || 0,
             coverage_adjustments: {
               vs_man: posData.adjustments?.vsMan || '',
               vs_zone: posData.adjustments?.vsZone || '',
@@ -298,7 +420,15 @@ function buildMetadataContext(metadata: any): string {
   if (metadata.formation_name) contextParts.push(`Formation: ${metadata.formation_name}`);
   if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
   if (metadata.position_relevance && metadata.position_relevance.length > 0) {
-    contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
+    const positions = metadata.position_relevance.includes('all')
+      ? 'all positions'
+      : metadata.position_relevance.join(', ');
+    contextParts.push(`Position relevance: ${positions}`);
+
+    // Add explicit instruction for filtering
+    if (!metadata.position_relevance.includes('all')) {
+      contextParts.push(`⚠️ IMPORTANT: ONLY generate assignments for these positions: ${metadata.position_relevance.join(', ')}. Do NOT include assignments for any other positions.`);
+    }
   }
   if (metadata.custom_notes) {
     contextParts.push(`\nCoach's additional information:\n${metadata.custom_notes}`);
@@ -307,6 +437,74 @@ function buildMetadataContext(metadata: any): string {
   return contextParts.length > 0
     ? `\n\nAdditional context:\n${contextParts.join('\n')}`
     : '';
+}
+
+// NEW: Build combined context from multiple metadata records
+function buildCombinedMetadataContext(metadataRecords: any[]): string {
+  if (metadataRecords.length === 1) {
+    return buildMetadataContext(metadataRecords[0]);
+  }
+
+  // Group metadata by tags for better organization
+  const taggedContext: Record<string, any[]> = {};
+  const untaggedRecords: any[] = [];
+
+  metadataRecords.forEach((metadata) => {
+    if (metadata.tags && metadata.tags.length > 0) {
+      metadata.tags.forEach((tag: string) => {
+        if (!taggedContext[tag]) taggedContext[tag] = [];
+        if (!taggedContext[tag].includes(metadata)) {
+          taggedContext[tag].push(metadata);
+        }
+      });
+    } else {
+      untaggedRecords.push(metadata);
+    }
+  });
+
+  const contextParts = ['\n\nMulti-File Context (synthesize ALL information below):'];
+
+  // Add tagged context
+  Object.entries(taggedContext).forEach(([tag, records]) => {
+    contextParts.push(`\n--- ${tag.toUpperCase()} FILES ---`);
+    records.forEach((metadata, idx) => {
+      contextParts.push(`${tag} File ${idx + 1}:`);
+      if (metadata.formation_name) contextParts.push(`  Formation: ${metadata.formation_name}`);
+      if (metadata.concept_name) contextParts.push(`  Concept: ${metadata.concept_name}`);
+      if (metadata.custom_notes) contextParts.push(`  Details: ${metadata.custom_notes}`);
+    });
+  });
+
+  // Add untagged context
+  if (untaggedRecords.length > 0) {
+    contextParts.push(`\n--- ADDITIONAL FILES ---`);
+    untaggedRecords.forEach((metadata, idx) => {
+      contextParts.push(`File ${idx + 1}:`);
+      if (metadata.formation_name) contextParts.push(`  Formation: ${metadata.formation_name}`);
+      if (metadata.concept_name) contextParts.push(`  Concept: ${metadata.concept_name}`);
+      if (metadata.custom_notes) contextParts.push(`  Details: ${metadata.custom_notes}`);
+    });
+  }
+
+  // Add general context from primary file
+  const primary = metadataRecords[0];
+  if (primary.side_of_ball) contextParts.push(`\nSide of ball: ${primary.side_of_ball}`);
+  if (primary.level) contextParts.push(`Level: ${primary.level}`);
+
+  // Add position filtering instruction
+  if (primary.position_relevance && primary.position_relevance.length > 0) {
+    const positions = primary.position_relevance.includes('all')
+      ? 'all positions'
+      : primary.position_relevance.join(', ');
+    contextParts.push(`Position relevance: ${positions}`);
+
+    // Add explicit instruction for filtering
+    if (!primary.position_relevance.includes('all')) {
+      contextParts.push(`\n⚠️ IMPORTANT: ONLY generate assignments for these positions: ${primary.position_relevance.join(', ')}. Do NOT include assignments for any other positions.`);
+    }
+  }
+
+  return contextParts.join('\n');
 }
 
 async function analyzePlayWithVision(
@@ -663,13 +861,26 @@ function shuffleArray<T>(array: T[]): T[] {
 
 const PLAY_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach and analyst. Your job is to analyze football play diagrams and extract structured information about the play.
 
+CRITICAL: If the user provides a "USER'S PLAY DESCRIPTION" section in the input, treat it as EXTREMELY IMPORTANT guidance. This description tells you exactly what the image(s) contain and what to focus on. Use it to guide your analysis and ensure you extract the correct information. The user's description should override any assumptions you might make from the image alone.
+
+CRITICAL - Position Filtering: The user will specify "Position relevance" in the context. If specific positions are listed (not "all positions"), you MUST ONLY generate assignments for those exact positions. Do NOT generate assignments for any positions not in that list. This is a strict filtering requirement.
+
+IMPORTANT - Multiple Plays in Images: If an image contains multiple plays/formations (e.g., 5-8 different plays shown on one sheet), extract ALL position assignments from ALL visible plays. Create a comprehensive list that captures every position's assignment across all plays shown. Each position may appear multiple times with different assignments.
+
 When analyzing a play diagram, identify:
 1. The play name and formation
-2. The play type (pass, run, RPO, screen)
-3. The concept being used (e.g., Mesh, Flood, Power, Zone, etc.)
+2. The play type - MUST be one of these values ONLY:
+   - "pass" - passing plays
+   - "run" - running plays
+   - "rpo" - run-pass option plays
+   - "screen" - screen passes
+   Note: If the content is coverage/defensive concepts, instructional material, or doesn't fit these categories, default to "pass"
+3. The concept being used (e.g., Mesh, Flood, Power, Zone, Cover 3, Cover 2, etc.)
 4. Position assignments for each skill position
 
 IMPORTANT: Use ONLY these exact position abbreviations in your response:
+
+OFFENSE:
 - QB (Quarterback)
 - RB (Running Back / Halfback)
 - FB (Fullback)
@@ -684,6 +895,29 @@ IMPORTANT: Use ONLY these exact position abbreviations in your response:
 - RG (Right Guard)
 - RT (Right Tackle)
 
+DEFENSE:
+- DE (Defensive End)
+- DT (Defensive Tackle)
+- NT (Nose Tackle)
+- MLB (Middle Linebacker)
+- OLB (Outside Linebacker)
+- ILB (Inside Linebacker)
+- WILL (Will Linebacker / Weakside)
+- MIKE (Mike Linebacker / Middle)
+- SAM (Sam Linebacker / Strongside)
+- CB (Cornerback)
+- FS (Free Safety)
+- SS (Strong Safety)
+- S (Safety)
+- NB (Nickelback)
+
+SPECIAL TEAMS:
+- K (Kicker)
+- P (Punter)
+- LS (Long Snapper)
+- KR (Kick Returner)
+- PR (Punt Returner)
+
 Do NOT use abbreviations like "F", "HB", "WR", or any other variations.
 
 For each position assignment, extract:
@@ -691,6 +925,18 @@ For each position assignment, extract:
 - landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
 - assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
 - read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
+- category: The assignment category - use ONE of these exact values:
+  - "formation" for alignment/formation details
+  - "route" for routes and route running
+  - "coverage" for coverage reads and adjustments (USE THIS for defensive coverage concepts and responsibilities)
+  - "protection" for pass protection
+  - "blocking" for run blocking
+  - "run_fits" for run game fits and gaps
+  - "adjustments" for play adjustments
+  - "hot_routes" for hot routes and audibles
+  - "checks" for pre-snap checks
+  - "general" for general assignments that don't fit other categories
+  Note: When analyzing coverage/defensive content, prioritize using the "coverage" category for relevant assignments
 - adjustments: How they adjust vs different coverages
   - vsMan: What to do vs man coverage
   - vsZone: What to do vs zone coverage
@@ -709,12 +955,14 @@ Return your analysis as a JSON object with this structure:
   "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
   "bestAgainst": ["Coverage 1", "Coverage 2"],
   "positions": {
-    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
-    "RB": { ... },
-    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
+    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "formation", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
+    "RB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "blocking" },
+    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "route", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
     ... (include all visible positions)
   }
 }
+
+When multiple files are provided, synthesize ALL the information to create comprehensive assignments that reference all material. Pay special attention to the user's description if provided - it will explain how the files relate to each other.
 
 If the image is unclear or doesn't contain a football play, return:
 {

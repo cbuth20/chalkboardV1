@@ -216,27 +216,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Add timeout to prevent hanging
     const initializeAuth = async () => {
       try {
+        console.log('[AuthContext] Starting auth initialization...');
+
         // Create timeout promise
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Auth initialization timeout')), 8000);
+          setTimeout(() => reject(new Error('Auth initialization timeout')), 10000);
         });
 
         // Race between getSession and timeout
         const sessionPromise = supabase.auth.getSession();
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+        const result = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]).catch(err => {
+          console.error('[AuthContext] getSession failed:', err);
+          return { data: { session: null }, error: err };
+        });
+
+        const session = result.data?.session ?? null;
+        console.log('[AuthContext] Session retrieved:', !!session);
 
         setSession(session);
         setUser(session?.user ?? null);
 
         // Fetch team member data if user exists
         if (session?.user) {
+          console.log('[AuthContext] Fetching team member data...');
           await fetchTeamMemberData(session.user.id);
         }
 
         setLoading(false);
+        console.log('[AuthContext] Auth initialization complete');
       } catch (error) {
         console.error('[AuthContext] Failed to initialize auth:', error);
-        // Set loading to false even on error so the app doesn't hang
+        // Set loading to false and clear session on error so the app doesn't hang
+        setSession(null);
+        setUser(null);
         setLoading(false);
       }
     };
@@ -267,10 +282,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUserPositions([]);
-    setUserRole(null);
-    setTeamId(null);
+    try {
+      console.log('[AuthContext] Signing out...');
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('[AuthContext] Sign out error:', error);
+        throw error;
+      }
+      console.log('[AuthContext] Sign out successful');
+
+      // Clear local state
+      setSession(null);
+      setUser(null);
+      setUserPositions([]);
+      setUserRole(null);
+      setTeamId(null);
+
+      // Clear localStorage
+      localStorage.removeItem(POSITIONS_STORAGE_KEY);
+      localStorage.removeItem(POSITION_STORAGE_KEY);
+    } catch (error) {
+      console.error('[AuthContext] Failed to sign out:', error);
+      // Force clear state even on error
+      setSession(null);
+      setUser(null);
+      setUserPositions([]);
+      setUserRole(null);
+      setTeamId(null);
+      throw error;
+    }
   };
 
   // Deprecated: Single position update (backwards compatibility)

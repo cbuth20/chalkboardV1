@@ -33,36 +33,39 @@ export default function PlayRecognitionPage() {
     setCurrentView('CREATE_PLAY');
   };
 
-  const handleUploadComplete = async (fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput) => {
+  const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
-      // TODO: Get teamId from auth context instead of hardcoding
-      // Using a valid UUID format as placeholder
-      const teamId = '00000000-0000-0000-0000-000000000000'; // Replace with actual teamId from context
-
+      const teamId = '00000000-0000-0000-0000-000000000000'; // TODO: Get from auth context
       const apiUrl = getPlaybooksApiUrl();
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName,
-          fileData,
-          metadata,
-          teamId,
-        }),
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to upload file');
+      // Upload all files in parallel
+      const uploadPromises = files.map(file =>
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.fileName,
+            fileData: file.fileData,
+            metadata: file.metadata,
+            teamId,
+          }),
+        })
+      );
+
+      const responses = await Promise.all(uploadPromises);
+
+      // Check if all uploads succeeded
+      const failedUploads = responses.filter(r => !r.ok);
+      if (failedUploads.length > 0) {
+        throw new Error(`Failed to upload ${failedUploads.length} of ${files.length} files`);
       }
 
       // Refresh library and go back to it
       setRefreshKey(prev => prev + 1);
       setCurrentView('LIBRARY');
     } catch (error) {
-      console.error('Error uploading file:', error);
-      alert('Failed to upload file. Please try again.');
+      console.error('Error uploading files:', error);
+      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

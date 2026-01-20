@@ -352,42 +352,88 @@ export default function PlayContentReviewModal({
             </button>
 
             {expandedSections.assignments && (
-              <div className="p-4 border-t border-[#1E2732]">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {initialAssignments.map((assignment) => (
-                    <div key={assignment.id} className="bg-[#0F1419] border border-[#1E2732] rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-bold text-[#00D9FF] text-lg">{assignment.position}</span>
-                        {assignment.route_id && (
-                          <span className="text-xs px-2 py-1 bg-[#1E2732] text-gray-300 rounded">
-                            {assignment.route_id} {assignment.route_depth && `(${assignment.route_depth}yd)`}
-                          </span>
-                        )}
-                      </div>
+              <div className="p-4 border-t border-[#1E2732] space-y-4">
+                {(() => {
+                  // Group assignments by category
+                  const categorizedAssignments = initialAssignments.reduce((acc, assignment) => {
+                    const category = assignment.category || 'general';
+                    if (!acc[category]) acc[category] = [];
+                    acc[category].push(assignment);
+                    return acc;
+                  }, {} as Record<string, typeof initialAssignments>);
 
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="text-gray-500">Alignment:</span>
-                          <span className="text-gray-300 ml-2">{assignment.alignment}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Assignment:</span>
-                          <span className="text-gray-300 ml-2">{assignment.assignment}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Key Read:</span>
-                          <span className="text-gray-300 ml-2">{assignment.key_read}</span>
-                        </div>
-                        {assignment.landmark && (
-                          <div>
-                            <span className="text-gray-500">Landmark:</span>
-                            <span className="text-gray-300 ml-2">{assignment.landmark}</span>
+                  const categoryLabels: Record<string, string> = {
+                    formation: 'Formation & Alignment',
+                    route: 'Routes',
+                    coverage: 'Coverage Reads',
+                    protection: 'Protection',
+                    blocking: 'Blocking',
+                    run_fits: 'Run Fits',
+                    adjustments: 'Adjustments',
+                    hot_routes: 'Hot Routes',
+                    checks: 'Checks',
+                    general: 'General',
+                  };
+
+                  const categoryEmojis: Record<string, string> = {
+                    formation: '📐',
+                    route: '🏃',
+                    coverage: '👁️',
+                    protection: '🛡️',
+                    blocking: '💪',
+                    run_fits: '🏈',
+                    adjustments: '🔄',
+                    hot_routes: '⚡',
+                    checks: '✓',
+                    general: '📋',
+                  };
+
+                  return Object.entries(categorizedAssignments).map(([category, assignments]) => (
+                    <div key={category} className="space-y-2">
+                      <div className="flex items-center gap-2 px-2">
+                        <span className="text-lg">{categoryEmojis[category] || '📋'}</span>
+                        <h4 className="text-sm font-semibold text-[#00D9FF] uppercase tracking-wider">
+                          {categoryLabels[category] || category} ({assignments.length})
+                        </h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {assignments.map((assignment) => (
+                          <div key={assignment.id} className="bg-[#0F1419] border border-[#1E2732] rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="font-bold text-[#00D9FF] text-lg">{assignment.position}</span>
+                              {assignment.route_id && (
+                                <span className="text-xs px-2 py-1 bg-[#1E2732] text-gray-300 rounded">
+                                  {assignment.route_id} {assignment.route_depth && `(${assignment.route_depth}yd)`}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="space-y-2 text-sm">
+                              <div>
+                                <span className="text-gray-500">Alignment:</span>
+                                <span className="text-gray-300 ml-2">{assignment.alignment}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Assignment:</span>
+                                <span className="text-gray-300 ml-2">{assignment.assignment}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Key Read:</span>
+                                <span className="text-gray-300 ml-2">{assignment.key_read}</span>
+                              </div>
+                              {assignment.landmark && (
+                                <div>
+                                  <span className="text-gray-500">Landmark:</span>
+                                  <span className="text-gray-300 ml-2">{assignment.landmark}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        )}
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ));
+                })()}
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMode } from '@/contexts/ModeContext';
 import { SkillPosition } from '@/lib/supabase/types/database';
+import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPositionCategory } from '@/lib/positions';
 
 // Types
 interface Assignment {
@@ -29,7 +30,11 @@ interface Assignment {
   };
 }
 
-const SKILL_POSITIONS: SkillPosition[] = ['QB', 'RB', 'FB', 'X', 'Z', 'H', 'Y', 'TE', 'LT', 'LG', 'C', 'RG', 'RT'];
+const ALL_POSITIONS: SkillPosition[] = [
+  ...POSITIONS_BY_CATEGORY.offense,
+  ...POSITIONS_BY_CATEGORY.defense,
+  ...POSITIONS_BY_CATEGORY['special-teams']
+];
 
 export default function AssignmentLibraryPage() {
   const { teamId, loading: authLoading } = useAuth();
@@ -37,6 +42,7 @@ export default function AssignmentLibraryPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterPositionCategory, setFilterPositionCategory] = useState<PositionCategory | 'all'>('all');
   const [filterPosition, setFilterPosition] = useState<SkillPosition | 'all'>('all');
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [showEditor, setShowEditor] = useState(false);
@@ -192,6 +198,11 @@ export default function AssignmentLibraryPage() {
     setSelectedAssignmentIds(newSelected);
   };
 
+  // Get positions for the selected category
+  const availablePositions = filterPositionCategory === 'all'
+    ? ALL_POSITIONS
+    : POSITIONS_BY_CATEGORY[filterPositionCategory];
+
   // Filter assignments
   const filteredAssignments = assignments.filter(assignment => {
     // Safety check for missing play data
@@ -205,9 +216,10 @@ export default function AssignmentLibraryPage() {
       assignment.position?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       assignment.assignment?.toLowerCase().includes(searchQuery.toLowerCase());
 
+    const matchesCategory = filterPositionCategory === 'all' || getPositionCategory(assignment.position) === filterPositionCategory;
     const matchesPosition = filterPosition === 'all' || assignment.position === filterPosition;
 
-    return matchesSearch && matchesPosition;
+    return matchesSearch && matchesCategory && matchesPosition;
   });
 
   // Log filtering results
@@ -296,7 +308,7 @@ export default function AssignmentLibraryPage() {
             <div className="glass-card p-4">
               <div className="text-sm text-slate-400">Positions Covered</div>
               <div className="text-2xl font-bold text-white mt-1">
-                {new Set(assignments.map(a => a.position)).size} / {SKILL_POSITIONS.length}
+                {new Set(assignments.map(a => a.position)).size} / {ALL_POSITIONS.length}
               </div>
             </div>
           </div>
@@ -316,6 +328,21 @@ export default function AssignmentLibraryPage() {
               />
             </div>
 
+            {/* Position Category Filter */}
+            <select
+              value={filterPositionCategory}
+              onChange={(e) => {
+                setFilterPositionCategory(e.target.value as PositionCategory | 'all');
+                setFilterPosition('all'); // Reset position filter when category changes
+              }}
+              className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
+            >
+              <option value="all">All Categories</option>
+              <option value="offense">Offense</option>
+              <option value="defense">Defense</option>
+              <option value="special-teams">Special Teams</option>
+            </select>
+
             {/* Position Filter */}
             <select
               value={filterPosition}
@@ -323,7 +350,7 @@ export default function AssignmentLibraryPage() {
               className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
             >
               <option value="all">All Positions</option>
-              {SKILL_POSITIONS.map(pos => (
+              {availablePositions.map(pos => (
                 <option key={pos} value={pos}>{pos}</option>
               ))}
             </select>
