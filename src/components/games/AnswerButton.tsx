@@ -48,11 +48,11 @@ export function AnswerButton({
       {label}
       
       {/* Correct/Incorrect Icon */}
-      {isCorrect === true && isSelected && (
+      {/* {isCorrect === true && isSelected && (
         <span className="absolute right-3 flex h-6 w-6 items-center justify-center rounded-full bg-[#00F6E5]">
           <CheckIcon className="h-4 w-4 text-[#0A0A0A]" />
         </span>
-      )}
+      )} */}
       {isCorrect === false && isSelected && (
         <span className="absolute right-3 flex h-6 w-6 items-center justify-center rounded-full bg-[#FF6A3D]">
           <XIcon className="h-4 w-4 text-white" />
