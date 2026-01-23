@@ -14,6 +14,7 @@ export default function JoinPage() {
 
   const [step, setStep] = useState<'profile' | 'team' | 'position' | 'complete'>('profile');
   const [loading, setLoading] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Profile data
@@ -38,12 +39,88 @@ export default function JoinPage() {
     }
   }, [authLoading, user, router, inviteCode]);
 
-  if (authLoading) {
+  // Check onboarding status and determine starting step
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      if (!session || !user) return;
+
+      try {
+        const response = await fetch('/api/onboarding/status', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+
+        if (!response.ok) {
+          console.error('[Join] Failed to fetch onboarding status');
+          setCheckingStatus(false);
+          return;
+        }
+
+        const { success, data } = await response.json();
+
+        if (success && data) {
+          // If onboarding is completed, redirect to dashboard
+          if (data.onboardingState === 'completed') {
+            console.log('[Join] User has completed onboarding, redirecting to dashboard');
+            router.push('/');
+            return;
+          }
+
+          // Pre-fill profile data if it exists
+          if (data.profile) {
+            setFirstName(data.profile.firstName || '');
+            setLastName(data.profile.lastName || '');
+            setRole(data.profile.role || 'player');
+          }
+
+          // Determine which step to start on based on onboarding state
+          if (data.onboardingState === 'pending_team') {
+            // User already has profile and joined org, go to team selection
+            console.log('[Join] User has profile, moving to team selection');
+
+            // Fetch teams
+            const teamsResponse = await fetch('/api/onboarding/teams', {
+              headers: { 'Authorization': `Bearer ${session.access_token}` }
+            });
+
+            if (teamsResponse.ok) {
+              const teamsResult = await teamsResponse.json();
+              if (teamsResult.success) {
+                setTeams(teamsResult.data.teams);
+                if (data.membership?.orgName) {
+                  setOrgName(data.membership.orgName);
+                }
+              }
+            }
+
+            setStep('team');
+          } else if (data.onboardingState === 'pending_position') {
+            // User has profile, org, and team, go to position
+            console.log('[Join] User has team, moving to position selection');
+            setStep('position');
+          }
+        }
+      } catch (error) {
+        console.error('[Join] Error checking onboarding status:', error);
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+
+    if (user && session) {
+      checkOnboardingStatus();
+    }
+  }, [user, session, router]);
+
+  if (authLoading || checkingStatus) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0F14] holographic-grid">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#00F6E5]/20 border-t-[#00F6E5] mx-auto mb-4"></div>
-          <p className="text-slate-400">Checking authentication...</p>
+          <p className="text-slate-400">
+            {authLoading ? 'Checking authentication...' : 'Checking onboarding status...'}
+          </p>
         </div>
       </div>
     );
@@ -60,19 +137,21 @@ export default function JoinPage() {
     setError(null);
 
     try {
-      // Create/update profile
-      const response = await fetch('/api/onboarding/profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({ firstName, lastName, role })
-      });
+      // Create/update profile (only if name fields are filled)
+      if (firstName && lastName) {
+        const response = await fetch('/api/onboarding/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ firstName, lastName, role })
+        });
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to update profile');
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || 'Failed to update profile');
+        }
       }
 
       // Join organization with invite code
@@ -238,7 +317,11 @@ export default function JoinPage() {
           {step === 'profile' && (
             <div>
               <h2 className="text-3xl font-bold text-white mb-2">Join {orgName || 'Organization'}</h2>
-              <p className="text-slate-400 mb-8">Let's set up your profile</p>
+              <p className="text-slate-400 mb-8">
+                {firstName && lastName
+                  ? 'Confirm your details and select your role'
+                  : "Let's set up your profile"}
+              </p>
 
               <form onSubmit={handleProfileSubmit} className="space-y-6">
                 <div>
