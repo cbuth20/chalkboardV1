@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { RoutePicker } from "@/components/play-designer/RoutePicker";
 // import { AssignedRoute, ROUTE_LIBRARY, getDepthForLevel } from "@/types/football";
 import { 
@@ -34,6 +34,16 @@ type Player = {
   side: PlayerSide;
   position: Position;
   color?: string;
+};
+
+type PlayerAttributes = {
+  acceleration: number;
+  deceleration: number;
+  topSpeed: number;
+  reactionTime: number;
+  agility: number;
+  stamina: number;
+  burst: number;
 };
 
 type RoutePoint = Position & { type?: "start" | "break" | "end" };
@@ -185,13 +195,28 @@ const PERSONNEL_OPTIONS = ["10", "11", "12", "21", "22", "13"];
 
 export default function PlayDesignerCreatePage() {
   // State
-  const [players] = useState<Player[]>(INITIAL_PLAYERS);
+  const [players, setPlayers] = useState<Player[]>(INITIAL_PLAYERS);
   const [routes, setRoutes] = useState<Route[]>(INITIAL_ROUTES);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [currentTool, setCurrentTool] = useState<Tool>("select");
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentRoute, setCurrentRoute] = useState<RoutePoint[]>([]);
   const [showToast, setShowToast] = useState(false);
+  const [contextMenuPlayerId, setContextMenuPlayerId] = useState<string | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationSpeed, setSimulationSpeed] = useState(1);
+  const [playerAttributes, setPlayerAttributes] = useState<Record<string, PlayerAttributes>>(() => {
+    const defaults: PlayerAttributes = {
+      acceleration: 4,
+      deceleration: 5,
+      topSpeed: 18,
+      reactionTime: 0.2,
+      agility: 85,
+      stamina: 90,
+      burst: 80,
+    };
+    return Object.fromEntries(INITIAL_PLAYERS.map((player) => [player.id, { ...defaults }]));
+  });
 
   // Route Picker State
   const [isRoutePickerOpen, setIsRoutePickerOpen] = useState(false);
@@ -205,6 +230,12 @@ export default function PlayDesignerCreatePage() {
   // Use refs to always have access to current state values
   const routesRef = useRef(routes);
   const playerRoutesRef = useRef(playerRoutes);
+  const simulationFrameRef = useRef<number | null>(null);
+  const simulationStartTimeRef = useRef<number | null>(null);
+  const simulationPathsRef = useRef<
+    Record<string, { points: Position[]; lengths: number[]; totalLength: number }>
+  >({});
+  const simulationStartPositionsRef = useRef<Record<string, Position>>({});
   
   // Keep refs in sync with state
   routesRef.current = routes;
@@ -278,6 +309,8 @@ export default function PlayDesignerCreatePage() {
     setPlayerRoutes({});
     setSelectedPlayerId(null);
     setIsRoutePickerOpen(false);
+    setIsSimulating(false);
+    setContextMenuPlayerId(null);
   };
 
   const handleDeleteRoute = () => {
@@ -294,6 +327,9 @@ export default function PlayDesignerCreatePage() {
 
   const handlePlayerSelect = (id: string | null) => {
     setSelectedPlayerId(id);
+    if (!id) {
+      setContextMenuPlayerId(null);
+    }
     if (id && currentTool === "select") {
       setIsRoutePickerOpen(true);
     } else {
@@ -344,6 +380,190 @@ export default function PlayDesignerCreatePage() {
     });
   };
 
+  const getPlayerRoutePoints = useCallback(
+    (playerId: string, basePosition: Position): Position[] | null => {
+      const manualRoute = routesRef.current.find((route) => route.playerId === playerId);
+      if (manualRoute) {
+        return manualRoute.points.map((point) => ({ x: point.x, y: point.y }));
+      }
+
+      const assignment = playerRoutesRef.current[playerId];
+      if (assignment) {
+        return getRoutePoints(assignment, basePosition).map((point) => ({ x: point.x, y: point.y }));
+      }
+
+      return null;
+    },
+    []
+  );
+
+  const buildPathMetrics = useCallback((points: Position[]) => {
+    const lengths: number[] = [];
+    let totalLength = 0;
+    for (let i = 1; i < points.length; i += 1) {
+      const segmentLength = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      totalLength += segmentLength;
+      lengths.push(totalLength);
+    }
+    return { lengths, totalLength };
+  }, []);
+
+  const getPointAtDistance = useCallback((points: Position[], lengths: number[], distance: number) => {
+    if (points.length === 0) return { x: 0, y: 0 };
+    if (points.length === 1 || distance <= 0) return points[0];
+    const totalLength = lengths[lengths.length - 1] ?? 0;
+    if (distance >= totalLength) return points[points.length - 1];
+
+    let segmentIndex = lengths.findIndex((len) => len >= distance);
+    if (segmentIndex === -1) segmentIndex = lengths.length - 1;
+
+    const prevLength = segmentIndex === 0 ? 0 : lengths[segmentIndex - 1];
+    const segmentDistance = distance - prevLength;
+    const segmentStart = points[segmentIndex];
+    const segmentEnd = points[segmentIndex + 1];
+    const segmentLength = Math.hypot(segmentEnd.x - segmentStart.x, segmentEnd.y - segmentStart.y);
+    const t = segmentLength === 0 ? 0 : segmentDistance / segmentLength;
+
+    return {
+      x: segmentStart.x + (segmentEnd.x - segmentStart.x) * t,
+      y: segmentStart.y + (segmentEnd.y - segmentStart.y) * t,
+    };
+  }, []);
+
+  const getDistanceForTime = useCallback((timeSeconds: number, acceleration: number, topSpeed: number) => {
+    const timeToTopSpeed = acceleration <= 0 ? 0 : topSpeed / acceleration;
+    if (timeSeconds <= timeToTopSpeed) {
+      return 0.5 * acceleration * timeSeconds * timeSeconds;
+    }
+    return 0.5 * acceleration * timeToTopSpeed * timeToTopSpeed + topSpeed * (timeSeconds - timeToTopSpeed);
+  }, []);
+
+  const handleResetPositions = useCallback(() => {
+    setPlayers(INITIAL_PLAYERS);
+    setIsSimulating(false);
+    setSelectedPlayerId(null);
+    setContextMenuPlayerId(null);
+    setCurrentRoute([]);
+    setIsDrawing(false);
+  }, []);
+
+  const handleStartStopSimulation = useCallback(() => {
+    if (isSimulating) {
+      setIsSimulating(false);
+      return;
+    }
+
+    const basePositions: Record<string, Position> = {};
+    players.forEach((player) => {
+      basePositions[player.id] = { ...player.position };
+    });
+    simulationStartPositionsRef.current = basePositions;
+
+    const paths: Record<string, { points: Position[]; lengths: number[]; totalLength: number }> = {};
+    Object.keys(basePositions).forEach((playerId) => {
+      const points = getPlayerRoutePoints(playerId, basePositions[playerId]);
+      if (points && points.length > 1) {
+        const { lengths, totalLength } = buildPathMetrics(points);
+        paths[playerId] = { points, lengths, totalLength };
+      }
+    });
+    simulationPathsRef.current = paths;
+    simulationStartTimeRef.current = null;
+    setIsSimulating(true);
+  }, [buildPathMetrics, getPlayerRoutePoints, isSimulating, players]);
+
+  const handleUpdatePlayerAttributes = useCallback(
+    (playerId: string, updates: Partial<PlayerAttributes>) => {
+      setPlayerAttributes((prev) => ({
+        ...prev,
+        [playerId]: {
+          ...prev[playerId],
+          ...updates,
+        },
+      }));
+    },
+    []
+  );
+
+  const handlePlayerDoubleClick = useCallback((playerId: string) => {
+    setSelectedPlayerId(playerId);
+    setContextMenuPlayerId(playerId);
+    setIsRoutePickerOpen(false);
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenuPlayerId(null);
+  }, []);
+
+  const handleCanvasBackgroundClick = useCallback(() => {
+    setContextMenuPlayerId(null);
+  }, []);
+
+  const handleSpeedChange = useCallback((nextSpeed: number) => {
+    setSimulationSpeed(nextSpeed);
+  }, []);
+
+  const simulationSpeedOptions = useMemo(() => [0.5, 1, 1.5, 2, 3], []);
+
+  const simulationSpeedLabel = simulationSpeed % 1 === 0 ? `${simulationSpeed}x` : `${simulationSpeed}x`;
+
+  const PIXELS_PER_YARD = 8;
+
+  useEffect(() => {
+    if (!isSimulating) {
+      if (simulationFrameRef.current) {
+        cancelAnimationFrame(simulationFrameRef.current);
+        simulationFrameRef.current = null;
+      }
+      return;
+    }
+    const tick = (timestamp: number) => {
+      if (!simulationStartTimeRef.current) {
+        simulationStartTimeRef.current = timestamp;
+      }
+      const elapsedSeconds = (timestamp - (simulationStartTimeRef.current ?? timestamp)) / 1000;
+
+      setPlayers((prevPlayers) =>
+        prevPlayers.map((player) => {
+          const path = simulationPathsRef.current[player.id];
+          if (!path) return player;
+
+          const attributes = playerAttributes[player.id];
+          const reactionDelay = attributes?.reactionTime ?? 0;
+          const adjustedTime = Math.max(0, elapsedSeconds - reactionDelay);
+
+          const accel = (attributes?.acceleration ?? 4) * PIXELS_PER_YARD;
+          const topSpeed = (attributes?.topSpeed ?? 18) * PIXELS_PER_YARD;
+          const distance = getDistanceForTime(adjustedTime, accel, topSpeed) * simulationSpeed;
+          const clampedDistance = Math.min(distance, path.totalLength);
+          const nextPosition = getPointAtDistance(path.points, path.lengths, clampedDistance);
+
+          return {
+            ...player,
+            position: nextPosition,
+          };
+        })
+      );
+
+      simulationFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    simulationFrameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (simulationFrameRef.current) {
+        cancelAnimationFrame(simulationFrameRef.current);
+        simulationFrameRef.current = null;
+      }
+    };
+  }, [
+    getDistanceForTime,
+    getPointAtDistance,
+    isSimulating,
+    playerAttributes,
+    simulationSpeed,
+  ]);
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] flex flex-col">
       {/* Toast Notification */}
@@ -388,6 +608,17 @@ export default function PlayDesignerCreatePage() {
             {/* View Filter Toggle */}
             <ViewFilterToggle viewFilter={viewFilter} onViewFilterChange={setViewFilter} />
 
+            {/* Simulation Controls */}
+            <SimulationControls
+              isSimulating={isSimulating}
+              onStartStop={handleStartStopSimulation}
+              onResetPositions={handleResetPositions}
+              speedOptions={simulationSpeedOptions}
+              currentSpeed={simulationSpeed}
+              speedLabel={simulationSpeedLabel}
+              onSpeedChange={handleSpeedChange}
+            />
+
             {/* Field Canvas */}
             <PlayFieldCanvas
               players={visiblePlayers}
@@ -406,6 +637,12 @@ export default function PlayDesignerCreatePage() {
               playerRoutes={playerRoutes}
               onUpdateRouteDepth={handleUpdateRouteDepth}
               onToggleRouteDirection={handleToggleRouteDirection}
+              onPlayerDoubleClick={handlePlayerDoubleClick}
+              contextMenuPlayerId={contextMenuPlayerId}
+              playerAttributes={playerAttributes}
+              onUpdatePlayerAttributes={handleUpdatePlayerAttributes}
+              onCloseContextMenu={closeContextMenu}
+              onCanvasBackgroundClick={handleCanvasBackgroundClick}
             />
           </div>
         </div>
@@ -746,6 +983,70 @@ function ViewFilterToggle({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SIMULATION CONTROLS COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+function SimulationControls({
+  isSimulating,
+  onStartStop,
+  onResetPositions,
+  speedOptions,
+  currentSpeed,
+  speedLabel,
+  onSpeedChange,
+}: {
+  isSimulating: boolean;
+  onStartStop: () => void;
+  onResetPositions: () => void;
+  speedOptions: number[];
+  currentSpeed: number;
+  speedLabel: string;
+  onSpeedChange: (nextSpeed: number) => void;
+}) {
+  return (
+    <div className="absolute right-4 top-40 z-20 flex w-40 flex-col gap-2 rounded-xl border border-[#1B1E20] bg-[#0A0A0A]/90 p-3 text-xs text-white backdrop-blur-sm">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        Simulation
+      </div>
+      <button
+        onClick={onStartStop}
+        className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+          isSimulating
+            ? "bg-[#00F6E5]/20 text-[#00F6E5] shadow-[inset_0_0_0_1px_rgba(0,246,229,0.3)]"
+            : "bg-[#1B1E20]/70 text-slate-200 hover:bg-[#1B1E20]"
+        }`}
+      >
+        {isSimulating ? "Stop" : "Start"}
+      </button>
+      <button
+        onClick={onResetPositions}
+        className="rounded-lg border border-[#1B1E20] bg-[#0F1419] px-3 py-2 text-xs font-semibold text-slate-300 transition hover:text-white"
+      >
+        Reset Positions
+      </button>
+      <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        Speed {speedLabel}
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {speedOptions.map((speed) => (
+          <button
+            key={speed}
+            onClick={() => onSpeedChange(speed)}
+            className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${
+              currentSpeed === speed
+                ? "bg-[#00F6E5]/20 text-[#00F6E5]"
+                : "bg-[#1B1E20]/70 text-slate-400 hover:text-white"
+            }`}
+          >
+            {speed}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PLAY FIELD CANVAS COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -763,6 +1064,12 @@ function PlayFieldCanvas({
   playerRoutes,
   onUpdateRouteDepth,
   onToggleRouteDirection,
+  onPlayerDoubleClick,
+  contextMenuPlayerId,
+  playerAttributes,
+  onUpdatePlayerAttributes,
+  onCloseContextMenu,
+  onCanvasBackgroundClick,
 }: {
   players: Player[];
   routes: Route[];
@@ -777,8 +1084,15 @@ function PlayFieldCanvas({
   playerRoutes: Record<string, PlayerRouteAssignment>;
   onUpdateRouteDepth: (playerId: string, delta: number) => void;
   onToggleRouteDirection: (playerId: string) => void;
+  onPlayerDoubleClick: (playerId: string) => void;
+  contextMenuPlayerId: string | null;
+  playerAttributes: Record<string, PlayerAttributes>;
+  onUpdatePlayerAttributes: (playerId: string, updates: Partial<PlayerAttributes>) => void;
+  onCloseContextMenu: () => void;
+  onCanvasBackgroundClick: () => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const getMousePosition = useCallback(
     (e: React.MouseEvent): Position | null => {
@@ -794,7 +1108,25 @@ function PlayFieldCanvas({
     []
   );
 
+  const contextPlayer = players.find((player) => player.id === contextMenuPlayerId) || null;
+  const contextAttributes = contextPlayer ? playerAttributes[contextPlayer.id] : null;
+
+  useEffect(() => {
+    if (contextPlayer) {
+      setMenuVisible(false);
+      requestAnimationFrame(() => setMenuVisible(true));
+    } else {
+      setMenuVisible(false);
+    }
+  }, [contextPlayer]);
+
   const handleCanvasClick = (e: React.MouseEvent) => {
+    onCanvasBackgroundClick();
+    if (currentTool !== "draw") {
+      onSelectPlayer(null);
+      return;
+    }
+
     if (currentTool !== "draw" || !selectedPlayerId) return;
 
     const pos = getMousePosition(e);
@@ -1021,11 +1353,74 @@ function PlayFieldCanvas({
           player={player}
           isSelected={selectedPlayerId === player.id}
           onClick={() => onSelectPlayer(player.id)}
+          onDoubleClick={() => onPlayerDoubleClick(player.id)}
           assignedRoute={playerRoutes[player.id]}
           onUpdateDepth={(delta) => onUpdateRouteDepth(player.id, delta)}
           onToggleDirection={() => onToggleRouteDirection(player.id)}
         />
       ))}
+
+      {contextPlayer && contextAttributes && (
+        <foreignObject
+          x={Math.min(640, contextPlayer.position.x + 18)}
+          y={Math.max(20, contextPlayer.position.y - 10)}
+          width="220"
+          height="280"
+        >
+          <div className="pointer-events-auto">
+            <div
+              className={`w-full rounded-xl border border-[#1B1E20] bg-[#0A0A0A]/95 p-3 text-white shadow-xl backdrop-blur-sm transition-all duration-200 ease-out origin-top-left ${
+                menuVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  {contextPlayer.label} settings
+                </div>
+                <button
+                  onClick={onCloseContextMenu}
+                  className="rounded-md p-1 text-slate-400 hover:text-white transition"
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2 text-xs">
+                {[
+                  { key: "acceleration", label: "Acceleration", step: 0.1 },
+                  { key: "deceleration", label: "Deceleration", step: 0.1 },
+                  { key: "topSpeed", label: "Top Speed", step: 0.5 },
+                  { key: "reactionTime", label: "Reaction (s)", step: 0.05 },
+                  { key: "agility", label: "Agility", step: 1 },
+                  { key: "stamina", label: "Stamina", step: 1 },
+                  { key: "burst", label: "Burst", step: 1 },
+                ].map((field) => (
+                  <label key={field.key} className="flex items-center justify-between gap-2 text-slate-300">
+                    <span>{field.label}</span>
+                    <input
+                      type="number"
+                      step={field.step}
+                      value={(contextAttributes as Record<string, number>)[field.key]}
+                      onChange={(event) =>
+                        onUpdatePlayerAttributes(contextPlayer.id, {
+                          [field.key]: Number(event.target.value),
+                        })
+                      }
+                      className="w-20 rounded-md border border-[#1B1E20] bg-[#0F1419] px-2 py-1 text-right text-xs text-white focus:border-[#00F6E5]/50 focus:outline-none"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-3 rounded-lg border border-[#1B1E20] bg-[#0F1419] px-2 py-1 text-[10px] text-slate-400">
+                These values drive the simulation timing and speed.
+              </div>
+            </div>
+          </div>
+        </foreignObject>
+      )}
     </svg>
   );
 }
@@ -1038,6 +1433,7 @@ function PlayerToken({
   player,
   isSelected,
   onClick,
+  onDoubleClick,
   assignedRoute,
   onUpdateDepth,
   onToggleDirection,
@@ -1045,6 +1441,7 @@ function PlayerToken({
   player: Player;
   isSelected: boolean;
   onClick: () => void;
+  onDoubleClick: () => void;
   assignedRoute?: PlayerRouteAssignment;
   onUpdateDepth: (delta: number) => void;
   onToggleDirection: () => void;
@@ -1073,6 +1470,10 @@ function PlayerToken({
       onClick={(e) => {
         e.stopPropagation();
         onClick();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClick();
       }}
       className="cursor-pointer"
       style={{ transition: "transform 0.15s ease" }}

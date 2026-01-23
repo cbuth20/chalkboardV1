@@ -331,6 +331,16 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [isDrawingRoute, setIsDrawingRoute] = useState(false);
   const [currentRoutePoints, setCurrentRoutePoints] = useState<{x: number, y: number}[]>([]);
+  const [draggingPlayer, setDraggingPlayer] = useState<{
+    id: string;
+    side: 'offense' | 'defense';
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
+  const [clickedPlayer, setClickedPlayer] = useState<{ id: string; side: 'offense' | 'defense' } | null>(null);
+  const dragMovedRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const ignoreClickRef = useRef(false);
 
   // Formation state
   const [offensiveFormation, setOffensiveFormation] = useState('Pro Set');
@@ -362,24 +372,78 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
     setRoutes(prev => prev.filter(r => r.playerId !== playerId));
   };
 
-  // ═══ ROUTE DRAWING HANDLERS (Click and Drag) ═══
+  const clampToField = (coords: { x: number; y: number }) => ({
+    x: Math.min(100, Math.max(0, coords.x)),
+    y: Math.min(53.333, Math.max(0, coords.y)),
+  });
 
-  const handlePlayerMouseDown = (event: React.MouseEvent<SVGGElement>, playerId: string, side: 'offense' | 'defense') => {
+  const handlePlayerMouseDown = (
+    event: React.MouseEvent<SVGGElement>,
+    player: DiagramPlayer,
+    side: 'offense' | 'defense'
+  ) => {
     event.stopPropagation();
 
-    // Only allow route drawing for offensive players in pass mode
-    if (playMode !== 'pass' || side !== 'offense') return;
+    const coords = getFieldCoordinates(event);
+    if (!coords) return;
 
-    const player = offensePlayers.find(p => p.id === playerId);
-    if (!player) return;
+    dragMovedRef.current = false;
+    dragStartRef.current = coords;
 
-    // Start drawing route from this player
-    setSelectedPlayer(playerId);
-    setIsDrawingRoute(true);
-    setCurrentRoutePoints([{ x: player.x, y: player.y }]);
+    if (playMode === 'pass' && side === 'offense' && event.shiftKey) {
+      // Start drawing route from this player (Shift + drag)
+      setSelectedPlayer(player.id);
+      setIsDrawingRoute(true);
+      setCurrentRoutePoints([{ x: player.x, y: player.y }]);
+      return;
+    }
+
+    // Start dragging player
+    setDraggingPlayer({
+      id: player.id,
+      side,
+      offsetX: coords.x - player.x,
+      offsetY: coords.y - player.y,
+    });
   };
 
   const handleFieldMouseMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (draggingPlayer) {
+      const coords = getFieldCoordinates(event);
+      if (!coords) return;
+
+      if (dragStartRef.current) {
+        const distance = Math.hypot(
+          coords.x - dragStartRef.current.x,
+          coords.y - dragStartRef.current.y
+        );
+        if (distance > 0.5) {
+          dragMovedRef.current = true;
+        }
+      }
+
+      const next = clampToField({
+        x: coords.x - draggingPlayer.offsetX,
+        y: coords.y - draggingPlayer.offsetY,
+      });
+
+      if (draggingPlayer.side === 'offense') {
+        setOffensePlayers(prev =>
+          prev.map(player =>
+            player.id === draggingPlayer.id ? { ...player, x: next.x, y: next.y } : player
+          )
+        );
+      } else {
+        setDefensePlayers(prev =>
+          prev.map(player =>
+            player.id === draggingPlayer.id ? { ...player, x: next.x, y: next.y } : player
+          )
+        );
+      }
+
+      return;
+    }
+
     if (!isDrawingRoute || !selectedPlayer) return;
 
     const coords = getFieldCoordinates(event);
@@ -401,6 +465,19 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
   };
 
   const handleFieldMouseUp = () => {
+    if (draggingPlayer) {
+      setDraggingPlayer(null);
+      dragStartRef.current = null;
+      if (dragMovedRef.current) {
+        ignoreClickRef.current = true;
+        setTimeout(() => {
+          ignoreClickRef.current = false;
+        }, 0);
+      }
+      dragMovedRef.current = false;
+      return;
+    }
+
     if (isDrawingRoute && selectedPlayer && currentRoutePoints.length > 1) {
       // Finish the route
       const newRoute: DiagramRoute = {
@@ -417,6 +494,13 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
     setCurrentRoutePoints([]);
     setIsDrawingRoute(false);
     setSelectedPlayer(null);
+  };
+
+  const handlePlayerClick = (playerId: string, side: 'offense' | 'defense') => {
+    if (ignoreClickRef.current) {
+      return;
+    }
+    setClickedPlayer({ id: playerId, side });
   };
 
   // ═══ FORMATION HANDLERS ═══
@@ -720,7 +804,9 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
               </div>
               <ul className="text-xs text-slate-400 space-y-1">
                 <li>• Use <strong className="text-white">Formation dropdowns</strong> to position players</li>
-                <li>• <strong className="text-white">Click and drag</strong> from a player to draw their route</li>
+                <li>• <strong className="text-white">Click a player</strong> to select them</li>
+                <li>• <strong className="text-white">Drag players</strong> to reposition them</li>
+                <li>• <strong className="text-white">Shift + drag</strong> from a player to draw their route</li>
                 <li>• <strong className="text-white">Release</strong> to finish the route</li>
               </ul>
             </div>
@@ -744,7 +830,7 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
           {playMode === 'pass' && (
             <div className="absolute bottom-8 left-8 z-10 w-72 p-4 rounded-lg bg-[#0A0A0A]/95 backdrop-blur-xl border border-[#FFFFFF]/20 shadow-lg">
               <h3 className="text-sm font-bold text-white mb-2">Routes</h3>
-              <p className="text-xs text-slate-400 mb-3">Click and drag from a player to draw their route</p>
+              <p className="text-xs text-slate-400 mb-3">Shift + drag from a player to draw their route</p>
 
               <div className="space-y-2 max-h-80 overflow-y-auto">
                 {offensePlayers.filter(p => p.group === 'skill' || p.group === 'backfield').map(player => {
@@ -848,16 +934,34 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
               />
 
               {/* Defense players */}
-              {defensePlayers.map((player) => (
-                <g key={player.id}>
+              {defensePlayers.map((player) => {
+                const isClicked = clickedPlayer?.id === player.id && clickedPlayer?.side === 'defense';
+                return (
+                <g
+                  key={player.id}
+                  onMouseDown={(e) => handlePlayerMouseDown(e, player, 'defense')}
+                  onClick={() => handlePlayerClick(player.id, 'defense')}
+                  style={{ cursor: draggingPlayer?.id === player.id ? 'grabbing' : 'grab' }}
+                >
                   <circle
                     cx={player.x}
                     cy={player.y}
                     r="1.5"
-                    fill="#EF4444"
-                    stroke="#EF4444"
+                    fill={isClicked ? "#FCA5A5" : "#EF4444"}
+                    stroke={isClicked ? "#FCA5A5" : "#EF4444"}
                     strokeWidth="0.3"
                   />
+                  {isClicked && (
+                    <circle
+                      cx={player.x}
+                      cy={player.y}
+                      r="2.2"
+                      fill="none"
+                      stroke="#FCA5A5"
+                      strokeWidth="0.2"
+                      opacity="0.8"
+                    />
+                  )}
                   <text
                     x={player.x}
                     y={player.y}
@@ -871,18 +975,20 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                     {player.label}
                   </text>
                 </g>
-              ))}
+              )})}
 
               {/* Offense players */}
               {offensePlayers.map((player) => {
                 const isDrawing = isDrawingRoute && selectedPlayer === player.id;
                 const hasRoute = routes.some(r => r.playerId === player.id);
+                const isClicked = clickedPlayer?.id === player.id && clickedPlayer?.side === 'offense';
 
                 return (
                   <g
                     key={player.id}
-                    onMouseDown={(e) => handlePlayerMouseDown(e, player.id, 'offense')}
-                    style={{ cursor: playMode === 'pass' ? 'crosshair' : 'default' }}
+                    onMouseDown={(e) => handlePlayerMouseDown(e, player, 'offense')}
+                    onClick={() => handlePlayerClick(player.id, 'offense')}
+                    style={{ cursor: draggingPlayer?.id === player.id ? 'grabbing' : 'grab' }}
                   >
                     {/* Glow effect when drawing */}
                     {isDrawing && (
@@ -902,6 +1008,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                       fill={
                         isDrawing
                           ? "#FFFFFF"
+                          : isClicked
+                          ? "#7DD3FC"
                           : hasRoute
                           ? "#3DF3FF"
                           : "#00F6E5"
@@ -909,12 +1017,25 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                       stroke={
                         isDrawing
                           ? "#FFFFFF"
+                          : isClicked
+                          ? "#7DD3FC"
                           : hasRoute
                           ? "#3DF3FF"
                           : "#00F6E5"
                       }
                       strokeWidth="0.3"
                     />
+                    {isClicked && (
+                      <circle
+                        cx={player.x}
+                        cy={player.y}
+                        r="2.2"
+                        fill="none"
+                        stroke="#7DD3FC"
+                        strokeWidth="0.2"
+                        opacity="0.8"
+                      />
+                    )}
                     <text
                       x={player.x}
                       y={player.y}
