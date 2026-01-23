@@ -5,5 +5,48 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
+# Redirect API routes to Netlify Functions
+[[redirects]]
+  from = "/api/onboarding/status"
+  to = "/.netlify/functions/onboarding-status"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/profile"
+  to = "/.netlify/functions/onboarding-profile"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/organization"
+  to = "/.netlify/functions/onboarding-organization"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/join"
+  to = "/.netlify/functions/onboarding-join"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/team"
+  to = "/.netlify/functions/onboarding-team"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/teams"
+  to = "/.netlify/functions/onboarding-teams"
+  status = 200
+
+[[redirects]]
+  from = "/api/onboarding/position"
+  to = "/.netlify/functions/onboarding-position"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/invite"
+  to = "/.netlify/functions/admin-invite"
+  status = 200
+
 [functions]
   directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["@supabase/supabase-js"]

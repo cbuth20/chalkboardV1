@@ -109,7 +109,7 @@ export default function AssignmentPage() {
 }
 
 function AssignmentTracker() {
-  const { userPosition, userPositions, userRole, loading: authLoading } = useAuth();
+  const { userPositions, userRole, loading: authLoading } = useAuth();
   const [teamId] = useState<string>(DEV_TEAM_ID);
   const [viewMode, setViewMode] = useState<ViewMode>("assignments");
 
@@ -134,7 +134,6 @@ function AssignmentTracker() {
   const [incorrectCount, setIncorrectCount] = useState(0);
 
   // Debug logging
-  console.log('[Player Assignments] userPosition:', userPosition);
   console.log('[Player Assignments] userPositions:', userPositions);
   console.log('[Player Assignments] authLoading:', authLoading);
 

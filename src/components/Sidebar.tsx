@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMode } from "@/contexts/ModeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { SidebarUserActions } from "./SidebarUserActions";
 
 interface NavItem {
@@ -15,6 +16,13 @@ interface NavItem {
 export default function Sidebar() {
   const pathname = usePathname();
   const { mode } = useMode();
+  const { profile, membership } = useAuth();
+
+  // Debug logging
+  console.log('[Sidebar] RENDER - Profile:', profile);
+  console.log('[Sidebar] RENDER - Membership:', membership);
+  console.log('[Sidebar] Profile role:', profile?.role);
+  console.log('[Sidebar] Membership role:', membership?.role);
 
   // Player navigation items (6 items)
   const playerNavItems: NavItem[] = [
@@ -38,6 +46,12 @@ export default function Sidebar() {
 
   // Select navigation based on mode
   const navItems = mode === "coach" ? coachNavItems : playerNavItems;
+
+  // Check if user is admin (role from profile or membership)
+  const isAdmin = profile?.role === 'admin' || membership?.role === 'admin';
+
+  // Debug logging (moved above to ensure it runs)
+  console.log('[Sidebar] Is admin:', isAdmin);
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 z-50 bg-[#0A0A0A]/95 backdrop-blur-xl border-r border-[#1B1E20]/80 flex flex-col">
@@ -102,6 +116,38 @@ export default function Sidebar() {
             );
           })}
         </div>
+
+        {/* Admin link - only visible to admins */}
+        {isAdmin && (
+          <div className="mt-6 pt-4 border-t border-[#1B1E20]/80">
+            <Link
+              href="/admin/settings"
+              className={`group relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold uppercase tracking-wide transition-all duration-200 ${
+                pathname === '/admin/settings'
+                  ? "bg-[#00F6E5]/10 text-[#00F6E5] border-l-4 border-[#00F6E5] -ml-[1px] pl-[15px]"
+                  : "text-slate-400 hover:bg-[#1B1E20]/50 hover:text-white"
+              }`}
+            >
+              <AdminIcon
+                className={`h-5 w-5 ${
+                  pathname === '/admin/settings' ? "text-[#00F6E5]" : "text-slate-500 group-hover:text-slate-300"
+                }`}
+              />
+              <span>ADMIN</span>
+            </Link>
+          </div>
+        )}
+
+        {/* Temporary Debug Info - Remove after fixing */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-auto p-3 bg-red-500/10 border-t border-red-500/30">
+            <div className="text-xs text-red-300 space-y-1">
+              <div>P: {profile?.role || 'null'}</div>
+              <div>M: {membership?.role || 'null'}</div>
+              <div>Admin: {String(isAdmin)}</div>
+            </div>
+          </div>
+        )}
       </nav>
     </aside>
   );
@@ -343,6 +389,24 @@ function PerformanceIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
     >
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  );
+}
+
+function AdminIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 2L2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+      <path d="M2 12l10 5 10-5" />
     </svg>
   );
 }

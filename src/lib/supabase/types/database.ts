@@ -76,6 +76,14 @@ export type ContentType =
 
 export type SideOfBall = 'offense' | 'defense' | 'special_teams' | 'general';
 
+export type OnboardingState =
+  | 'new'                    // Just signed up, no profile
+  | 'profile_incomplete'     // Started profile, missing info
+  | 'pending_org'           // Profile complete, needs org assignment
+  | 'pending_team'          // In org, needs team assignment
+  | 'pending_position'      // In team, needs position
+  | 'completed';            // Fully onboarded
+
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
 // BASE TYPES (from existing schema)
@@ -87,9 +95,12 @@ export interface DbUser {
   email: string;
   first_name: string;
   last_name: string;
+  full_name: string | null;  // Generated column: first_name + last_name
   display_name: string | null;
   avatar_url: string | null;
   jersey_number: number | null;
+  role: UserRole;  // Moved from team_members to user level
+  onboarding_state: OnboardingState;  // Track onboarding progress
   total_xp: number;
   current_level: number;
   football_iq_rating: number;
@@ -100,6 +111,7 @@ export interface DbUser {
 
 export interface DbTeam {
   id: string;
+  org_id: string;  // FK to organizations (one-to-one)
   name: string;
   slug: string;
   logo_url: string | null;
@@ -107,6 +119,35 @@ export interface DbTeam {
   timezone: string;
   tier: string;
   max_players: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbOrganization {
+  id: string;
+  owner_id: string;  // FK to users
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbTeamSegment {
+  id: string;
+  team_id: string;  // FK to teams
+  code: string;  // Short code like 'OFFENSE', 'DEFENSE', 'VARSITY', 'JV'
+  name: string;  // Display name
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbOrgMembership {
+  id: string;
+  org_id: string;  // FK to organizations
+  user_id: string;  // FK to users
+  role: UserRole;  // player, coach, admin
+  segment_id: string | null;  // Optional FK to team_segments
+  jersey_number: number | null;
+  position_code: string | null;  // Primary position (e.g., 'QB', 'WR')
   created_at: string;
   updated_at: string;
 }
@@ -848,9 +889,12 @@ export interface Database {
     Tables: {
       // Base tables
       users: { Row: DbUser; Insert: Partial<DbUser>; Update: Partial<DbUser> };
+      organizations: { Row: DbOrganization; Insert: Partial<DbOrganization>; Update: Partial<DbOrganization> };
       teams: { Row: DbTeam; Insert: Partial<DbTeam>; Update: Partial<DbTeam> };
-      team_members: { Row: DbTeamMember; Insert: Partial<DbTeamMember>; Update: Partial<DbTeamMember> };
-      
+      team_segments: { Row: DbTeamSegment; Insert: Partial<DbTeamSegment>; Update: Partial<DbTeamSegment> };
+      org_memberships: { Row: DbOrgMembership; Insert: Partial<DbOrgMembership>; Update: Partial<DbOrgMembership> };
+      team_members: { Row: DbTeamMember; Insert: Partial<DbTeamMember>; Update: Partial<DbTeamMember> };  // Deprecated - use org_memberships
+
       // Season & Position
       seasons: { Row: DbSeason; Insert: Partial<DbSeason>; Update: Partial<DbSeason> };
       position_groups: { Row: DbPositionGroup; Insert: Partial<DbPositionGroup>; Update: Partial<DbPositionGroup> };
@@ -931,6 +975,8 @@ export interface Database {
       coverage_effectiveness: CoverageEffectiveness;
       content_type: ContentType;  // Added in migration 004
       content_status_enum: ContentStatus;  // Added in migration 004
+      onboarding_state: OnboardingState;  // Added in migration 001
+      user_role: UserRole;
     };
   };
 }
