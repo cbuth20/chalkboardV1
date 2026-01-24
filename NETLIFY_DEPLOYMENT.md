@@ -29,6 +29,7 @@ In Netlify Dashboard → Site Settings → Environment Variables, add:
 ### Required Variables
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 NEXT_PUBLIC_APP_URL=https://your-site.netlify.app
 GPT_KEY=your-openai-api-key
@@ -36,12 +37,13 @@ GPT_KEY=your-openai-api-key
 
 ### Where to Find These Values
 
-**NEXT_PUBLIC_SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY:**
+**NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY & SUPABASE_SERVICE_ROLE_KEY:**
 1. Go to [Supabase Dashboard](https://app.supabase.com/)
 2. Select your project
 3. Go to Settings → API
 4. Copy:
    - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
+   - **anon public** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - **service_role secret** → `SUPABASE_SERVICE_ROLE_KEY`
 
 **NEXT_PUBLIC_APP_URL:**
@@ -78,7 +80,7 @@ netlify deploy --prod
 After deployment:
 
 1. Go to Netlify Dashboard → Functions
-2. You should see 8 functions:
+2. You should see 9 functions:
    - `onboarding-status`
    - `onboarding-profile`
    - `onboarding-organization`
@@ -87,6 +89,7 @@ After deployment:
    - `onboarding-teams`
    - `onboarding-position`
    - `admin-invite`
+   - `auth-callback`
 
 3. Click each function to view logs and ensure they're deploying without errors
 

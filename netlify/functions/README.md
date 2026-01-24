@@ -18,6 +18,12 @@ The following Next.js API routes have been converted to Netlify Functions:
 ### Admin Routes
 - `/api/admin/invite` → `admin-invite.ts` (POST)
 
+### Auth Routes
+- `/auth/callback` → `auth-callback.ts` (GET) - OAuth callback handler
+  - Handles Supabase OAuth callbacks (Google sign-in, email magic links, invites)
+  - Exchanges auth code for session
+  - Preserves redirect parameter for invite flows
+
 ## How It Works
 
 1. **Netlify Functions** are serverless functions that run on Netlify's edge network

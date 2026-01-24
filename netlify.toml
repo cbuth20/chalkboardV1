@@ -46,6 +46,11 @@
   to = "/.netlify/functions/admin-invite"
   status = 200
 
+[[redirects]]
+  from = "/auth/callback"
+  to = "/.netlify/functions/auth-callback"
+  status = 200
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
