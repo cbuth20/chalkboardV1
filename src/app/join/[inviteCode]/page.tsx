@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/lib/supabase/types/database';
 import { ALL_POSITIONS, groupPositionsByGroup } from '@/lib/positions';
 
-export default function JoinPage() {
+function JoinContent() {
   const router = useRouter();
   const params = useParams();
   const inviteCode = params.inviteCode as string;
@@ -572,6 +572,18 @@ export default function JoinPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function JoinPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0A0F12] flex items-center justify-center">
+        <div className="text-white">Loading...</div>
+      </div>
+    }>
+      <JoinContent />
+    </Suspense>
   );
 }
 
