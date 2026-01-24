@@ -57,13 +57,30 @@ export const handler: Handler = async (event) => {
 
     const { data: existingMembership } = await supabase
       .from('org_memberships')
-      .select('id')
+      .select('id, team_id')
       .eq('org_id', organization.id)
       .eq('user_id', profile.id)
       .maybeSingle();
 
     if (existingMembership) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'You are already a member of this organization' }) };
+      console.log('[Onboarding] User already member, returning existing membership');
+      // User is already a member - return success with existing membership
+      const nextState = existingMembership.team_id
+        ? (profile.role === 'player' ? 'pending_position' : 'completed')
+        : 'pending_team';
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            organization,
+            membership: existingMembership,
+            nextStep: nextState === 'pending_team' ? 'team' : (nextState === 'pending_position' ? 'position' : 'dashboard'),
+            message: 'Already a member of this organization'
+          }
+        }),
+      };
     }
 
     const membershipRole = profile.role || 'player';

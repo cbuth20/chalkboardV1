@@ -39,7 +39,7 @@ export default function JoinPage() {
     }
   }, [authLoading, user, router, inviteCode]);
 
-  // Check onboarding status and determine starting step
+  // Check onboarding status and auto-join if user exists
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       if (!session || !user) return;
@@ -60,9 +60,9 @@ export default function JoinPage() {
         const { success, data } = await response.json();
 
         if (success && data) {
-          // If onboarding is completed, redirect to dashboard
-          if (data.onboardingState === 'completed') {
-            console.log('[Join] User has completed onboarding, redirecting to dashboard');
+          // If onboarding is completed and already a member of this org, redirect to dashboard
+          if (data.onboardingState === 'completed' && data.membership?.orgId === inviteCode) {
+            console.log('[Join] User is already a member of this organization, redirecting to dashboard');
             router.push('/');
             return;
           }
@@ -72,6 +72,52 @@ export default function JoinPage() {
             setFirstName(data.profile.firstName || '');
             setLastName(data.profile.lastName || '');
             setRole(data.profile.role || 'player');
+
+            // AUTO-JOIN: If user has a profile but no membership to THIS org, auto-join them
+            if (data.membership?.orgId !== inviteCode) {
+              console.log('[Join] User has profile but not member of this org, auto-joining...');
+
+              try {
+                const joinResponse = await fetch('/api/onboarding/join', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                  },
+                  body: JSON.stringify({ inviteCode })
+                });
+
+                const joinResult = await joinResponse.json();
+
+                if (joinResponse.ok && joinResult.success) {
+                  console.log('[Join] Auto-joined organization successfully');
+                  setOrgName(joinResult.data.organization?.name || 'Organization');
+
+                  // Fetch teams for this org
+                  const teamsResponse = await fetch('/api/onboarding/teams', {
+                    headers: { 'Authorization': `Bearer ${session.access_token}` }
+                  });
+
+                  if (teamsResponse.ok) {
+                    const teamsResult = await teamsResponse.json();
+                    if (teamsResult.success) {
+                      setTeams(teamsResult.data.teams);
+                    }
+                  }
+
+                  // Go directly to team selection
+                  setStep('team');
+                  setCheckingStatus(false);
+                  return;
+                } else {
+                  console.error('[Join] Auto-join failed:', joinResult.error);
+                  // Fall through to show profile form
+                }
+              } catch (err) {
+                console.error('[Join] Auto-join error:', err);
+                // Fall through to show profile form
+              }
+            }
           }
 
           // Determine which step to start on based on onboarding state
@@ -111,7 +157,7 @@ export default function JoinPage() {
     if (user && session) {
       checkOnboardingStatus();
     }
-  }, [user, session, router]);
+  }, [user, session, router, inviteCode]);
 
   if (authLoading || checkingStatus) {
     return (

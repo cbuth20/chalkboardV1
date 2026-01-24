@@ -93,16 +93,27 @@ export async function POST(request: NextRequest) {
     // Check if user is already a member
     const { data: existingMembership } = await supabase
       .from('org_memberships')
-      .select('id')
+      .select('id, team_id')
       .eq('org_id', organization.id)
       .eq('user_id', profile.id)
       .maybeSingle();
 
     if (existingMembership) {
-      return NextResponse.json(
-        { error: 'You are already a member of this organization' },
-        { status: 400 }
-      );
+      console.log('[Onboarding] User already member, returning existing membership');
+      // User is already a member - return success with existing membership
+      const nextState = existingMembership.team_id
+        ? (profile.role === 'player' ? 'pending_position' : 'completed')
+        : 'pending_team';
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          organization,
+          membership: existingMembership,
+          nextStep: nextState === 'pending_team' ? 'team' : (nextState === 'pending_position' ? 'position' : 'dashboard'),
+          message: 'Already a member of this organization'
+        }
+      });
     }
 
     // Create org membership
