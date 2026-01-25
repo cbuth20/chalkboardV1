@@ -1,7 +1,9 @@
-# Supabase Email Invite Setup
+# Supabase Email Invite Setup (Legacy)
 
 ## Overview
-The admin invite system uses Supabase's built-in email invitation feature. Users receive an email with a magic link that authenticates them and redirects to the join page.
+This repo previously used Supabase’s built-in “Invite user” email for onboarding. The current **bulk create users** workflow has been updated to **send a custom email** (so you can include the initial password) and does **not** require Supabase email templates.
+
+If you still use `/api/admin/invite` anywhere, the sections below apply.
 
 ## Configuration Steps
 
@@ -9,7 +11,7 @@ The admin invite system uses Supabase's built-in email invitation feature. Users
 
 Go to: **Authentication > Email Templates** in your Supabase dashboard
 
-### 2. Customize the "Invite User" Template
+### 2. Customize the "Invite User" Template (only if you still use Supabase invites)
 
 Update the template with your branding:
 
@@ -17,6 +19,13 @@ Update the template with your branding:
 <h2>Welcome to CHALKBOARD!</h2>
 
 <p>You've been invited to join {{ .SiteURL }}!</p>
+
+{{ if .Data.initial_password }}
+  <p><strong>Your initial password:</strong> {{ .Data.initial_password }}</p>
+  <p style="margin-top: 0; color: #64748b; font-size: 12px;">
+    You can change this password anytime in Account settings after you log in.
+  </p>
+{{ end }}
 
 <p>Click the link below to accept your invitation and get started:</p>
 
@@ -27,11 +36,17 @@ Update the template with your branding:
 <p>If you didn't expect this invitation, you can safely ignore this email.</p>
 ```
 
+You can also copy/paste the full template from:
+`docs/SUPABASE_INVITE_USER_EMAIL_TEMPLATE.html`
+
 ### 3. Important Variables
 
 - `{{ .ConfirmationURL }}` - This contains the magic link with the redirect URL we set in the API
 - `{{ .SiteURL }}` - Your app's base URL
 - `{{ .Token }}` - The confirmation token (automatically handled)
+- `{{ .Data.initial_password }}` - The initial password included by the admin bulk-create workflow
+
+> Note: The current bulk-create endpoint sends email via Resend and does not use this template.
 
 ### 4. Redirect URL Configuration
 

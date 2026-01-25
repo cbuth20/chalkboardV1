@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/lib/supabase/types/database';
+import { SkillPosition, UserRole } from '@/lib/supabase/types/database';
 import { ALL_POSITIONS, groupPositionsByGroup } from '@/lib/positions';
 
 function JoinContent() {
@@ -28,7 +28,7 @@ function JoinContent() {
   const [selectedTeamId, setSelectedTeamId] = useState('');
 
   // Position data
-  const [positionCode, setPositionCode] = useState('');
+  const [selectedPositions, setSelectedPositions] = useState<SkillPosition[]>([]);
   const [jerseyNumber, setJerseyNumber] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'offense' | 'defense' | 'special-teams'>('offense');
 
@@ -279,6 +279,12 @@ function JoinContent() {
     setError(null);
 
     try {
+      if (selectedPositions.length === 0) {
+        throw new Error('Please select at least one position');
+      }
+
+      const primaryPosition = selectedPositions[0];
+
       const response = await fetch('/api/onboarding/position', {
         method: 'POST',
         headers: {
@@ -286,7 +292,7 @@ function JoinContent() {
           'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
-          positionCode,
+          positionCode: primaryPosition,
           jerseyNumber: parseInt(jerseyNumber, 10)
         })
       });
@@ -294,6 +300,27 @@ function JoinContent() {
       const result = await response.json();
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Failed to set position');
+      }
+
+      // Save multi-positions for the team member record (best-effort)
+      try {
+        const posRes = await fetch('/api/account/positions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            positions: selectedPositions
+          })
+        });
+
+        const posJson = await posRes.json();
+        if (!posRes.ok || !posJson.success) {
+          console.warn('[Join] Failed to save multi-positions:', posJson?.error);
+        }
+      } catch (e) {
+        console.warn('[Join] Failed to save multi-positions:', e);
       }
 
       setStep('complete');
@@ -306,6 +333,17 @@ function JoinContent() {
   };
 
   const groupedPositions = groupPositionsByGroup(selectedCategory);
+
+  const togglePosition = (pos: SkillPosition) => {
+    setSelectedPositions((prev) => {
+      if (prev.includes(pos)) return prev.filter((p) => p !== pos);
+      return [...prev, pos];
+    });
+  };
+
+  const removeSelectedPosition = (pos: SkillPosition) => {
+    setSelectedPositions((prev) => prev.filter((p) => p !== pos));
+  };
 
   return (
     <div className="min-h-screen bg-[#0A0F14] holographic-grid py-12 px-4 sm:px-6 lg:px-8">
@@ -479,9 +517,57 @@ function JoinContent() {
           {step === 'position' && (
             <div>
               <h2 className="text-3xl font-bold text-white mb-2">Set Your Position</h2>
-              <p className="text-slate-400 mb-8">Select your position and jersey number</p>
+              <p className="text-slate-400 mb-8">Select one or more positions and jersey number</p>
 
               <form onSubmit={handlePositionSubmit} className="space-y-6">
+                {/* Selected Positions */}
+                <div className="p-4 rounded-lg bg-[#1B1E20]/50 border border-[#2A2F35]">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-white">Selected positions</p>
+                    {selectedPositions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPositions([])}
+                        className="text-xs text-slate-400 hover:text-white transition"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {selectedPositions.length === 0 ? (
+                    <p className="text-sm text-slate-500">No positions selected yet</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedPositions.map((pos, idx) => (
+                        <div
+                          key={pos}
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+                            idx === 0
+                              ? 'bg-[#00F6E5]/10 border-[#00F6E5]/30 text-[#00F6E5]'
+                              : 'bg-[#0A0F14]/60 border-[#2A2F35] text-slate-300'
+                          }`}
+                          title={idx === 0 ? 'Primary position (used for onboarding)' : undefined}
+                        >
+                          <span className="text-sm font-bold">{pos}</span>
+                          <span className="text-xs opacity-80">{ALL_POSITIONS[pos]?.name}</span>
+                          {idx === 0 && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider">Primary</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeSelectedPosition(pos)}
+                            className="ml-1 flex items-center justify-center w-5 h-5 rounded-md hover:bg-white/10 transition"
+                            aria-label={`Remove ${pos}`}
+                          >
+                            <XIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Category Tabs */}
                 <div className="flex gap-2 border-b border-[#2A2F35]">
                   {(['offense', 'defense', 'special-teams'] as const).map(category => (
@@ -502,24 +588,24 @@ function JoinContent() {
 
                 {/* Position Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-3">Select Position</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-3">Select Positions</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-80 overflow-y-auto">
                     {Object.entries(groupedPositions).map(([groupName, positions]) => (
                       positions.map((pos) => (
                         <button
                           key={pos.code}
                           type="button"
-                          onClick={() => setPositionCode(pos.code)}
+                          onClick={() => togglePosition(pos.code as SkillPosition)}
                           className={`p-4 rounded-lg border-2 transition-all text-left ${
-                            positionCode === pos.code
+                            selectedPositions.includes(pos.code as SkillPosition)
                               ? 'border-[#00F6E5] bg-[#00F6E5]/10'
                               : 'border-[#2A2F35] bg-[#1B1E20] hover:border-[#00F6E5]/50'
                           }`}
                         >
-                          <div className={`text-xl font-black mb-1 ${positionCode === pos.code ? 'text-[#00F6E5]' : 'text-white'}`}>
+                          <div className={`text-xl font-black mb-1 ${selectedPositions.includes(pos.code as SkillPosition) ? 'text-[#00F6E5]' : 'text-white'}`}>
                             {pos.code}
                           </div>
-                          <div className={`text-xs ${positionCode === pos.code ? 'text-[#00F6E5]' : 'text-slate-400'}`}>
+                          <div className={`text-xs ${selectedPositions.includes(pos.code as SkillPosition) ? 'text-[#00F6E5]' : 'text-slate-400'}`}>
                             {pos.name}
                           </div>
                         </button>
@@ -545,7 +631,7 @@ function JoinContent() {
 
                 <button
                   type="submit"
-                  disabled={loading || !positionCode}
+                  disabled={loading || selectedPositions.length === 0}
                   className="w-full bg-[#00F6E5] text-black py-3 px-6 rounded-lg font-semibold hover:bg-[#3DF3FF] disabled:opacity-50 transition shadow-[0_0_15px_rgba(0,246,229,0.3)]"
                 >
                   {loading ? 'Saving...' : 'Complete Setup'}
@@ -591,6 +677,15 @@ function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
       <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   );
 }

@@ -47,6 +47,36 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin/bulk-create-users"
+  to = "/.netlify/functions/admin-bulk-create-users"
+  status = 200
+
+[[redirects]]
+  from = "/api/account/positions"
+  to = "/.netlify/functions/account-positions"
+  status = 200
+
+[[redirects]]
+  from = "/api/account/password"
+  to = "/.netlify/functions/account-password"
+  status = 200
+
+[[redirects]]
+  from = "/api/account/profile"
+  to = "/.netlify/functions/account-profile"
+  status = 200
+
+[[redirects]]
+  from = "/api/account/avatar"
+  to = "/.netlify/functions/account-avatar"
+  status = 200
+
+[[redirects]]
+  from = "/api/team/members"
+  to = "/.netlify/functions/team-members"
+  status = 200
+
+[[redirects]]
   from = "/auth/callback"
   to = "/.netlify/functions/auth-callback"
   status = 200

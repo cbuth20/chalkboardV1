@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
-import { UserRole, OnboardingState } from '@/lib/supabase/types/database';
+import { UserRole, OnboardingState, SkillPosition } from '@/lib/supabase/types/database';
 
 interface UserProfile {
   id: string;
@@ -44,12 +44,14 @@ interface AuthContextType {
   teamId: string | null;
   positionCode: string | null;
   orgId: string | null;
-  userPositions: any[]; // Single position as array for backwards compatibility
+  userPositions: SkillPosition[]; // Multi-position support
 
   // Methods
   signOut: () => Promise<void>;
   refreshUserData: () => Promise<void>;
-  updatePosition: (positionCode: string, jerseyNumber?: number) => Promise<void>;
+  updatePositions: (positions: SkillPosition[]) => Promise<void>;
+  // Backwards-compat for older callers that expect single position
+  updatePosition: (positionCode: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -60,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [membership, setMembership] = useState<UserMembership | null>(null);
+  const [positions, setPositions] = useState<SkillPosition[]>([]);
 
   // Backwards compatibility
   const userRole = profile?.role || membership?.role || null;
@@ -67,9 +70,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const positionCode = membership?.positionCode || null;
   const orgId = membership?.orgId || null;
 
-  // Computed: single position as array for backwards compatibility
-  // In new schema, users have one position per org membership
-  const userPositions: any[] = positionCode ? [positionCode as any] : [];
+  // Multi-position support (falls back to membership.positionCode)
+  const userPositions: SkillPosition[] =
+    positions.length > 0 ? positions : (positionCode ? [positionCode as SkillPosition] : []);
 
   // Fetch user profile and membership data from API (non-blocking)
   const fetchUserData = async (accessToken: string) => {
@@ -95,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             role: data.profile.role as UserRole,
             onboardingState: data.onboardingState as OnboardingState,
             email: data.profile.email || '',
-            avatarUrl: undefined,
+            avatarUrl: data.profile.avatarUrl || undefined,
           });
         } else {
           setProfile(null);
@@ -117,6 +120,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setMembership(null);
         }
+      }
+
+      // Fetch multi-positions (best-effort; keep fallback on failure)
+      try {
+        const posRes = await fetch('/api/account/positions', {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const posJson = await posRes.json();
+        if (posRes.ok && posJson?.success) {
+          const next = Array.isArray(posJson.data?.positions) ? posJson.data.positions : [];
+          setPositions(next as SkillPosition[]);
+        } else {
+          // Keep existing positions state on error
+        }
+      } catch (e) {
+        // Keep existing positions state on error
       }
     } catch (error) {
       console.error('[AuthContext] Error fetching user data:', error);
@@ -171,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfile(null);
     setMembership(null);
+    setPositions([]);
   };
 
   const refreshUserData = async () => {
@@ -179,20 +199,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updatePosition = async (positionCode: string, jerseyNumber?: number) => {
+  const updatePositions = async (nextPositions: SkillPosition[]) => {
     if (!session?.access_token) {
       throw new Error('No active session');
     }
 
-    const response = await fetch('/api/onboarding/position', {
+    const response = await fetch('/api/account/positions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
       },
       body: JSON.stringify({
-        positionCode,
-        jerseyNumber: jerseyNumber || 0
+        positions: nextPositions
       })
     });
 
@@ -202,8 +221,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(result.error || 'Failed to update position');
     }
 
-    // Refresh user data to get updated position
+    // Refresh user data to get updated membership + positions
     await refreshUserData();
+  };
+
+  const updatePosition = async (singlePosition: string) => {
+    await updatePositions([singlePosition as SkillPosition]);
   };
 
   return (
@@ -220,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userPositions,
       signOut,
       refreshUserData,
+      updatePositions,
       updatePosition,
     }}>
       {children}

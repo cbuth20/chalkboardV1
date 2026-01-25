@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     // Get user profile with onboarding state
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('id, onboarding_state, first_name, last_name, email, role')
+      .select('id, onboarding_state, first_name, last_name, email, role, avatar_url, display_name')
       .eq('auth_id', user.id)
       .maybeSingle();
 
@@ -128,7 +128,9 @@ export async function GET(request: NextRequest) {
           firstName: profile.first_name,
           lastName: profile.last_name,
           email: profile.email,
-          role: profile.role
+          role: profile.role,
+          avatarUrl: profile.avatar_url,
+          displayName: profile.display_name
         },
         membership: membership ? {
           id: membership.id,
