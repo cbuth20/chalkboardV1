@@ -6,6 +6,7 @@ import { AssignmentStatusFAB } from "@/components/assignment-generation";
 import { ModeProvider } from "@/contexts/ModeContext";
 import { CoachProvider } from "@/components/ai-coach/CoachContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { PlaysProvider } from "@/contexts/PlaysContext";
 import { AssignmentGenerationProvider } from "@/contexts/AssignmentGenerationContext";
 
@@ -41,18 +42,20 @@ export default function RootLayout({
         className={`${rajdhani.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <AuthProvider>
-          <PlaysProvider>
-            <AssignmentGenerationProvider>
-              <ModeProvider>
-                <CoachProvider>
-                  {children}
-                  <CoachFAB />
-                  <CoachDrawer />
-                  <AssignmentStatusFAB />
-                </CoachProvider>
-              </ModeProvider>
-            </AssignmentGenerationProvider>
-          </PlaysProvider>
+          <OnboardingProvider>
+            <PlaysProvider>
+              <AssignmentGenerationProvider>
+                <ModeProvider>
+                  <CoachProvider>
+                    {children}
+                    <CoachFAB />
+                    <CoachDrawer />
+                    <AssignmentStatusFAB />
+                  </CoachProvider>
+                </ModeProvider>
+              </AssignmentGenerationProvider>
+            </PlaysProvider>
+          </OnboardingProvider>
         </AuthProvider>
       </body>
     </html>

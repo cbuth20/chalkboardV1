@@ -7,51 +7,43 @@ import { SkillPosition } from '@/lib/supabase/types/database';
 import { ALL_POSITIONS, groupPositionsByGroup, CATEGORY_LABELS, type PositionCategory } from '@/lib/positions';
 
 export default function SettingsPage() {
-  const { userPositions, updateUserPositions, loading: authLoading } = useAuth();
-  const [selectedPositions, setSelectedPositions] = useState<SkillPosition[]>(userPositions);
+  const { positionCode, updatePosition, loading: authLoading } = useAuth();
+  const [selectedPosition, setSelectedPosition] = useState<SkillPosition | null>(positionCode as SkillPosition || null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<PositionCategory>('offense');
 
-  // Update selected positions when userPositions changes (from auth context)
+  // Update selected position when positionCode changes (from auth context)
   React.useEffect(() => {
-    setSelectedPositions(userPositions);
-  }, [userPositions]);
+    setSelectedPosition(positionCode as SkillPosition || null);
+  }, [positionCode]);
 
-  const hasChanges = JSON.stringify([...selectedPositions].sort()) !== JSON.stringify([...userPositions].sort());
+  const hasChanges = selectedPosition !== positionCode;
 
-  const togglePosition = (position: SkillPosition) => {
-    setSelectedPositions(prev => {
-      if (prev.includes(position)) {
-        // Remove position
-        return prev.filter(p => p !== position);
-      } else {
-        // Add position
-        return [...prev, position];
-      }
-    });
+  const selectPosition = (position: SkillPosition) => {
+    setSelectedPosition(position);
   };
 
   const handleSave = async () => {
-    if (!hasChanges) {
+    if (!hasChanges || !selectedPosition) {
       console.log('[Settings] No changes to save');
       return;
     }
 
-    console.log('[Settings] Saving positions:', selectedPositions);
+    console.log('[Settings] Saving position:', selectedPosition);
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
     try {
-      await updateUserPositions(selectedPositions);
-      console.log('[Settings] Positions saved successfully');
+      await updatePosition(selectedPosition);
+      console.log('[Settings] Position saved successfully');
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error: any) {
-      console.error('[Settings] Failed to update positions:', error);
-      setSaveError(error.message || 'Failed to save positions. Please try again.');
+      console.error('[Settings] Failed to update position:', error);
+      setSaveError(error.message || 'Failed to save position. Please try again.');
     } finally {
       console.log('[Settings] Save complete, resetting isSaving');
       setIsSaving(false);
@@ -93,23 +85,19 @@ export default function SettingsPage() {
         {/* Position Selection Section */}
         <section className="glass-card p-6 lg:p-8">
           <div className="mb-6">
-            <h2 className="text-xl font-bold text-white mb-2">Your Positions</h2>
+            <h2 className="text-xl font-bold text-white mb-2">Your Position</h2>
             <p className="text-sm text-slate-400">
-              Select all positions you play. Click multiple positions to select them. This determines which assignments and content you'll see.
+              Select your position. This determines which assignments and content you'll see.
             </p>
           </div>
 
-          {/* Current Positions Display */}
-          {userPositions.length > 0 && (
+          {/* Current Position Display */}
+          {positionCode && (
             <div className="mb-6 p-4 rounded-lg bg-[#00F6E5]/5 border border-[#00F6E5]/20">
-              <p className="text-sm font-medium text-slate-400 mb-3">Current Positions</p>
-              <div className="flex flex-wrap gap-2">
-                {userPositions.map(pos => (
-                  <div key={pos} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#00F6E5]/10 border border-[#00F6E5]/30">
-                    <span className="text-sm font-bold text-[#00F6E5]">{pos}</span>
-                    <span className="text-xs text-slate-300">{ALL_POSITIONS[pos]?.name}</span>
-                  </div>
-                ))}
+              <p className="text-sm font-medium text-slate-400 mb-3">Current Position</p>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#00F6E5]/10 border border-[#00F6E5]/30 inline-flex">
+                <span className="text-sm font-bold text-[#00F6E5]">{positionCode}</span>
+                <span className="text-xs text-slate-300">{ALL_POSITIONS[positionCode as any]?.name}</span>
               </div>
             </div>
           )}
@@ -141,11 +129,11 @@ export default function SettingsPage() {
                 positions.length > 4 ? 'md:grid-cols-4' : `md:grid-cols-${Math.min(positions.length, 5)}`
               }`}>
                 {positions.map((posInfo) => {
-                  const isSelected = selectedPositions.includes(posInfo.code);
+                  const isSelected = selectedPosition === posInfo.code;
                   return (
                     <button
                       key={posInfo.code}
-                      onClick={() => togglePosition(posInfo.code)}
+                      onClick={() => selectPosition(posInfo.code)}
                       className={`group relative p-4 rounded-lg border-2 transition-all ${
                         isSelected
                           ? 'bg-[#00F6E5]/10 border-[#00F6E5] ring-2 ring-[#00F6E5]/30'
@@ -202,7 +190,7 @@ export default function SettingsPage() {
             {saveSuccess && (
               <div className="flex items-center gap-2 text-emerald-400">
                 <CheckIcon className="h-5 w-5" />
-                <span className="text-sm font-semibold">Positions saved successfully!</span>
+                <span className="text-sm font-semibold">Position saved successfully!</span>
               </div>
             )}
 

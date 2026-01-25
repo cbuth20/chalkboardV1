@@ -3,384 +3,207 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
-import { SkillPosition, UserRole } from '@/lib/supabase/types/database';
-import { DEFAULT_TEAM_ID } from '@/lib/constants';
+import { UserRole, OnboardingState } from '@/lib/supabase/types/database';
+
+interface UserProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  onboardingState: OnboardingState;
+  email: string;
+  avatarUrl?: string;
+}
+
+interface UserMembership {
+  id: string;
+  orgId: string;
+  orgName?: string;
+  teamId?: string;
+  teamName?: string;
+  role: UserRole;
+  positionCode?: string;
+  jerseyNumber?: number;
+  segmentId?: string;
+}
 
 interface AuthContextType {
+  // Auth
   user: User | null;
   session: Session | null;
   loading: boolean;
-  userPosition: SkillPosition | null; // Deprecated - returns first position for backwards compatibility
-  userPositions: SkillPosition[]; // New - array of all positions
+
+  // Profile data (from users table)
+  profile: UserProfile | null;
+
+  // Membership data (from org_memberships table)
+  membership: UserMembership | null;
+
+  // Backwards compatibility (for existing code)
   userRole: UserRole | null;
   teamId: string | null;
+  positionCode: string | null;
+  orgId: string | null;
+  userPositions: any[]; // Single position as array for backwards compatibility
+
+  // Methods
   signOut: () => Promise<void>;
-  updateUserPosition: (position: SkillPosition) => Promise<void>; // Deprecated - use updateUserPositions
-  updateUserPositions: (positions: SkillPosition[]) => Promise<void>;
   refreshUserData: () => Promise<void>;
+  updatePosition: (positionCode: string, jerseyNumber?: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const POSITIONS_STORAGE_KEY = "chalkboard_user_positions"; // New key for array
-const POSITION_STORAGE_KEY = "chalkboard_user_position"; // Old key - kept for migration
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [membership, setMembership] = useState<UserMembership | null>(null);
 
-  // Always start with empty array to avoid hydration mismatch
-  const [userPositions, setUserPositionsState] = useState<SkillPosition[]>([]);
-  const [isHydrated, setIsHydrated] = useState(false);
+  // Backwards compatibility
+  const userRole = profile?.role || membership?.role || null;
+  const teamId = membership?.teamId || null;
+  const positionCode = membership?.positionCode || null;
+  const orgId = membership?.orgId || null;
 
-  const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [teamId, setTeamId] = useState<string | null>(null);
+  // Computed: single position as array for backwards compatibility
+  // In new schema, users have one position per org membership
+  const userPositions: any[] = positionCode ? [positionCode as any] : [];
 
-  // Backwards compatibility: userPosition returns first position
-  const userPosition = userPositions.length > 0 ? userPositions[0] : null;
-
-  // Load from localStorage after hydration (client-side only)
-  useEffect(() => {
-    setIsHydrated(true);
-
-    // Try new key first (array)
-    const savedPositions = localStorage.getItem(POSITIONS_STORAGE_KEY);
-    if (savedPositions) {
-      try {
-        const positions = JSON.parse(savedPositions) as SkillPosition[];
-        setUserPositionsState(positions);
-        return;
-      } catch (e) {
-        console.error('Failed to parse positions from localStorage', e);
-      }
-    }
-
-    // Fallback to old key (single position) and migrate
-    const oldPosition = localStorage.getItem(POSITION_STORAGE_KEY);
-    if (oldPosition) {
-      const positions = [oldPosition as SkillPosition];
-      localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(positions));
-      localStorage.removeItem(POSITION_STORAGE_KEY); // Clean up old key
-      setUserPositionsState(positions);
-    }
-  }, []);
-
-  // Wrapper for setUserPositions that also saves to localStorage
-  const setUserPositions = (positions: SkillPosition[]) => {
-    setUserPositionsState(positions);
-    if (isHydrated) {
-      if (positions.length > 0) {
-        localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(positions));
-      } else {
-        localStorage.removeItem(POSITIONS_STORAGE_KEY);
-      }
-    }
-  };
-
-  // Deprecated: Wrapper for single position (backwards compatibility)
-  const setUserPosition = (position: SkillPosition | null) => {
-    if (position) {
-      setUserPositions([position]);
-    } else {
-      setUserPositions([]);
-    }
-  };
-
-  // Fetch team member data (positions, role, team_id)
-  const fetchTeamMemberData = async (authUserId: string) => {
+  // Fetch user profile and membership data from API (non-blocking)
+  const fetchUserData = async (accessToken: string) => {
     try {
-      // First, get the public.users.id from auth_id
-      // team_members.user_id is a foreign key to public.users.id, not auth.users.id
-      const { data: publicUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('auth_id', authUserId)
-        .maybeSingle();
+      const response = await fetch('/api/onboarding/status', {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
 
-      if (!publicUser) {
-        console.log('[AuthContext] No public user record found, will be created on first save');
-        // Set safe defaults - public user will be created when they save positions
-        setTeamId(DEFAULT_TEAM_ID);
-        setUserRole('player');
-        setUserPositions([]);
+      if (!response.ok) {
+        console.warn('[AuthContext] Failed to fetch profile/membership:', response.status);
         return;
       }
 
-      const publicUserId = publicUser.id;
-      console.log('[AuthContext] Found public user ID:', publicUserId);
+      const { success, data } = await response.json();
 
-      // Add timeout to prevent hanging
-      const fetchPromise = supabase
-        .from('team_members')
-        .select('position, positions, role, team_id')
-        .eq('user_id', publicUserId)  // Use public.users.id, not auth id
-        .maybeSingle();
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Fetch timeout')), 2000)
-      );
-
-      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
-
-      if (error) {
-        console.error('Error fetching team member data:', error);
-        // Set defaults on error to prevent blocking
-        setTeamId(DEFAULT_TEAM_ID);
-        setUserRole('player');
-        setUserPositions([]);
-        return;
-      }
-
-      if (data) {
-        console.log('[AuthContext] Fetched data from DB:', data);
-
-        // Prefer positions array (new), fallback to position (old)
-        let positionsToSet: SkillPosition[] = [];
-
-        if (data.positions && Array.isArray(data.positions) && data.positions.length > 0) {
-          // New positions array exists
-          positionsToSet = data.positions as SkillPosition[];
-          console.log('[AuthContext] Using positions array:', positionsToSet);
-        } else if (data.position) {
-          // Old single position exists, convert to array
-          positionsToSet = [data.position as SkillPosition];
-          console.log('[AuthContext] Migrating single position to array:', positionsToSet);
-          // Update DB with positions array (non-blocking background update)
-          supabase
-            .from('team_members')
-            .update({ positions: positionsToSet })
-            .eq('user_id', publicUserId)  // Use public.users.id
-            .then(() => console.log('[AuthContext] Background migration complete'))
-            .catch(err => console.error('[AuthContext] Background migration failed:', err));
+      if (success && data) {
+        // Set profile
+        if (data.profile) {
+          setProfile({
+            id: data.profile.id,
+            firstName: data.profile.firstName || '',
+            lastName: data.profile.lastName || '',
+            role: data.profile.role as UserRole,
+            onboardingState: data.onboardingState as OnboardingState,
+            email: data.profile.email || '',
+            avatarUrl: undefined,
+          });
         } else {
-          // No positions in DB - check localStorage
-          const savedPositionsStr = typeof window !== "undefined" ? localStorage.getItem(POSITIONS_STORAGE_KEY) : null;
-          if (savedPositionsStr) {
-            try {
-              const savedPositions = JSON.parse(savedPositionsStr) as SkillPosition[];
-              console.log('[AuthContext] DB has no positions, but localStorage has:', savedPositions);
-              // Update DB with the localStorage positions (non-blocking background update)
-              supabase
-                .from('team_members')
-                .update({ positions: savedPositions })
-                .eq('user_id', publicUserId)  // Use public.users.id
-                .then(() => console.log('[AuthContext] Background sync complete'))
-                .catch(err => console.error('[AuthContext] Background sync failed:', err));
-              positionsToSet = savedPositions;
-            } catch (e) {
-              console.error('Failed to parse positions from localStorage', e);
-            }
-          }
+          setProfile(null);
         }
 
-        setUserPositions(positionsToSet);
-        setUserRole(data.role as UserRole);
-        setTeamId(data.team_id);
-      } else {
-        // User not in any team yet - set defaults immediately, auto-assign in background
-        console.log('User not in team, setting defaults and auto-assigning...');
-        setTeamId(DEFAULT_TEAM_ID);
-        setUserRole('player');
-        setUserPositions([]);
-
-        // Auto-assign in background (non-blocking)
-        // Note: This uses publicUserId for the foreign key constraint
-        supabase
-          .from('team_members')
-          .insert({
-            user_id: publicUserId,  // Use public.users.id, not auth id
-            team_id: DEFAULT_TEAM_ID,
-            role: 'player',
-            positions: [],
-          })
-          .select('positions, role, team_id')
-          .single()
-          .then(({ data, error }) => {
-            if (error) {
-              console.log('[AuthContext] Background team assignment failed (may already exist):', error.message);
-            } else {
-              console.log('✅ Auto-assigned to default team');
-            }
+        // Set membership
+        if (data.membership) {
+          setMembership({
+            id: data.membership.id || '',
+            orgId: data.membership.orgId,
+            orgName: data.membership.orgName,
+            teamId: data.membership.teamId,
+            teamName: data.membership.teamName,
+            role: data.membership.role as UserRole,
+            positionCode: data.membership.positionCode,
+            jerseyNumber: data.membership.jerseyNumber,
+            segmentId: data.membership.segmentId,
           });
+        } else {
+          setMembership(null);
+        }
       }
     } catch (error) {
-      console.error('Error in fetchTeamMemberData:', error);
-      // Set safe defaults so app doesn't break
-      setTeamId(DEFAULT_TEAM_ID);
-      setUserRole('player');
-      setUserPositions([]);
+      console.error('[AuthContext] Error fetching user data:', error);
+      // Don't clear profile/membership on error - keep existing data
     }
   };
 
   useEffect(() => {
-    // Add timeout to prevent hanging
+    // Initialize auth
     const initializeAuth = async () => {
-      try {
-        console.log('[AuthContext] Starting auth initialization...');
+      const { data: { session } } = await supabase.auth.getSession();
 
-        // Create timeout promise
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Auth initialization timeout')), 2000);
-        });
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
 
-        // Race between getSession and timeout
-        const sessionPromise = supabase.auth.getSession();
-        const result = await Promise.race([
-          sessionPromise,
-          timeoutPromise
-        ]).catch(err => {
-          console.error('[AuthContext] getSession failed:', err);
-          return { data: { session: null }, error: err };
-        });
-
-        const session = result.data?.session ?? null;
-        console.log('[AuthContext] Session retrieved:', !!session);
-
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        // Fetch team member data if user exists
-        if (session?.user) {
-          console.log('[AuthContext] Fetching team member data...');
-          await fetchTeamMemberData(session.user.id);
-        }
-
-        setLoading(false);
-        console.log('[AuthContext] Auth initialization complete');
-      } catch (error) {
-        console.error('[AuthContext] Failed to initialize auth:', error);
-        // Set loading to false and clear session on error so the app doesn't hang
-        setSession(null);
-        setUser(null);
-        setLoading(false);
+      // Fetch profile/membership in background (non-blocking)
+      if (session?.access_token) {
+        fetchUserData(session.access_token);
       }
     };
 
     initializeAuth();
 
     // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('[AuthContext] Auth changed:', _event);
+
       setSession(session);
       setUser(session?.user ?? null);
 
-      // Fetch team member data if user exists
-      if (session?.user) {
-        await fetchTeamMemberData(session.user.id);
+      if (session?.access_token) {
+        // Fetch updated profile/membership (non-blocking)
+        fetchUserData(session.access_token);
       } else {
-        // Clear team member data on sign out
-        setUserPosition(null);
-        setUserRole(null);
-        setTeamId(null);
+        // Clear on sign out
+        setProfile(null);
+        setMembership(null);
       }
-
-      setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
-    try {
-      console.log('[AuthContext] Signing out...');
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('[AuthContext] Sign out error:', error);
-        throw error;
-      }
-      console.log('[AuthContext] Sign out successful');
+    await supabase.auth.signOut();
 
-      // Clear local state
-      setSession(null);
-      setUser(null);
-      setUserPositions([]);
-      setUserRole(null);
-      setTeamId(null);
-
-      // Clear localStorage
-      localStorage.removeItem(POSITIONS_STORAGE_KEY);
-      localStorage.removeItem(POSITION_STORAGE_KEY);
-    } catch (error) {
-      console.error('[AuthContext] Failed to sign out:', error);
-      // Force clear state even on error
-      setSession(null);
-      setUser(null);
-      setUserPositions([]);
-      setUserRole(null);
-      setTeamId(null);
-      throw error;
-    }
-  };
-
-  // Deprecated: Single position update (backwards compatibility)
-  const updateUserPosition = async (position: SkillPosition) => {
-    if (!user) return;
-
-    const positions = [position];
-    const { error } = await supabase
-      .from('team_members')
-      .update({ positions, position }) // Update both for backwards compatibility
-      .eq('user_id', user.id);
-
-    if (error) {
-      console.error('Error updating position:', error);
-      throw error;
-    }
-
-    setUserPositions(positions);
-  };
-
-  // New: Multiple positions update
-  const updateUserPositions = async (positions: SkillPosition[]) => {
-    if (!user) {
-      throw new Error('No user logged in');
-    }
-
-    console.log('[AuthContext] Updating positions to:', positions);
-
-    try {
-      // Call server-side API to update positions (bypasses RLS)
-      const response = await fetch('/api/team-members/positions', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          positions,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[AuthContext] API error:', errorData);
-        throw new Error(errorData.error || 'Failed to update positions');
-      }
-
-      const data = await response.json();
-      console.log('[AuthContext] Positions updated successfully:', data.teamMember);
-
-      // Update local state
-      setUserPositions(positions);
-
-      // Also update team_id and role from the returned data
-      if (data.teamMember?.team_id) {
-        setTeamId(data.teamMember.team_id);
-      }
-      if (data.teamMember?.role) {
-        setUserRole(data.teamMember.role);
-      }
-    } catch (error: any) {
-      console.error('[AuthContext] Failed to update positions:', error);
-      throw new Error(error.message || 'Failed to update positions');
-    }
+    // Clear local state
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setMembership(null);
   };
 
   const refreshUserData = async () => {
-    if (user) {
-      await fetchTeamMemberData(user.id);
+    if (session?.access_token) {
+      await fetchUserData(session.access_token);
     }
+  };
+
+  const updatePosition = async (positionCode: string, jerseyNumber?: number) => {
+    if (!session?.access_token) {
+      throw new Error('No active session');
+    }
+
+    const response = await fetch('/api/onboarding/position', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        positionCode,
+        jerseyNumber: jerseyNumber || 0
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to update position');
+    }
+
+    // Refresh user data to get updated position
+    await refreshUserData();
   };
 
   return (
@@ -388,14 +211,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       session,
       loading,
-      userPosition, // Backwards compatibility - first position
-      userPositions, // New - all positions
+      profile,
+      membership,
       userRole,
       teamId,
+      positionCode,
+      orgId,
+      userPositions,
       signOut,
-      updateUserPosition, // Backwards compatibility
-      updateUserPositions, // New
       refreshUserData,
+      updatePosition,
     }}>
       {children}
     </AuthContext.Provider>

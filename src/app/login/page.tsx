@@ -1,21 +1,29 @@
 "use client";
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Auth } from '@supabase/auth-ui-react';
 import { ThemeSupa } from '@supabase/auth-ui-shared';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
 
   useEffect(() => {
     if (user && !loading) {
-      router.push('/playbook');
+      // Check if there's a redirect parameter
+      const redirectTo = searchParams.get('redirect');
+      if (redirectTo) {
+        console.log('[Login] Redirecting to:', redirectTo);
+        router.push(redirectTo);
+      } else {
+        router.push('/playbook');
+      }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, searchParams]);
 
   if (loading) {
     return (
@@ -75,10 +83,33 @@ export default function LoginPage() {
               },
             }}
             providers={['google']}
-            redirectTo={typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined}
+            redirectTo={
+              typeof window !== 'undefined'
+                ? (() => {
+                    const redirect = searchParams.get('redirect');
+                    const baseUrl = window.location.origin;
+                    // If there's a redirect param, pass it through the callback
+                    return redirect
+                      ? `${baseUrl}/auth/callback?redirect=${encodeURIComponent(redirect)}`
+                      : `${baseUrl}/auth/callback`;
+                  })()
+                : undefined
+            }
           />
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0A0F12] flex items-center justify-center">
+        <div className="text-white">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
