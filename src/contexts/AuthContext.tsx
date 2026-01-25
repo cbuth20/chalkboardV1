@@ -71,48 +71,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // In new schema, users have one position per org membership
   const userPositions: any[] = positionCode ? [positionCode as any] : [];
 
-  // Fetch user profile and membership data from API (bypasses RLS)
-  const fetchUserData = async (authUserId: string, signal?: AbortSignal) => {
+  // Fetch user profile and membership data from API (non-blocking)
+  const fetchUserData = async (accessToken: string) => {
     try {
-      console.log('[AuthContext] Fetching user data for auth ID:', authUserId);
-
-      // Get current session for auth token
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('[AuthContext] No session available for API call');
-        setProfile(null);
-        setMembership(null);
-        return;
-      }
-
-      // Use onboarding status API which already fetches all this data
       const response = await fetch('/api/onboarding/status', {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        signal // Pass abort signal if provided
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
       if (!response.ok) {
-        console.error('[AuthContext] API error:', response.status);
-        console.log('[AuthContext] ✗ Clearing state due to API error');
-        setProfile(null);
-        setMembership(null);
+        console.warn('[AuthContext] Failed to fetch profile/membership:', response.status);
         return;
       }
 
-      const responseData = await response.json();
-      console.log('[AuthContext] Raw API response:', responseData);
-
-      const { success, data } = responseData;
+      const { success, data } = await response.json();
 
       if (success && data) {
-        console.log('[AuthContext] Data fetched from API:', data);
-        console.log('[AuthContext] Profile role from API:', data.profile?.role);
-
-        // Set profile from API response
+        // Set profile
         if (data.profile) {
-          const profileData = {
+          setProfile({
             id: data.profile.id,
             firstName: data.profile.firstName || '',
             lastName: data.profile.lastName || '',
@@ -120,18 +96,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             onboardingState: data.onboardingState as OnboardingState,
             email: data.profile.email || '',
             avatarUrl: undefined,
-          };
-          console.log('[AuthContext] About to set profile state:', profileData);
-          setProfile(profileData);
-          console.log('[AuthContext] ✓ setProfile() called');
+          });
         } else {
-          console.log('[AuthContext] No profile data, setting to null');
           setProfile(null);
         }
 
-        // Set membership from API response
+        // Set membership
         if (data.membership) {
-          const membershipData = {
+          setMembership({
             id: data.membership.id || '',
             orgId: data.membership.orgId,
             orgName: data.membership.orgName,
@@ -141,222 +113,98 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             positionCode: data.membership.positionCode,
             jerseyNumber: data.membership.jerseyNumber,
             segmentId: data.membership.segmentId,
-          };
-          console.log('[AuthContext] Membership role from API:', data.membership.role);
-          console.log('[AuthContext] About to set membership state:', membershipData);
-          setMembership(membershipData);
-          console.log('[AuthContext] ✓ setMembership() called');
+          });
         } else {
-          console.log('[AuthContext] No membership data, setting to null');
           setMembership(null);
         }
-      } else {
-        console.log('[AuthContext] ✗ No profile/membership data from API (success or data is falsy)');
-        console.log('[AuthContext] Success:', success, 'Data:', data);
-        console.log('[AuthContext] Clearing state...');
-        setProfile(null);
-        setMembership(null);
       }
-    } catch (error: any) {
-      // Ignore abort errors - they're expected when requests are cancelled
-      if (error.name === 'AbortError') {
-        console.log('[AuthContext] Fetch aborted (request cancelled)');
-        return;
-      }
-      console.error('[AuthContext] ✗ Error in fetchUserData:', error);
-      console.log('[AuthContext] Clearing state due to error...');
-      setProfile(null);
-      setMembership(null);
+    } catch (error) {
+      console.error('[AuthContext] Error fetching user data:', error);
+      // Don't clear profile/membership on error - keep existing data
     }
   };
 
   useEffect(() => {
-    let mounted = true;
-
+    // Initialize auth
     const initializeAuth = async () => {
-      try {
-        console.log('[AuthContext] Starting auth initialization...');
+      const { data: { session } } = await supabase.auth.getSession();
 
-        // Add overall timeout to prevent infinite hanging
-        const timeoutId = setTimeout(() => {
-          console.warn('[AuthContext] Overall initialization timeout, setting loading to false');
-          if (mounted) {
-            setLoading(false);
-          }
-        }, 15000); // 15 second max wait (increased from 8)
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
 
-        try {
-          // Get session
-          const { data: { session }, error } = await supabase.auth.getSession();
-
-          if (!mounted) {
-            clearTimeout(timeoutId);
-            return;
-          }
-
-          if (error) {
-            console.error('[AuthContext] getSession error:', error);
-            setSession(null);
-            setUser(null);
-            setProfile(null);
-            setMembership(null);
-            setLoading(false);
-            clearTimeout(timeoutId);
-            return;
-          }
-
-          console.log('[AuthContext] Session retrieved:', !!session);
-
-          setSession(session);
-          setUser(session?.user ?? null);
-
-          // Fetch user data if user exists
-          if (session?.user) {
-            console.log('[AuthContext] Fetching user profile and membership...');
-
-            try {
-              await fetchUserData(session.user.id);
-            } catch (err: any) {
-              // Ignore AbortError
-              if (err.name !== 'AbortError') {
-                console.warn('[AuthContext] User data fetch failed (non-critical):', err);
-              }
-              // Continue anyway - user is still authenticated
-            }
-          }
-
-          if (mounted) {
-            setLoading(false);
-            console.log('[AuthContext] Auth initialization complete');
-          }
-
-          clearTimeout(timeoutId);
-        } catch (innerError) {
-          clearTimeout(timeoutId);
-          throw innerError;
-        }
-      } catch (error) {
-        console.error('[AuthContext] Failed to initialize auth:', error);
-        if (mounted) {
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setMembership(null);
-          setLoading(false);
-        }
+      // Fetch profile/membership in background (non-blocking)
+      if (session?.access_token) {
+        fetchUserData(session.access_token);
       }
     };
 
     initializeAuth();
 
     // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('[AuthContext] Auth state changed:', _event);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('[AuthContext] Auth changed:', _event);
+
       setSession(session);
       setUser(session?.user ?? null);
 
-      // Fetch user data if user exists
-      if (session?.user) {
-        try {
-          await fetchUserData(session.user.id);
-        } catch (err: any) {
-          // Ignore AbortError
-          if (err.name !== 'AbortError') {
-            console.warn('[AuthContext] User data fetch failed on auth change:', err);
-          }
-        }
+      if (session?.access_token) {
+        // Fetch updated profile/membership (non-blocking)
+        fetchUserData(session.access_token);
       } else {
-        // Clear user data on sign out
+        // Clear on sign out
         setProfile(null);
         setMembership(null);
       }
-
-      setLoading(false);
     });
 
-    // Combined cleanup function
     return () => {
-      mounted = false;
       subscription.unsubscribe();
-      console.log('[AuthContext] Cleanup: unsubscribed from auth changes');
     };
   }, []);
 
   const signOut = async () => {
-    try {
-      console.log('[AuthContext] Signing out...');
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('[AuthContext] Sign out error:', error);
-        throw error;
-      }
-      console.log('[AuthContext] Sign out successful');
+    await supabase.auth.signOut();
 
-      // Clear local state
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setMembership(null);
-    } catch (error) {
-      console.error('[AuthContext] Failed to sign out:', error);
-      // Force clear state even on error
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setMembership(null);
-      throw error;
-    }
+    // Clear local state
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setMembership(null);
   };
 
   const refreshUserData = async () => {
-    if (user) {
-      await fetchUserData(user.id);
+    if (session?.access_token) {
+      await fetchUserData(session.access_token);
     }
   };
 
   const updatePosition = async (positionCode: string, jerseyNumber?: number) => {
-    if (!session) {
+    if (!session?.access_token) {
       throw new Error('No active session');
     }
 
-    try {
-      console.log('[AuthContext] Updating position to:', positionCode, jerseyNumber);
-      const response = await fetch('/api/onboarding/position', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          positionCode,
-          jerseyNumber: jerseyNumber || 0
-        })
-      });
+    const response = await fetch('/api/onboarding/position', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        positionCode,
+        jerseyNumber: jerseyNumber || 0
+      })
+    });
 
-      const result = await response.json();
+    const result = await response.json();
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to update position');
-      }
-
-      // Refresh user data to get updated position
-      await refreshUserData();
-    } catch (error: any) {
-      console.error('[AuthContext] Failed to update position:', error);
-      throw error;
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to update position');
     }
-  };
 
-  // Debug: Log the context value being provided
-  console.log('[AuthContext] Provider rendering with:', {
-    hasUser: !!user,
-    hasSession: !!session,
-    loading,
-    profileRole: profile?.role,
-    membershipRole: membership?.role,
-  });
+    // Refresh user data to get updated position
+    await refreshUserData();
+  };
 
   return (
     <AuthContext.Provider value={{
