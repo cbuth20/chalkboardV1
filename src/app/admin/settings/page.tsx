@@ -12,13 +12,13 @@ export default function AdminSettingsPage() {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  // Invite form state
-  const [emailTags, setEmailTags] = useState<string[]>([]);
-  const [emailInput, setEmailInput] = useState('');
-  const [inviteRole, setInviteRole] = useState<'coach' | 'player'>('player');
-  const [inviting, setInviting] = useState(false);
-  const [inviteProgress, setInviteProgress] = useState({ current: 0, total: 0 });
-  const [inviteResults, setInviteResults] = useState<Array<{ email: string; success: boolean; error?: string }>>([]);
+  // Bulk user creation form state
+  const [bulkEmailTags, setBulkEmailTags] = useState<string[]>([]);
+  const [bulkEmailInput, setBulkEmailInput] = useState('');
+  const [bulkRole, setBulkRole] = useState<'coach' | 'player'>('player');
+  const [bulkPassword, setBulkPassword] = useState('');
+  const [bulkCreating, setBulkCreating] = useState(false);
+  const [bulkResults, setBulkResults] = useState<Array<{ email: string; success: boolean; error?: string }>>([]);
 
   // Redirect if not admin
   useEffect(() => {
@@ -65,8 +65,9 @@ export default function AdminSettingsPage() {
     return email.includes('@') && email.includes('.') && email.length > 5;
   };
 
-  const addEmailTag = (email: string) => {
-    const trimmed = email.trim();
+  // Bulk-create helpers (separate input state)
+  const addBulkEmailTag = (email: string) => {
+    const trimmed = email.trim().toLowerCase();
     if (!trimmed) return;
 
     if (!isValidEmail(trimmed)) {
@@ -74,43 +75,41 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    if (emailTags.includes(trimmed)) {
+    if (bulkEmailTags.includes(trimmed)) {
       alert(`Email already added: ${trimmed}`);
       return;
     }
 
-    setEmailTags([...emailTags, trimmed]);
-    setEmailInput('');
+    setBulkEmailTags([...bulkEmailTags, trimmed]);
+    setBulkEmailInput('');
   };
 
-  const removeEmailTag = (index: number) => {
-    setEmailTags(emailTags.filter((_, i) => i !== index));
+  const removeBulkEmailTag = (index: number) => {
+    setBulkEmailTags(bulkEmailTags.filter((_, i) => i !== index));
   };
 
-  const handleEmailInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleBulkEmailInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === ' ' || e.key === ',' || e.key === ';' || e.key === 'Enter') {
       e.preventDefault();
-      addEmailTag(emailInput);
-    } else if (e.key === 'Backspace' && !emailInput && emailTags.length > 0) {
-      // Remove last tag on backspace if input is empty
-      setEmailTags(emailTags.slice(0, -1));
+      addBulkEmailTag(bulkEmailInput);
+    } else if (e.key === 'Backspace' && !bulkEmailInput && bulkEmailTags.length > 0) {
+      setBulkEmailTags(bulkEmailTags.slice(0, -1));
     }
   };
 
-  const handleEmailInputBlur = () => {
-    if (emailInput.trim()) {
-      addEmailTag(emailInput);
+  const handleBulkEmailInputBlur = () => {
+    if (bulkEmailInput.trim()) {
+      addBulkEmailTag(bulkEmailInput);
     }
   };
 
-  const handleEmailInputPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handleBulkEmailInputPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pastedText = e.clipboardData.getData('text');
 
-    // Split by common separators
     const emails = pastedText
       .split(/[\s,;]+/)
-      .map(email => email.trim())
+      .map(email => email.trim().toLowerCase())
       .filter(email => email.length > 0);
 
     const validEmails = emails.filter(email => {
@@ -118,7 +117,7 @@ export default function AdminSettingsPage() {
         console.warn(`Skipping invalid email: ${email}`);
         return false;
       }
-      if (emailTags.includes(email)) {
+      if (bulkEmailTags.includes(email)) {
         console.warn(`Skipping duplicate email: ${email}`);
         return false;
       }
@@ -126,7 +125,7 @@ export default function AdminSettingsPage() {
     });
 
     if (validEmails.length > 0) {
-      setEmailTags([...emailTags, ...validEmails]);
+      setBulkEmailTags([...bulkEmailTags, ...validEmails]);
     }
   };
 
@@ -143,17 +142,22 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const sendInvite = async (e: React.FormEvent) => {
+  const bulkCreateUsers = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Add current input to tags if there's any
-    if (emailInput.trim()) {
-      addEmailTag(emailInput);
-      return; // Let the user see the tag added first
+    if (bulkEmailInput.trim()) {
+      addBulkEmailTag(bulkEmailInput);
+      return;
     }
 
-    if (emailTags.length === 0) {
+    if (bulkEmailTags.length === 0) {
       alert('Please enter at least one email address');
+      return;
+    }
+
+    if (!bulkPassword || bulkPassword.trim().length < 8) {
+      alert('Password must be at least 8 characters');
       return;
     }
 
@@ -162,63 +166,44 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    const emailList = emailTags;
+    setBulkCreating(true);
+    setBulkResults([]);
 
-    setInviting(true);
-    setInviteResults([]);
-    setInviteProgress({ current: 0, total: emailList.length });
+    try {
+      const response = await fetch('/api/admin/bulk-create-users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          emails: bulkEmailTags,
+          password: bulkPassword,
+          role: bulkRole,
+        })
+      });
 
-    const results: Array<{ email: string; success: boolean; error?: string }> = [];
+      const result = await response.json();
 
-    // Send invites sequentially to avoid rate limits
-    for (let i = 0; i < emailList.length; i++) {
-      const email = emailList[i];
-      setInviteProgress({ current: i + 1, total: emailList.length });
-      try {
-        const response = await fetch('/api/admin/invite', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({
-            email,
-            role: inviteRole
-          })
-        });
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          results.push({
-            email,
-            success: false,
-            error: result.error || 'Failed to send invite'
-          });
-        } else {
-          results.push({ email, success: true });
-        }
-      } catch (error: any) {
-        console.error(`Failed to send invite to ${email}:`, error);
-        results.push({
-          email,
-          success: false,
-          error: error.message || 'Network error'
-        });
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to create users');
       }
+
+      const results = Array.isArray(result.data?.results) ? result.data.results : [];
+      setBulkResults(results);
+
+      const allSucceeded = results.length > 0 && results.every((r: any) => r.success);
+      if (allSucceeded) {
+        setBulkEmailTags([]);
+        setBulkEmailInput('');
+        // keep password in case they want to add more users quickly
+      }
+    } catch (err: any) {
+      console.error('[Admin] Bulk create error:', err);
+      alert(err.message || 'Failed to create users');
+    } finally {
+      setBulkCreating(false);
     }
-
-    setInviteResults(results);
-    setInviteProgress({ current: 0, total: 0 });
-
-    // Clear form if all succeeded
-    const allSucceeded = results.every(r => r.success);
-    if (allSucceeded) {
-      setEmailTags([]);
-      setEmailInput('');
-    }
-
-    setInviting(false);
   };
 
   if (authLoading) {
@@ -269,33 +254,33 @@ export default function AdminSettingsPage() {
           </div>
         </section>
 
-        {/* Send Invite Section */}
+        {/* Create Users + Send Invites Section */}
         <section className="glass-card p-6 lg:p-8 mb-6">
-          <h2 className="text-xl font-bold text-white mb-2">Send Invitations</h2>
+          <h2 className="text-xl font-bold text-white mb-2">Create Users + Send Email</h2>
           <p className="text-sm text-slate-400 mb-6">
-            Invite coaches and players by email. They'll receive a link to join your organization.
+            Create multiple users at once. They'll receive an email with their initial password and a link to join your org.
           </p>
 
-          <form onSubmit={sendInvite} className="space-y-4">
+          <form onSubmit={bulkCreateUsers} className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="emails" className="block text-sm font-medium text-slate-300">
+                <label htmlFor="bulk-emails" className="block text-sm font-medium text-slate-300">
                   Email Addresses
                 </label>
-                {emailTags.length > 1 && (
+                {bulkEmailTags.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => setEmailTags([])}
+                    onClick={() => setBulkEmailTags([])}
                     className="text-xs text-slate-400 hover:text-[#00F6E5] transition"
                   >
                     Clear all
                   </button>
                 )}
               </div>
+
               <div className="w-full min-h-[120px] px-3 py-2 bg-[#1B1E20] border border-[#2A2F35] rounded-lg focus-within:border-[#00F6E5] transition">
-                {/* Email Tags */}
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {emailTags.map((email, index) => (
+                  {bulkEmailTags.map((email, index) => (
                     <div
                       key={index}
                       className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#00F6E5]/10 border border-[#00F6E5]/30 rounded-full text-sm text-[#00F6E5] group hover:bg-[#00F6E5]/20 transition"
@@ -303,7 +288,7 @@ export default function AdminSettingsPage() {
                       <span>{email}</span>
                       <button
                         type="button"
-                        onClick={() => removeEmailTag(index)}
+                        onClick={() => removeBulkEmailTag(index)}
                         className="flex items-center justify-center w-4 h-4 rounded-full hover:bg-[#00F6E5]/30 transition"
                         aria-label={`Remove ${email}`}
                       >
@@ -313,30 +298,47 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
 
-                {/* Email Input */}
                 <input
-                  id="emails"
+                  id="bulk-emails"
                   type="text"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  onKeyDown={handleEmailInputKeyDown}
-                  onBlur={handleEmailInputBlur}
-                  onPaste={handleEmailInputPaste}
-                  placeholder={emailTags.length === 0 ? "Type email and press Space, Enter, or Comma to add..." : "Add another email..."}
+                  value={bulkEmailInput}
+                  onChange={(e) => setBulkEmailInput(e.target.value)}
+                  onKeyDown={handleBulkEmailInputKeyDown}
+                  onBlur={handleBulkEmailInputBlur}
+                  onPaste={handleBulkEmailInputPaste}
+                  placeholder={bulkEmailTags.length === 0 ? "Type email and press Space, Enter, or Comma to add..." : "Add another email..."}
                   className="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-sm"
-                  disabled={inviting}
+                  disabled={bulkCreating}
                 />
               </div>
+
               <div className="flex items-center justify-between mt-2">
                 <p className="text-xs text-slate-500">
                   Press Space, Enter, or Comma after each email • Paste multiple emails at once
                 </p>
-                {emailTags.length > 0 && (
+                {bulkEmailTags.length > 0 && (
                   <span className="text-xs font-medium text-[#00F6E5]">
-                    {emailTags.length} {emailTags.length === 1 ? 'email' : 'emails'} added
+                    {bulkEmailTags.length} {bulkEmailTags.length === 1 ? 'email' : 'emails'} added
                   </span>
                 )}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Initial password
+              </label>
+              <input
+                type="password"
+                value={bulkPassword}
+                onChange={(e) => setBulkPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className="w-full px-3 py-2 bg-[#1B1E20] border border-[#2A2F35] rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-[#00F6E5] transition"
+                disabled={bulkCreating}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Users can change their password later in Account settings.
+              </p>
             </div>
 
             <div>
@@ -347,75 +349,58 @@ export default function AdminSettingsPage() {
                 <label className="flex-1 cursor-pointer">
                   <input
                     type="radio"
-                    name="role"
+                    name="bulk-role"
                     value="player"
-                    checked={inviteRole === 'player'}
-                    onChange={(e) => setInviteRole(e.target.value as 'player')}
+                    checked={bulkRole === 'player'}
+                    onChange={(e) => setBulkRole(e.target.value as 'player')}
                     className="sr-only"
                   />
                   <div className={`p-4 border-2 rounded-lg transition ${
-                    inviteRole === 'player'
+                    bulkRole === 'player'
                       ? 'border-[#00F6E5] bg-[#00F6E5]/10'
                       : 'border-[#2A2F35] hover:border-[#00F6E5]/30'
                   }`}>
                     <div className="font-semibold text-white mb-1">Player</div>
-                    <div className="text-xs text-slate-400">Limited view, focused on learning plays</div>
+                    <div className="text-xs text-slate-400">Default player access</div>
                   </div>
                 </label>
                 <label className="flex-1 cursor-pointer">
                   <input
                     type="radio"
-                    name="role"
+                    name="bulk-role"
                     value="coach"
-                    checked={inviteRole === 'coach'}
-                    onChange={(e) => setInviteRole(e.target.value as 'coach')}
+                    checked={bulkRole === 'coach'}
+                    onChange={(e) => setBulkRole(e.target.value as 'coach')}
                     className="sr-only"
                   />
                   <div className={`p-4 border-2 rounded-lg transition ${
-                    inviteRole === 'coach'
+                    bulkRole === 'coach'
                       ? 'border-[#00F6E5] bg-[#00F6E5]/10'
                       : 'border-[#2A2F35] hover:border-[#00F6E5]/30'
                   }`}>
                     <div className="font-semibold text-white mb-1">Coach</div>
-                    <div className="text-xs text-slate-400">Full access to team management features</div>
+                    <div className="text-xs text-slate-400">Coach access (non-admin)</div>
                   </div>
                 </label>
               </div>
             </div>
 
-            {inviting && inviteProgress.total > 0 && (
-              <div className="p-4 bg-[#1B1E20] border border-[#2A2F35] rounded-lg">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-[#00F6E5]/20 border-t-[#00F6E5]"></div>
-                  <p className="text-sm text-slate-300">
-                    Sending invitation {inviteProgress.current} of {inviteProgress.total}...
-                  </p>
-                </div>
-                <div className="w-full bg-[#0A0F14] rounded-full h-2">
-                  <div
-                    className="bg-[#00F6E5] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(inviteProgress.current / inviteProgress.total) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {inviteResults.length > 0 && (
+            {bulkResults.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm font-medium text-slate-300">
-                    Results ({inviteResults.filter(r => r.success).length}/{inviteResults.length} sent successfully)
+                    Results ({bulkResults.filter(r => r.success).length}/{bulkResults.length} created)
                   </div>
                   <button
                     type="button"
-                    onClick={() => setInviteResults([])}
+                    onClick={() => setBulkResults([])}
                     className="text-xs text-slate-400 hover:text-white transition"
                   >
                     Clear
                   </button>
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-2">
-                  {inviteResults.map((result, index) => (
+                  {bulkResults.map((result, index) => (
                     <div
                       key={index}
                       className={`p-3 rounded-lg border ${
@@ -447,14 +432,10 @@ export default function AdminSettingsPage() {
 
             <button
               type="submit"
-              disabled={inviting || emailTags.length === 0}
+              disabled={bulkCreating || bulkEmailTags.length === 0 || bulkPassword.trim().length < 8}
               className="w-full px-6 py-3 bg-[#00F6E5] text-black rounded-lg font-semibold hover:bg-[#3DF3FF] transition disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(0,246,229,0.3)]"
             >
-              {inviting
-                ? `Sending ${inviteProgress.current}/${inviteProgress.total}...`
-                : emailTags.length === 0
-                ? 'Add Emails to Send Invitations'
-                : `Send ${emailTags.length} Invitation${emailTags.length === 1 ? '' : 's'}`}
+              {bulkCreating ? 'Creating users & sending emails...' : `Create ${bulkEmailTags.length} User${bulkEmailTags.length === 1 ? '' : 's'}`}
             </button>
           </form>
         </section>

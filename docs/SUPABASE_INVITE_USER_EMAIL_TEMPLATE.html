@@ -1,0 +1,27 @@
+<!--
+  Supabase Auth → Email Templates → "Invite user"
+  Paste this into the HTML body (customize branding as needed).
+
+  NOTE: This template includes the initial password via:
+    {{ .Data.initial_password }}
+-->
+
+<h2>Welcome to CHALKBOARD!</h2>
+
+<p>You’ve been invited to join {{ .SiteURL }}.</p>
+
+{{ if .Data.initial_password }}
+  <p><strong>Your initial password:</strong> {{ .Data.initial_password }}</p>
+  <p style="margin-top: 0; color: #64748b; font-size: 12px;">
+    You can change this password anytime in Account settings after you log in.
+  </p>
+{{ end }}
+
+<p>Click the link below to accept your invitation and get started:</p>
+
+<p><a href="{{ .ConfirmationURL }}">Accept Invitation</a></p>
+
+<p>This link will authenticate you and take you directly to complete onboarding.</p>
+
+<p>If you didn’t expect this invitation, you can safely ignore this email.</p>
+

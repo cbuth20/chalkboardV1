@@ -2,6 +2,7 @@
 
 import { TeamRoster } from '@/components/team/TeamRoster';
 
-export default function CoachTeamPage() {
+export default function TeamPage() {
   return <TeamRoster />;
 }
+

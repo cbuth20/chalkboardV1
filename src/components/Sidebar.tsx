@@ -16,7 +16,7 @@ interface NavItem {
 export default function Sidebar() {
   const pathname = usePathname();
   const { mode } = useMode();
-  const { profile, membership } = useAuth();
+  const { profile, membership, userRole } = useAuth();
 
   // Debug logging
   console.log('[Sidebar] RENDER - Profile:', profile);
@@ -30,8 +30,8 @@ export default function Sidebar() {
     { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
     { name: "GAMES", href: "/games", icon: GamesIcon },
     { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon },
+    { name: "TEAM", href: "/team", icon: TeamIcon },
     { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: true },
-    { name: "SETTINGS", href: "/settings", icon: SettingsIcon },
   ];
 
   // Coach navigation items (6 items)
@@ -44,8 +44,10 @@ export default function Sidebar() {
     { name: "PERFORMANCE", href: "/coach/performance", icon: PerformanceIcon },
   ];
 
-  // Select navigation based on mode
-  const navItems = mode === "coach" ? coachNavItems : playerNavItems;
+  const canUseCoachMode = userRole === 'coach' || userRole === 'admin';
+
+  // Select navigation based on mode (players are always player nav)
+  const navItems = canUseCoachMode && mode === "coach" ? coachNavItems : playerNavItems;
 
   // Check if user is admin (role from profile or membership)
   const isAdmin = profile?.role === 'admin' || membership?.role === 'admin';
@@ -293,24 +295,6 @@ function ScannerIcon({ className }: { className?: string }) {
       <line x1="12" y1="8" x2="12" y2="8" />
       <line x1="8" y1="12" x2="8" y2="12" />
       <line x1="16" y1="12" x2="16" y2="12" />
-    </svg>
-  );
-}
-
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v6m0 6v6" />
-      <path d="M17 20.66A9 9 0 1 1 20.66 17" />
     </svg>
   );
 }
