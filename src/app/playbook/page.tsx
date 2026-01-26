@@ -4,32 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { ToastProvider, useToast } from "@/components/playbook-builder";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { DEV_TEAM_ID } from "@/lib/constants";
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TYPES
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface ApprovedPlay {
-  id: string;
-  name: string;
-  short_name: string;
-  formation_name: string;
-  concept: string;
-  play_type: string;
-  ai_insights: string;
-  created_at: string;
-  playbook_metadata: {
-    id: string;
-    formation_name: string;
-    concept_name: string;
-    side_of_ball: string;
-    content_type: string;
-    level: string;
-    position_relevance: string[];
-    custom_notes: string;
-  } | null;
-}
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlays } from "@/hooks/usePlaysAPI";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PLAYBOOK PAGE — Main container component
@@ -51,75 +27,32 @@ export default function PlaybookPage() {
 
 function PlaybookBuilder() {
   const { showToast } = useToast();
+  const { orgId, loading: authLoading } = useAuth();
 
   // Core state
-  const [plays, setPlays] = useState<ApprovedPlay[]>([]);
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [teamId] = useState<string>(DEV_TEAM_ID); // TODO: Get from auth context
+
+  // Fetch approved plays using new API
+  const { plays, loading: playsLoading, error: playsError } = usePlays({
+    status: 'approved'
+  });
 
   // Derived: selected play
   const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // FETCH APPROVED PLAYS FROM DATABASE
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // Auto-select first play when plays load
   useEffect(() => {
-    const fetchApprovedPlays = async () => {
-      try {
-        setIsLoading(true);
+    if (!playsLoading && plays.length > 0 && !selectedPlayId) {
+      setSelectedPlayId(plays[0].id);
+    }
+  }, [plays, playsLoading, selectedPlayId]);
 
-        // Add timeout to prevent infinite hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-        try {
-          // Fetch approved plays with insights from database
-          const response = await fetch(
-            `/api/get-approved-plays?teamId=${teamId}&type=all`,
-            { signal: controller.signal }
-          );
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error("API error response:", errorData);
-            throw new Error(errorData.error || 'Failed to fetch approved plays');
-          }
-
-          const data = await response.json();
-          console.log("Fetched plays:", data.plays?.length || 0);
-          setPlays(data.plays || []);
-
-          // Select first play by default
-          if (data.plays && data.plays.length > 0) {
-            setSelectedPlayId(data.plays[0].id);
-          }
-
-          setIsLoaded(true);
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId);
-          if (fetchError.name === 'AbortError') {
-            console.error("Request timed out after 10 seconds");
-            throw new Error("Request timed out. Please check your connection and try again.");
-          }
-          throw fetchError;
-        }
-      } catch (err: any) {
-        console.error("Failed to load approved plays:", err);
-        showToast(err.message || "Failed to load playbook. Please try again.", "error");
-        setPlays([]);
-        setIsLoaded(true);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchApprovedPlays();
-  }, [teamId, showToast]);
+  // Show error toast if fetching fails
+  useEffect(() => {
+    if (playsError) {
+      showToast(playsError || "Failed to load playbook. Please try again.", "error");
+    }
+  }, [playsError, showToast]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PLAY LIST HANDLERS
@@ -133,7 +66,7 @@ function PlaybookBuilder() {
   // LOADING STATE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (!isLoaded) {
+  if (authLoading || playsLoading) {
     return (
       <SidebarLayout>
         <div className="flex h-screen items-center justify-center">
@@ -196,7 +129,7 @@ function PlaybookBuilder() {
                         {play.name || "Untitled Play"}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {play.formation_name || "Unknown"} • {play.concept || "Unknown"}
+                        {play.formationName || "Unknown"} • {play.concept || "Unknown"}
                       </p>
                     </div>
                     {play.id === selectedPlayId && (
@@ -233,13 +166,13 @@ function PlaybookBuilder() {
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-slate-400">
-                  <span>{selectedPlay.formation_name || 'Unknown Formation'}</span>
+                  <span>{selectedPlay.formationName || 'Unknown Formation'}</span>
                   <span>•</span>
                   <span>{selectedPlay.concept || 'Unknown Concept'}</span>
-                  {selectedPlay.playbook_metadata?.side_of_ball && (
+                  {selectedPlay.metadata?.side_of_ball && (
                     <>
                       <span>•</span>
-                      <span className="capitalize">{selectedPlay.playbook_metadata.side_of_ball}</span>
+                      <span className="capitalize">{selectedPlay.metadata.side_of_ball}</span>
                     </>
                   )}
                 </div>
@@ -260,10 +193,10 @@ function PlaybookBuilder() {
                 </div>
 
                 {/* AI Insights Content */}
-                {selectedPlay.ai_insights ? (
+                {selectedPlay.aiInsights ? (
                   <div className="prose prose-invert prose-sm max-w-none">
                     <div className="text-slate-300 whitespace-pre-wrap leading-relaxed">
-                      {selectedPlay.ai_insights}
+                      {selectedPlay.aiInsights}
                     </div>
                   </div>
                 ) : (
@@ -275,42 +208,42 @@ function PlaybookBuilder() {
               </div>
 
               {/* Play Metadata Card */}
-              {selectedPlay.playbook_metadata && (
+              {selectedPlay.metadata && (
                 <div className="mt-6 bg-[#0d1117] border border-[#1B1E20] rounded-xl p-6">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">
                     Play Metadata
                   </h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {selectedPlay.playbook_metadata.level && (
+                    {selectedPlay.metadata.level && (
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Level</div>
                         <div className="text-sm text-white capitalize">
-                          {selectedPlay.playbook_metadata.level.replace('_', ' ')}
+                          {selectedPlay.metadata.level.replace('_', ' ')}
                         </div>
                       </div>
                     )}
-                    {selectedPlay.playbook_metadata.content_type && (
+                    {selectedPlay.metadata.content_type && (
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Type</div>
                         <div className="text-sm text-white capitalize">
-                          {selectedPlay.playbook_metadata.content_type.replace('_', ' ')}
+                          {selectedPlay.metadata.content_type.replace('_', ' ')}
                         </div>
                       </div>
                     )}
-                    {selectedPlay.playbook_metadata.position_relevance &&
-                     selectedPlay.playbook_metadata.position_relevance.length > 0 && (
+                    {selectedPlay.metadata.position_relevance &&
+                     selectedPlay.metadata.position_relevance.length > 0 && (
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Positions</div>
                         <div className="text-sm text-white uppercase">
-                          {selectedPlay.playbook_metadata.position_relevance.join(', ')}
+                          {selectedPlay.metadata.position_relevance.join(', ')}
                         </div>
                       </div>
                     )}
                   </div>
-                  {selectedPlay.playbook_metadata.custom_notes && (
+                  {selectedPlay.metadata.custom_notes && (
                     <div className="mt-4 pt-4 border-t border-[#1B1E20]">
                       <div className="text-xs text-slate-500 mb-1">Coach Notes</div>
-                      <div className="text-sm text-slate-300">{selectedPlay.playbook_metadata.custom_notes}</div>
+                      <div className="text-sm text-slate-300">{selectedPlay.metadata.custom_notes}</div>
                     </div>
                   )}
                 </div>

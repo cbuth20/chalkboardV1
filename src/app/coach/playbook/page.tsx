@@ -1,140 +1,78 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
-
-interface Play {
-  id: string;
-  name: string;
-  short_name: string | null;
-  formation_name: string | null;
-  concept: string | null;
-  play_type: string;
-  created_at: string;
-  playbook_metadata?: {
-    formation_name: string | null;
-    concept_name: string | null;
-    side_of_ball: string | null;
-  } | null;
-}
+import { usePlays, useUpdatePlayStatus } from '@/hooks/usePlaysAPI';
 
 export default function CoachPlaybookPage() {
-  const { teamId, loading: authLoading } = useAuth();
-  const [plays, setPlays] = useState<Play[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { orgId, userRole, loading: authLoading } = useAuth();
+  const { plays, loading, error, refetch } = usePlays({ status: 'approved' });
+  const { updateStatus } = useUpdatePlayStatus();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedPlays, setSelectedPlays] = useState<Set<string>>(new Set());
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Fetch approved plays
-  const fetchPlays = async () => {
-    console.log('[Coach Playbook] fetchPlays called with teamId:', teamId);
-    if (!teamId) {
-      console.warn('[Coach Playbook] No teamId available, skipping fetch');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      console.log('[Coach Playbook] Fetching from:', `/api/get-approved-plays?teamId=${teamId}&type=all`);
-      const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&type=all`);
-      console.log('[Coach Playbook] Response status:', response.status);
-      if (!response.ok) throw new Error('Failed to fetch plays');
-
-      const data = await response.json();
-      console.log('[Coach Playbook] Received data:', data);
-      setPlays(data.plays || []);
-    } catch (error) {
-      console.error('[Coach Playbook] Error fetching plays:', error);
-      alert('Failed to load plays. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (teamId && !authLoading) {
-      fetchPlays();
-    } else if (!authLoading) {
-      setLoading(false);
-    }
-  }, [teamId, authLoading]);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Filter plays
   const filteredPlays = plays.filter(play => {
     const matchesSearch =
       play.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       play.concept?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      play.formation_name?.toLowerCase().includes(searchQuery.toLowerCase());
+      play.formationName?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesType = filterType === 'all' || play.play_type === filterType;
+    const matchesType = filterType === 'all' || play.playType === filterType;
 
     return matchesSearch && matchesType;
   });
 
-  // Delete single play
-  const handleDeletePlay = async (playId: string, playName: string) => {
-    if (!confirm(`Delete "${playName}"? This will remove all assignments and flashcards for this play. This action cannot be undone.`)) {
+  // Unpublish single play
+  const handleUnpublishPlay = async (playId: string, playName: string) => {
+    if (!confirm(`Unpublish "${playName}"? It will be hidden from players but can be republished later.`)) {
       return;
     }
 
     try {
-      setIsDeleting(true);
-      const response = await fetch(`/api/get-approved-plays?playId=${playId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete play');
-      }
-
-      // Remove from local state
-      setPlays(prev => prev.filter(p => p.id !== playId));
-      alert('Play deleted successfully');
+      setIsUpdating(true);
+      await updateStatus(playId, { isPublished: false });
+      alert('Play unpublished successfully');
+      refetch();
     } catch (error) {
-      console.error('[Coach Playbook] Error deleting play:', error);
-      alert('Failed to delete play. Please try again.');
+      console.error('Error unpublishing play:', error);
+      alert('Failed to unpublish play. Please try again.');
     } finally {
-      setIsDeleting(false);
+      setIsUpdating(false);
     }
   };
 
-  // Delete selected plays
-  const handleDeleteSelected = async () => {
+  // Unpublish selected plays
+  const handleUnpublishSelected = async () => {
     if (selectedPlays.size === 0) return;
 
     const count = selectedPlays.size;
-    if (!confirm(`Delete ${count} play${count > 1 ? 's' : ''}? This will remove all assignments and flashcards. This action cannot be undone.`)) {
+    if (!confirm(`Unpublish ${count} play${count > 1 ? 's' : ''}? They will be hidden from players.`)) {
       return;
     }
 
     try {
-      setIsDeleting(true);
-      const deletePromises = Array.from(selectedPlays).map(playId =>
-        fetch(`/api/get-approved-plays?playId=${playId}`, { method: 'DELETE' })
+      setIsUpdating(true);
+      const promises = Array.from(selectedPlays).map(playId =>
+        updateStatus(playId, { isPublished: false })
       );
 
-      const results = await Promise.all(deletePromises);
-      const failedCount = results.filter(r => !r.ok).length;
+      await Promise.all(promises);
+      alert(`${count} play${count > 1 ? 's' : ''} unpublished successfully`);
 
-      if (failedCount > 0) {
-        alert(`${count - failedCount} of ${count} plays deleted. ${failedCount} failed.`);
-      } else {
-        alert(`${count} play${count > 1 ? 's' : ''} deleted successfully`);
-      }
-
-      // Refresh the list
-      await fetchPlays();
+      refetch();
       setSelectedPlays(new Set());
       setIsMultiSelectMode(false);
     } catch (error) {
-      console.error('[Coach Playbook] Error deleting plays:', error);
-      alert('Failed to delete plays. Please try again.');
+      console.error('Error unpublishing plays:', error);
+      alert('Failed to unpublish plays. Please try again.');
     } finally {
-      setIsDeleting(false);
+      setIsUpdating(false);
     }
   };
 
@@ -168,17 +106,13 @@ export default function CoachPlaybookPage() {
           <div className="text-center">
             <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
             <p className="text-slate-400">Loading playbook...</p>
-            {!authLoading && !teamId && (
-              <p className="text-xs text-red-400 mt-2">No team ID found - check authentication</p>
-            )}
           </div>
         </div>
       </SidebarLayout>
     );
   }
 
-  // Show message if no teamId after loading completes
-  if (!authLoading && !loading && !teamId) {
+  if (!orgId) {
     return (
       <SidebarLayout>
         <div className="flex items-center justify-center h-screen">
@@ -186,11 +120,28 @@ export default function CoachPlaybookPage() {
             <div className="text-red-400 text-5xl mb-4">⚠️</div>
             <h2 className="text-xl font-bold text-white mb-2">Authentication Issue</h2>
             <p className="text-slate-400 mb-4">
-              No team ID found. Please sign in or check your browser console for errors.
+              No organization found. Please sign in or check your browser console for errors.
             </p>
-            <p className="text-xs text-slate-500">
-              Team ID: {teamId || 'null'} | Auth Loading: {authLoading.toString()}
-            </p>
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <SidebarLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md">
+            <div className="text-red-400 text-5xl mb-4">❌</div>
+            <h2 className="text-xl font-bold text-white mb-2">Error Loading Playbook</h2>
+            <p className="text-slate-400 mb-4">{error}</p>
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 bg-[#00F6E5] text-black font-semibold rounded-lg hover:bg-[#00F6E5]/90"
+            >
+              Try Again
+            </button>
           </div>
         </div>
       </SidebarLayout>
@@ -234,13 +185,13 @@ export default function CoachPlaybookPage() {
             </div>
             <div className="glass-card p-4">
               <div className="text-2xl font-black text-[#00F6E5]">
-                {plays.filter(p => p.play_type === 'PASS').length}
+                {plays.filter(p => p.playType === 'PASS').length}
               </div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Pass Plays</div>
             </div>
             <div className="glass-card p-4">
               <div className="text-2xl font-black text-[#00F6E5]">
-                {plays.filter(p => p.play_type === 'RUN').length}
+                {plays.filter(p => p.playType === 'RUN').length}
               </div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Run Plays</div>
             </div>
@@ -265,7 +216,6 @@ export default function CoachPlaybookPage() {
               <option value="RUN">Run</option>
               <option value="RPO">RPO</option>
               <option value="SCREEN">Screen</option>
-              <option value="TRICK">Trick</option>
             </select>
 
             {isMultiSelectMode && selectedPlays.size > 0 && (
@@ -277,12 +227,12 @@ export default function CoachPlaybookPage() {
                   Select All ({filteredPlays.length})
                 </button>
                 <button
-                  onClick={handleDeleteSelected}
-                  disabled={isDeleting}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-900/20 text-red-400 text-sm font-semibold hover:bg-red-900/30 transition-all disabled:opacity-50"
+                  onClick={handleUnpublishSelected}
+                  disabled={isUpdating}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-900/20 text-orange-400 text-sm font-semibold hover:bg-orange-900/30 transition-all disabled:opacity-50"
                 >
-                  <TrashIcon className="h-4 w-4" />
-                  Delete Selected ({selectedPlays.size})
+                  <EyeOffIcon className="h-4 w-4" />
+                  Unpublish ({selectedPlays.size})
                 </button>
               </>
             )}
@@ -308,7 +258,7 @@ export default function CoachPlaybookPage() {
                     <th className="px-4 py-3 text-left">
                       <input
                         type="checkbox"
-                        checked={selectedPlays.size === filteredPlays.length}
+                        checked={selectedPlays.size === filteredPlays.length && filteredPlays.length > 0}
                         onChange={() => {
                           if (selectedPlays.size === filteredPlays.length) {
                             setSelectedPlays(new Set());
@@ -360,38 +310,38 @@ export default function CoachPlaybookPage() {
                     )}
                     <td className="px-4 py-4">
                       <div className="font-semibold text-white">{play.name}</div>
-                      {play.short_name && (
-                        <div className="text-xs text-slate-500">{play.short_name}</div>
+                      {play.shortName && (
+                        <div className="text-xs text-slate-500">{play.shortName}</div>
                       )}
                     </td>
                     <td className="px-4 py-4 text-slate-300">
-                      {play.formation_name || play.playbook_metadata?.formation_name || '-'}
+                      {play.formationName || '-'}
                     </td>
                     <td className="px-4 py-4 text-slate-300">
-                      {play.concept || play.playbook_metadata?.concept_name || '-'}
+                      {play.concept || '-'}
                     </td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded ${
-                        play.play_type === 'PASS' ? 'bg-blue-900/20 text-blue-400' :
-                        play.play_type === 'RUN' ? 'bg-green-900/20 text-green-400' :
-                        play.play_type === 'RPO' ? 'bg-purple-900/20 text-purple-400' :
+                        play.playType === 'PASS' ? 'bg-blue-900/20 text-blue-400' :
+                        play.playType === 'RUN' ? 'bg-green-900/20 text-green-400' :
+                        play.playType === 'RPO' ? 'bg-purple-900/20 text-purple-400' :
                         'bg-slate-700/20 text-slate-400'
                       }`}>
-                        {play.play_type}
+                        {play.playType}
                       </span>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
-                      {new Date(play.created_at).toLocaleDateString()}
+                      {new Date(play.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-4 text-right">
                       {!isMultiSelectMode && (
                         <button
-                          onClick={() => handleDeletePlay(play.id, play.name)}
-                          disabled={isDeleting}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/20 text-red-400 text-xs font-semibold hover:bg-red-900/30 transition-all disabled:opacity-50"
+                          onClick={() => handleUnpublishPlay(play.id, play.name)}
+                          disabled={isUpdating}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-900/20 text-orange-400 text-xs font-semibold hover:bg-orange-900/30 transition-all disabled:opacity-50"
                         >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                          Delete
+                          <EyeOffIcon className="h-3.5 w-3.5" />
+                          Unpublish
                         </button>
                       )}
                     </td>
@@ -406,10 +356,10 @@ export default function CoachPlaybookPage() {
   );
 }
 
-function TrashIcon({ className }: { className?: string }) {
+function EyeOffIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
     </svg>
   );
 }

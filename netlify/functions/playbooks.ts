@@ -153,7 +153,7 @@ export const handler: Handler = async (event, context) => {
   // POST - Upload new playbook to Supabase Storage with optional metadata
   if (httpMethod === 'POST') {
     try {
-      const { fileName, fileData, playData, metadata, teamId, isBuiltPlay } = JSON.parse(event.body || '{}');
+      const { fileName, fileData, playData, metadata, orgId, teamId, isBuiltPlay } = JSON.parse(event.body || '{}');
 
       // Validation: Either fileData (for uploads) or playData (for built plays) must be provided
       if (!fileName || (!fileData && !playData)) {
@@ -228,30 +228,12 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
-      // Ensure team exists (create default team if using placeholder UUID)
-      if (teamId === '00000000-0000-0000-0000-000000000000') {
-        const { data: existingTeam } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('id', teamId)
-          .single();
-
-        if (!existingTeam) {
-          // Create default team
-          await supabase.from('teams').insert({
-            id: teamId,
-            name: 'Default Team',
-            slug: 'default-team',
-            season: '2024',
-          });
-        }
-      }
-
       // Save metadata if provided
       let savedMetadata = null;
-      if (metadata && teamId) {
+      if (metadata && orgId) {
         const metadataToSave = {
-          team_id: teamId,
+          org_id: orgId,
+          team_id: teamId || null, // Optional team filter
           file_paths: metadata.file_paths || [filePath],
           side_of_ball: metadata.side_of_ball,
           content_type: metadata.content_type,
@@ -271,8 +253,8 @@ export const handler: Handler = async (event, context) => {
           .single();
 
         if (metadataError) {
-          console.error('Failed to save metadata:', metadataError);
-          console.error('Metadata error details:', {
+          console.error('[Upload] Failed to save metadata:', metadataError);
+          console.error('[Upload] Metadata error details:', {
             code: metadataError.code,
             message: metadataError.message,
             details: metadataError.details,
@@ -282,8 +264,8 @@ export const handler: Handler = async (event, context) => {
         } else {
           savedMetadata = metadataData;
         }
-      } else if (metadata && !teamId) {
-        console.warn('Metadata provided but teamId missing - skipping metadata save');
+      } else if (metadata && !orgId) {
+        console.warn('[Upload] Metadata provided but orgId missing - skipping metadata save');
       }
 
       const newPlay = {

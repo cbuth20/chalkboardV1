@@ -3,27 +3,9 @@
 import { useState, useEffect } from "react";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { DEV_TEAM_ID } from "@/lib/constants";
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TYPES
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface ApprovedPlay {
-  id: string;
-  name: string;
-  formation_name: string;
-  concept: string;
-}
-
-interface KnowledgeCard {
-  id: string;
-  play_id: string;
-  question_prompt: string;
-  correct_answer: string;
-  category: string;
-  explanation: string | null;
-}
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlays } from "@/hooks/usePlaysAPI";
+import { useFlashcards } from "@/hooks/useFlashcardsAPI";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
@@ -42,78 +24,43 @@ export default function QuizCardsPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function QuizCardsGame() {
-  const [plays, setPlays] = useState<ApprovedPlay[]>([]);
+  const { orgId, loading: authLoading } = useAuth();
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
-  const [knowledgeCards, setKnowledgeCards] = useState<KnowledgeCard[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingCards, setIsLoadingCards] = useState(false);
-  const [teamId] = useState<string>(DEV_TEAM_ID); // TODO: Get from auth context
+
+  // Fetch approved plays using new API
+  const { plays, loading: playsLoading, error: playsError } = usePlays({
+    status: 'approved'
+  });
+
+  // Fetch knowledge flashcards for selected play using new API
+  const {
+    flashcards,
+    loading: cardsLoading,
+    error: cardsError
+  } = useFlashcards(
+    selectedPlayId
+      ? { playId: selectedPlayId, cardType: 'knowledge', activeOnly: true }
+      : undefined
+  );
 
   const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
-  const currentCard = knowledgeCards[currentCardIndex] || null;
+  const currentCard = flashcards[currentCardIndex] || null;
 
-  // Fetch approved plays on mount
-  useEffect(() => {
-    const fetchPlays = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&type=all`);
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch plays');
-        }
-
-        const data = await response.json();
-        setPlays(data.plays || []);
-      } catch (err) {
-        console.error('Failed to load plays:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchPlays();
-  }, [teamId]);
-
-  // Fetch knowledge cards when play is selected
+  // Reset card index when flashcards change
   useEffect(() => {
     if (!selectedPlayId) {
-      setKnowledgeCards([]);
       setCurrentCardIndex(0);
       setShowAnswer(false);
-      return;
+    } else if (flashcards.length > 0) {
+      setCurrentCardIndex(0);
+      setShowAnswer(false);
     }
-
-    const fetchKnowledgeCards = async () => {
-      try {
-        setIsLoadingCards(true);
-        const response = await fetch(
-          `/api/get-approved-plays?teamId=${teamId}&playId=${selectedPlayId}&type=knowledge`
-        );
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch knowledge cards');
-        }
-
-        const data = await response.json();
-        setKnowledgeCards(data.knowledgeCards || []);
-        setCurrentCardIndex(0);
-        setShowAnswer(false);
-      } catch (err) {
-        console.error('Failed to load knowledge cards:', err);
-        setKnowledgeCards([]);
-      } finally {
-        setIsLoadingCards(false);
-      }
-    };
-
-    fetchKnowledgeCards();
-  }, [selectedPlayId, teamId]);
+  }, [selectedPlayId, flashcards.length]);
 
   const handleNext = () => {
-    if (currentCardIndex < knowledgeCards.length - 1) {
+    if (currentCardIndex < flashcards.length - 1) {
       setCurrentCardIndex(currentCardIndex + 1);
       setShowAnswer(false);
     }
@@ -131,7 +78,7 @@ function QuizCardsGame() {
   };
 
   // Loading state
-  if (isLoading) {
+  if (authLoading || playsLoading) {
     return (
       <SidebarLayout>
         <div className="flex h-screen items-center justify-center text-white">
@@ -185,7 +132,7 @@ function QuizCardsGame() {
                         {play.name}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {play.formation_name} • {play.concept}
+                        {play.formationName} • {play.concept}
                       </p>
                     </div>
                     {play.id === selectedPlayId && (
@@ -213,12 +160,12 @@ function QuizCardsGame() {
               </svg>
               <p className="text-sm text-slate-500">Select a play to start quizzing</p>
             </div>
-          ) : isLoadingCards ? (
+          ) : cardsLoading ? (
             <div className="flex items-center gap-3">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
               <span className="text-sm text-slate-400">Loading quiz cards...</span>
             </div>
-          ) : knowledgeCards.length === 0 ? (
+          ) : flashcards.length === 0 ? (
             <div className="text-center">
               <svg
                 className="mx-auto h-16 w-16 mb-4 text-slate-600"
@@ -238,7 +185,7 @@ function QuizCardsGame() {
               <div className="mb-6 text-center">
                 <h1 className="text-2xl font-bold text-white mb-2">{selectedPlay.name}</h1>
                 <div className="flex items-center justify-center gap-2 text-sm text-slate-400">
-                  <span>Card {currentCardIndex + 1} of {knowledgeCards.length}</span>
+                  <span>Card {currentCardIndex + 1} of {flashcards.length}</span>
                   <span>•</span>
                   <span className="px-2 py-1 bg-blue-900/20 text-blue-400 rounded text-xs font-semibold uppercase">
                     {currentCard.category.replace('_', ' ')}
@@ -254,7 +201,7 @@ function QuizCardsGame() {
                     Question
                   </div>
                   <p className="text-xl text-white leading-relaxed">
-                    {currentCard.question_prompt}
+                    {currentCard.questionPrompt}
                   </p>
                 </div>
 
@@ -265,12 +212,17 @@ function QuizCardsGame() {
                       Answer
                     </div>
                     <p className="text-lg text-[#00F6E5] font-semibold mb-3">
-                      {currentCard.correct_answer}
+                      {currentCard.correctAnswer}
                     </p>
-                    {currentCard.explanation && (
-                      <p className="text-sm text-slate-400 mt-2">
-                        {currentCard.explanation}
-                      </p>
+                    {currentCard.hints && currentCard.hints.length > 0 && (
+                      <div className="text-sm text-slate-400 mt-2">
+                        <p className="font-semibold mb-1">Hints:</p>
+                        <ul className="list-disc list-inside">
+                          {currentCard.hints.map((hint, idx) => (
+                            <li key={idx}>{hint}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 )}

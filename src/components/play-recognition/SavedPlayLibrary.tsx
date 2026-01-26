@@ -2,16 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
   getPlaybooksApiUrl,
   getPlaybookMetadataApiUrl,
-  getCreatePlayRecordApiUrl,
-  getProcessPlayContentApiUrl,
-  getReviewPlayContentApiUrl,
-  getCheckPlayStatusApiUrl,
 } from '@/lib/api-config';
 import { PlaybookMetadataInput, PLAYBOOK_TAGS, PlaybookTag, getPositionsForSideOfBall, SIDE_OF_BALL_LABELS, SideOfBall } from '@/types/playbook-metadata';
 import PlayContentReviewModal from './PlayContentReviewModal';
 import { usePlayContentGeneration } from '@/contexts/PlayContentGenerationContext';
 import { PlayRenderer } from './PlayRenderer';
 import { ALL_POSITIONS } from '@/lib/positions';
+import { useAuth } from '@/contexts/AuthContext';
+import { playsAPI } from '@/lib/api/plays';
 
 interface Play {
   id: string;
@@ -37,6 +35,7 @@ interface SavedPlayLibraryProps {
 }
 
 export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onFileUpload, onCreatePlay }) => {
+  const { orgId, session } = useAuth();
   const [plays, setPlays] = useState<Play[]>([]);
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,8 +50,6 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   const [showGenerationPrompt, setShowGenerationPrompt] = useState(false);
   const [generationNotes, setGenerationNotes] = useState('');
   const [generationType, setGenerationType] = useState<'single' | 'unified'>('single');
-  // TODO: Get from auth context instead of hardcoding
-  const [teamId] = useState<string>('00000000-0000-0000-0000-000000000000');
   const [pendingMetadata, setPendingMetadata] = useState<Partial<PlaybookMetadataInput>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -251,7 +248,6 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         name: p.name || 'Untitled Play',
         url: p.url,
         metadataId: p.metadata?.id,
-        teamId: teamId,
       }));
 
     // Warn about files without metadata (but don't block)
@@ -267,8 +263,8 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       }
     }
 
-    // Include all plays - API will handle metadata creation if needed
-    await startGeneration(selectedPlays, teamId);
+    // Include all plays - context handles orgId from auth
+    await startGeneration(selectedPlays);
   };
 
   // NEW: Generate unified play from multiple source files
@@ -299,6 +295,11 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       }
     }
 
+    if (!orgId) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
     setIsGenerating(true);
     setShowGenerationPrompt(false);
 
@@ -318,7 +319,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              teamId: teamId,
+              orgId: orgId,
               filePath: `public/${play.fileName}`,
               formationName: play.fileName.replace(/\.[^/.]+$/, ''),
               customNotes: 'Auto-created during unified play generation',
@@ -350,7 +351,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         playbookMetadataIds: metadataIds,
         imageUrl: primaryPlay.url,
         fileName: primaryPlay.fileName,
-        teamId: teamId,
+        orgId: orgId,
         generateInsights: true,
         generateAssignments: true,
         generateKnowledge: true,
@@ -407,17 +408,21 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       return;
     }
 
+    if (!session?.access_token || !orgId) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
     setShowGenerationPrompt(false);
     setIsGenerating(true);
 
-    console.log('Generate content - selectedPlay:', selectedPlay);
-    console.log('Generate content - metadata:', selectedPlay?.metadata);
-    console.log('Generate content - metadata.id:', selectedPlay?.metadata?.id);
+    console.log('[SingleGen] Generate content - selectedPlay:', selectedPlay);
+    console.log('[SingleGen] Metadata ID:', selectedPlay?.metadata?.id);
 
     // If no metadata exists, create it first
     let metadataId = selectedPlay.metadata?.id;
     if (!metadataId) {
-      console.log('No metadata found, creating minimal metadata...');
+      console.log('[SingleGen] No metadata found, creating minimal metadata...');
       try {
         const metadataApiUrl = getPlaybookMetadataApiUrl();
         const filePath = `public/${selectedPlay.fileName}`;
@@ -426,7 +431,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            team_id: teamId,
+            org_id: orgId,
             file_paths: [filePath],
             position_relevance: ['all'],
             formation_name: selectedPlay.name,
@@ -447,9 +452,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
           )
         );
 
-        console.log('Created metadata:', newMetadata);
+        console.log('[SingleGen] Created metadata:', newMetadata);
       } catch (err) {
-        console.error('Failed to create metadata:', err);
+        console.error('[SingleGen] Failed to create metadata:', err);
         alert('Failed to create metadata. Please try adding metadata manually first.');
         setIsGenerating(false);
         return;
@@ -459,103 +464,20 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     let pollIntervalId: NodeJS.Timeout | null = null;
 
     try {
-      // Check if we're running locally
-      const isLocalhost = window.location.hostname === 'localhost' ||
-                         window.location.hostname === '127.0.0.1';
+      // Step 1: Create play record using new API
+      console.log('[SingleGen] Step 1: Creating play record...');
+      const createResponse = await playsAPI.createPlay({
+        orgId,
+        playbookMetadataId: metadataId,
+        name: selectedPlay.name,
+        triggerProcessing: true, // Trigger AI processing immediately
+      }, session.access_token);
 
-      if (isLocalhost) {
-        // Local development: Use all-in-one API route
-        console.log('📝 Local dev: Using all-in-one API');
-        const apiUrl = '/api/generate-play-content';
+      const playId = createResponse.playId;
+      console.log('[SingleGen] Play created with ID:', playId);
 
-        // For built plays, send playData instead of imageUrl
-        const isBuiltPlay = selectedPlay.type === 'built-play' || selectedPlay.isBuiltPlay;
-        const requestBody = {
-          playbookMetadataId: metadataId,
-          fileName: selectedPlay.fileName,
-          teamId: teamId || 'default-team-id',
-          generateInsights: true,
-          generateAssignments: true,
-          generateKnowledge: true,
-          additionalContext, // User's instructions for analyzing the play
-          ...(isBuiltPlay && selectedPlay.metadata?.play_data
-            ? { playData: selectedPlay.metadata.play_data }
-            : { imageUrl: selectedPlay.url }
-          ),
-        };
-
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Failed to generate content: ${errorText.substring(0, 200)}`);
-        }
-
-        const data = await response.json();
-        console.log('✅ Generation complete!');
-        setGeneratedContent(data);
-        setShowReviewModal(true);
-        setIsGenerating(false);
-        setGenerationNotes(''); // Clear the user's input
-        return;
-      }
-
-      // Production: Use two-step process with background function
-      // Step 1: Create the play record (fast)
-      console.log('📝 Step 1: Creating play record...');
-      const createUrl = getCreatePlayRecordApiUrl();
-      const createResponse = await fetch(createUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playbookMetadataId: metadataId,
-          fileName: selectedPlay.fileName,
-          teamId: teamId || 'default-team-id',
-        }),
-      });
-
-      if (!createResponse.ok) {
-        const errorText = await createResponse.text();
-        throw new Error(`Failed to create play: ${errorText.substring(0, 200)}`);
-      }
-
-      const { playId } = await createResponse.json();
-      console.log('✅ Play created with ID:', playId);
-
-      // Step 2: Trigger background processing
-      console.log('🚀 Step 2: Starting background AI generation...');
-      const processUrl = getProcessPlayContentApiUrl();
-
-      // For built plays, send playData instead of imageUrl
-      const isBuiltPlay = selectedPlay.type === 'built-play' || selectedPlay.isBuiltPlay;
-      const processRequestBody = {
-        playId,
-        fileName: selectedPlay.fileName,
-        generateInsights: true,
-        generateAssignments: true,
-        generateKnowledge: true,
-        additionalContext, // User's instructions for analyzing the play
-        ...(isBuiltPlay && selectedPlay.metadata?.play_data
-          ? { playData: selectedPlay.metadata.play_data }
-          : { imageUrl: selectedPlay.url }
-        ),
-      };
-
-      const processResponse = await fetch(processUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(processRequestBody),
-      });
-
-      // Background function returns 202 immediately
-      console.log('📥 Background function triggered, status:', processResponse.status);
-
-      // Step 3: Start polling for completion
-      console.log('🔄 Step 3: Polling for completion...');
+      // Step 2: Poll for completion
+      console.log('[SingleGen] Step 2: Polling for completion...');
       let pollCount = 0;
       const maxPolls = 300; // 15 minutes
 
@@ -564,51 +486,45 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
         if (pollCount > maxPolls) {
           if (pollIntervalId) clearInterval(pollIntervalId);
-          console.error('⏰ Polling timeout');
+          console.error('[SingleGen] Polling timeout');
           alert('Generation is taking longer than expected. Please refresh and check back.');
           setIsGenerating(false);
           return;
         }
 
         try {
-          const statusUrl = `${getCheckPlayStatusApiUrl()}?playId=${playId}`;
-          const statusResponse = await fetch(statusUrl);
+          const statusData = await playsAPI.getPlay(playId, session.access_token, {
+            orgId,
+            includeAssignments: true,
+            includeFlashcards: true,
+          });
 
-          if (!statusResponse.ok) {
-            console.error('Status check failed:', statusResponse.status);
-            if (pollCount > 5 && statusResponse.status >= 500) {
-              if (pollIntervalId) clearInterval(pollIntervalId);
-              alert('Server error. Please try again.');
-              setIsGenerating(false);
-            }
-            return;
-          }
+          console.log(`[SingleGen] Poll ${pollCount}: Status = ${statusData.play.contentStatus}`);
 
-          const statusData = await statusResponse.json();
-          console.log(`📊 Poll ${pollCount}: Status = ${statusData.status}`);
-
-          if (statusData.status === 'draft') {
-            // Complete!
+          if (statusData.play.contentStatus === 'draft' || statusData.play.contentStatus === 'approved') {
+            // Generation complete (draft = ready for review, approved = already reviewed)
             if (pollIntervalId) clearInterval(pollIntervalId);
-            console.log('✅ Generation complete!');
+            console.log('[SingleGen] ✅ Generation complete!');
             setGeneratedContent(statusData);
             setShowReviewModal(true);
             setIsGenerating(false);
-            setGenerationNotes(''); // Clear the user's input
-          } else if (statusData.status === 'rejected') {
+            setGenerationNotes('');
+          } else if (statusData.play.contentStatus === 'rejected') {
             // Failed
             if (pollIntervalId) clearInterval(pollIntervalId);
-            console.error('❌ Generation failed');
+            console.error('[SingleGen] ❌ Generation failed');
             alert('Content generation failed. Please try again.');
             setIsGenerating(false);
           }
+          // If status is 'generating', continue polling
         } catch (pollError) {
-          console.error('Polling error:', pollError);
+          console.error('[SingleGen] Polling error:', pollError);
+          // Continue polling even on errors
         }
       }, 3000); // Poll every 3 seconds
 
     } catch (err: any) {
-      console.error('❌ Failed to generate content:', err);
+      console.error('[SingleGen] ❌ Failed to generate content:', err);
       if (pollIntervalId) clearInterval(pollIntervalId);
       alert(`Failed to generate content: ${err.message}`);
       setIsGenerating(false);
@@ -617,43 +533,28 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
   // Handle approve content
   const handleApprove = async (editedContent: any, notes: string, playId?: string) => {
-    const targetPlayId = playId || generatedContent?.playId;
-    console.log('🟢 Approving play:', targetPlayId);
+    const targetPlayId = playId || generatedContent?.play?.id;
+    console.log('[Approve] Approving play:', targetPlayId);
 
     if (!targetPlayId) {
-      console.error('❌ No playId provided');
+      console.error('[Approve] No playId provided');
+      return;
+    }
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
       return;
     }
 
     try {
-      const apiUrl = getReviewPlayContentApiUrl();
-      console.log('📤 Calling review API:', apiUrl);
+      console.log('[Approve] Calling plays API...');
 
-      const requestBody = {
-        playId: targetPlayId,
-        action: 'approve',
-        coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
-        updates: editedContent,
-        reviewNotes: notes,
-      };
-      console.log('📤 Request body:', requestBody);
+      await playsAPI.updatePlayStatus(targetPlayId, {
+        contentStatus: 'approved',
+        isPublished: true,
+      }, session.access_token, orgId);
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-
-      console.log('📥 Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        throw new Error(`Failed to approve content: ${response.status} - ${errorText.substring(0, 200)}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Approve successful:', result);
+      console.log('[Approve] ✅ Approve successful');
 
       // Only close modal and clear if single-play mode
       if (!playId) {
@@ -668,49 +569,34 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         setPlays(data);
       }
     } catch (err: any) {
-      console.error('❌ Failed to approve content:', err);
+      console.error('[Approve] ❌ Failed:', err);
       alert(`Failed to approve content: ${err.message}`);
     }
   };
 
   // Handle reject content
   const handleReject = async (notes: string, playId?: string) => {
-    const targetPlayId = playId || generatedContent?.playId;
-    console.log('🔴 Rejecting play:', targetPlayId);
+    const targetPlayId = playId || generatedContent?.play?.id;
+    console.log('[Reject] Rejecting play:', targetPlayId);
 
     if (!targetPlayId) {
-      console.error('❌ No playId provided');
+      console.error('[Reject] No playId provided');
+      return;
+    }
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
       return;
     }
 
     try {
-      const apiUrl = getReviewPlayContentApiUrl();
-      console.log('📤 Calling review API:', apiUrl);
+      console.log('[Reject] Calling plays API...');
 
-      const requestBody = {
-        playId: targetPlayId,
-        action: 'reject',
-        coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
-        reviewNotes: notes,
-      };
-      console.log('📤 Request body:', requestBody);
+      await playsAPI.updatePlayStatus(targetPlayId, {
+        contentStatus: 'rejected',
+      }, session.access_token, orgId);
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-
-      console.log('📥 Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        throw new Error(`Failed to reject content: ${response.status} - ${errorText.substring(0, 200)}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Reject successful:', result);
+      console.log('[Reject] ✅ Reject successful');
 
       // Only close modal and clear if single-play mode
       if (!playId) {
@@ -719,38 +605,35 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         alert('Content rejected');
       }
     } catch (err: any) {
-      console.error('❌ Failed to reject content:', err);
+      console.error('[Reject] ❌ Failed:', err);
       alert(`Failed to reject content: ${err.message}`);
     }
   };
 
   // Handle save draft
   const handleSaveDraft = async (editedContent: any) => {
-    if (!generatedContent?.playId) return;
+    if (!generatedContent?.play?.id) return;
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
 
     try {
-      const apiUrl = getReviewPlayContentApiUrl();
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playId: generatedContent.playId,
-          action: 'update',
-          coachId: '00000000-0000-0000-0000-000000000001', // TODO: Get from auth context
-          updates: editedContent,
-        }),
-      });
+      console.log('[SaveDraft] Saving draft for play:', generatedContent.play.id);
 
-      if (!response.ok) {
-        throw new Error('Failed to save draft');
-      }
+      await playsAPI.updatePlayStatus(generatedContent.play.id, {
+        contentStatus: 'draft',
+      }, session.access_token, orgId);
+
+      console.log('[SaveDraft] ✅ Draft saved');
 
       setShowReviewModal(false);
       setGeneratedContent(null);
       alert('Draft saved successfully');
-    } catch (err) {
-      console.error('Failed to save draft:', err);
-      alert('Failed to save draft');
+    } catch (err: any) {
+      console.error('[SaveDraft] ❌ Failed:', err);
+      alert(`Failed to save draft: ${err.message}`);
     }
   };
 

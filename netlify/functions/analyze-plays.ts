@@ -1,3 +1,9 @@
+/**
+ * ⚠️ DEPRECATED - Use plays-process.ts instead
+ * This endpoint does not support org-scoped multi-tenancy or RBAC
+ * Migration: Use POST /api/plays/:id/process to trigger background AI processing
+ */
+
 import { Handler } from '@netlify/functions';
 import fs from 'fs';
 import path from 'path';

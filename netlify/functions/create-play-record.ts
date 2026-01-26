@@ -1,3 +1,9 @@
+/**
+ * ⚠️ DEPRECATED - Use plays-create.ts instead
+ * This endpoint does not support org-scoped multi-tenancy or RBAC
+ * Migration: Use POST /api/plays with orgId in request body
+ */
+
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 

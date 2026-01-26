@@ -1,3 +1,11 @@
+/**
+ * ⚠️ DEPRECATED - Use plays-list.ts and plays-get.ts instead
+ * This endpoint does not support org-scoped multi-tenancy or RBAC
+ * Migration:
+ * - List plays: GET /api/plays?orgId=xxx&status=approved
+ * - Get play details: GET /api/plays/:id?includeAssignments=true&includeFlashcards=true
+ */
+
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 

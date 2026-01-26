@@ -1,3 +1,9 @@
+/**
+ * ⚠️ DEPRECATED - Use plays-get.ts instead
+ * This endpoint does not support org-scoped multi-tenancy or RBAC
+ * Migration: Use GET /api/plays/:id to get play status and details
+ */
+
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 

@@ -6,22 +6,23 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// GET /api/coach/assignments - Fetch all assignments for a team
+// GET /api/coach/assignments - Fetch all assignments for an organization (with optional team filter)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const teamId = searchParams.get('teamId');
+    const orgId = searchParams.get('orgId');
+    const teamId = searchParams.get('teamId'); // Optional filter
     const playId = searchParams.get('playId');
     const position = searchParams.get('position');
 
-    if (!teamId) {
+    if (!orgId) {
       return NextResponse.json(
-        { error: 'Team ID is required' },
+        { error: 'Organization ID is required' },
         { status: 400 }
       );
     }
 
-    console.log('[API Coach Assignments] Fetching assignments for teamId:', teamId);
+    console.log('[API Coach Assignments] Fetching assignments for orgId:', orgId, 'teamId filter:', teamId);
 
     // Build query with explicit foreign key reference
     // Using 'play:plays!play_id' to alias the join as 'play' (singular) to match frontend expectations
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
           concept,
           play_type,
           ai_insights,
+          org_id,
+          team_id,
           playbook_metadata!plays_playbook_metadata_id_fkey(
             id,
             formation_name,
@@ -48,9 +51,15 @@ export async function GET(request: NextRequest) {
           )
         )
       `)
-      .eq('play.team_id', teamId);
+      .eq('play.org_id', orgId);
 
-    // Apply filters
+    // Apply optional team filter
+    if (teamId && teamId !== 'all') {
+      console.log('[API Coach Assignments] Filtering by teamId:', teamId);
+      query = query.eq('play.team_id', teamId);
+    }
+
+    // Apply other filters
     if (playId) {
       console.log('[API Coach Assignments] Filtering by playId:', playId);
       query = query.eq('play_id', playId);

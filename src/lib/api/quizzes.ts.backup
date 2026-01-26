@@ -1,0 +1,195 @@
+/**
+ * API client for Quiz endpoints
+ */
+
+export interface CreateQuizAssignmentRequest {
+  orgId: string;
+  teamId?: string;
+  title: string;
+  description?: string;
+  assignedToUserId?: string;
+  assignedToPosition?: string;
+  assignedToSegmentId?: string;
+  assignedToTeamId?: string;
+  dueDate?: string;
+  availableFrom?: string;
+  availableUntil?: string;
+  passingScore?: number;
+  maxAttempts?: number | null;
+  timeLimitSeconds?: number | null;
+  randomizeQuestions?: boolean;
+  flashcardIds: string[];
+}
+
+export interface QuizAssignment {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  passingScore: number;
+  maxAttempts: number | null;
+  timeLimitSeconds: number | null;
+  totalQuestions: number;
+  status: 'active' | 'completed' | 'overdue';
+  isActive: boolean;
+  myAttempts?: number;
+  bestScore?: number | null;
+  lastAttempt?: string | null;
+  canAttempt?: boolean;
+}
+
+export interface QuizQuestion {
+  questionNumber: number;
+  flashcardId: string;
+  question: string;
+  hints: string[];
+  difficulty: string;
+  category: string;
+  points: number;
+}
+
+export interface QuizAttempt {
+  id: string;
+  attemptNumber: number;
+  scorePercentage: number | null;
+  passed: boolean | null;
+  completedAt: string | null;
+}
+
+export interface StartAttemptResponse {
+  attemptId: string;
+  quizAssignmentId: string;
+  attemptNumber: number;
+  startedAt: string;
+  totalQuestions: number;
+  timeLimitSeconds: number | null;
+  questions: QuizQuestion[];
+  message?: string;
+}
+
+export interface SubmitAttemptRequest {
+  answers: {
+    flashcardId: string;
+    userAnswer: string;
+    responseTimeMs: number;
+  }[];
+}
+
+export interface SubmitAttemptResponse {
+  attemptId: string;
+  scorePercentage: number;
+  passed: boolean;
+  correctAnswers: number;
+  totalQuestions: number;
+  timeTakenSeconds: number;
+  xpEarned: number;
+  message: string;
+  results: {
+    flashcardId: string;
+    isCorrect: boolean;
+    userAnswer: string;
+  }[];
+}
+
+class QuizzesAPI {
+  private baseURL = '/.netlify/functions';
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const response = await fetch(`${this.baseURL}/${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || 'API request failed');
+    }
+
+    return response.json();
+  }
+
+  async createAssignment(
+    data: CreateQuizAssignmentRequest,
+    token: string
+  ): Promise<{
+    success: boolean;
+    quizAssignmentId: string;
+    message: string;
+    assignment: {
+      id: string;
+      title: string;
+      totalQuestions: number;
+      dueDate: string | null;
+      targetCount: number;
+    };
+  }> {
+    return this.request('quizzes-assignments-create', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAssignments(
+    params: { orgId: string; assignedToMe?: boolean; status?: string },
+    token: string
+  ): Promise<{ assignments: QuizAssignment[]; total: number }> {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    return this.request(`quizzes-assignments-list?${queryParams.toString()}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async getAssignment(
+    assignmentId: string,
+    token: string
+  ): Promise<{
+    assignment: QuizAssignment;
+    questions: QuizQuestion[];
+    attempts?: QuizAttempt[];
+    canAttempt?: boolean;
+  }> {
+    return this.request(`quizzes-assignments-get/${assignmentId}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async startAttempt(
+    quizAssignmentId: string,
+    token: string
+  ): Promise<StartAttemptResponse> {
+    return this.request('quizzes-attempts-start', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ quizAssignmentId }),
+    });
+  }
+
+  async submitAttempt(
+    attemptId: string,
+    data: SubmitAttemptRequest,
+    token: string
+  ): Promise<SubmitAttemptResponse> {
+    return this.request(`quizzes-attempts-submit/${attemptId}/submit`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+}
+
+export const quizzesAPI = new QuizzesAPI();

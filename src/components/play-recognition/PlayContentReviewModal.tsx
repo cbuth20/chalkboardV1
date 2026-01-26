@@ -116,10 +116,13 @@ export default function PlayContentReviewModal({
   const getEditedContent = (): EditedContent => {
     if (!currentContent) return { insights: '', assignments: [], knowledgeCards: [] };
 
+    // Handle both 'flashcards' (API response) and 'knowledgeCards' (legacy)
+    const cards = currentContent.flashcards || currentContent.knowledgeCards || [];
+
     return {
       insights: editedInsights,
       assignments: [], // We'll handle this in the backend
-      knowledgeCards: currentContent.knowledgeCards.map((card: any) => ({
+      knowledgeCards: cards.map((card: any) => ({
         id: card.id,
         question_prompt: card.question_prompt,
         correct_answer: card.correct_answer,
@@ -292,7 +295,7 @@ export default function PlayContentReviewModal({
               <div className="text-sm text-gray-400">Position Assignments</div>
             </div>
             <div className="bg-[#1A1F28] border border-[#1E2732] rounded-lg p-4">
-              <div className="text-2xl font-bold text-white">{currentContent?.knowledgeCards?.length || 0}</div>
+              <div className="text-2xl font-bold text-white">{(currentContent?.flashcards || currentContent?.knowledgeCards || []).length}</div>
               <div className="text-sm text-gray-400">Quiz Cards</div>
             </div>
             <div className="bg-[#1A1F28] border border-[#1E2732] rounded-lg p-4">
@@ -447,7 +450,7 @@ export default function PlayContentReviewModal({
               <div className="flex items-center gap-2">
                 <span className="text-xl">❓</span>
                 <span className="font-semibold text-white">
-                  Quiz Cards ({currentContent?.knowledgeCards?.length || 0})
+                  Quiz Cards ({(currentContent?.flashcards || currentContent?.knowledgeCards || []).length})
                 </span>
               </div>
               {expandedSections.knowledge ? (
@@ -459,7 +462,7 @@ export default function PlayContentReviewModal({
 
             {expandedSections.knowledge && (
               <div className="p-4 border-t border-[#1E2732] space-y-3">
-                {(currentContent?.knowledgeCards || []).map((card: any, index: number) => (
+                {(currentContent?.flashcards || currentContent?.knowledgeCards || []).map((card: any, index: number) => (
                   <div key={card.id} className="bg-[#0F1419] border border-[#1E2732] rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <span className="font-medium text-white">Card {index + 1}</span>

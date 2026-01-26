@@ -180,11 +180,12 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fileName, fileData, playData, metadata, teamId, isBuiltPlay } = body as {
+    const { fileName, fileData, playData, metadata, orgId, teamId, isBuiltPlay } = body as {
       fileName: string;
       fileData?: string;
       playData?: any; // Structured play data from PlayBuilder
       metadata?: PlaybookMetadataInput;
+      orgId?: string;
       teamId?: string;
       isBuiltPlay?: boolean;
     };
@@ -263,33 +264,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure team exists (create default team if using placeholder UUID)
-    if (teamId === '00000000-0000-0000-0000-000000000000') {
-      const { data: existingTeam } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('id', teamId)
-        .single();
-
-      if (!existingTeam) {
-        // Create default team
-        await supabase.from('teams').insert({
-          id: teamId,
-          name: 'Default Team',
-          slug: 'default-team',
-          season: '2024',
-        });
-      }
-    }
-
     // Save metadata - ALWAYS create metadata for uploaded files
     let savedMetadata = null;
-    if (teamId) {
+    if (orgId) {
       // Map frontend content type to database enum value
       const dbContentType = mapContentTypeToDatabase(metadata?.content_type);
 
       const metadataToSave = {
-        team_id: teamId,
+        org_id: orgId,
+        team_id: teamId || null, // Optional team filter
         file_paths: [filePath],
         side_of_ball: metadata?.side_of_ball || null,
         content_type: dbContentType,
@@ -326,7 +309,7 @@ export async function POST(request: NextRequest) {
         savedMetadata = metadataData;
       }
     } else {
-      console.warn('[Upload] No teamId provided - cannot save metadata');
+      console.warn('[Upload] No orgId provided - cannot save metadata');
     }
 
     const newPlay = {

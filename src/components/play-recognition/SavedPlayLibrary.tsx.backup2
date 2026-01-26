@@ -1,0 +1,1441 @@
+import React, { useState, useEffect } from 'react';
+import {
+  getPlaybooksApiUrl,
+  getPlaybookMetadataApiUrl,
+} from '@/lib/api-config';
+import { PlaybookMetadataInput, PLAYBOOK_TAGS, PlaybookTag, getPositionsForSideOfBall, SIDE_OF_BALL_LABELS, SideOfBall } from '@/types/playbook-metadata';
+import PlayContentReviewModal from './PlayContentReviewModal';
+import { usePlayContentGeneration } from '@/contexts/PlayContentGenerationContext';
+import { PlayRenderer } from './PlayRenderer';
+import { ALL_POSITIONS } from '@/lib/positions';
+import { useAuth } from '@/contexts/AuthContext';
+import { playsAPI } from '@/lib/api/plays';
+
+interface Play {
+  id: string;
+  name: string;
+  fileName: string;
+  type: string;
+  uploadedAt: string;
+  tags: string[];
+  playType: string;
+  url: string;
+  metadata?: PlaybookMetadataInput & {
+    id: string;
+    is_built_play?: boolean;
+    play_data?: any; // BuiltPlayData from PlayBuilder
+  };
+  isBuiltPlay?: boolean;
+}
+
+interface SavedPlayLibraryProps {
+  onSelectPlay: (url: string, fileName: string, type: 'pdf' | 'image') => void;
+  onFileUpload: () => void;
+  onCreatePlay: () => void;
+}
+
+export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onFileUpload, onCreatePlay }) => {
+  const { orgId, session } = useAuth();
+  const [plays, setPlays] = useState<Play[]>([]);
+  const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState<any>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedPlayIds, setSelectedPlayIds] = useState<Set<string>>(new Set());
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedTagFilter, setSelectedTagFilter] = useState<PlaybookTag | null>(null);
+  const [showGenerationPrompt, setShowGenerationPrompt] = useState(false);
+  const [generationNotes, setGenerationNotes] = useState('');
+  const [generationType, setGenerationType] = useState<'single' | 'unified'>('single');
+  const [pendingMetadata, setPendingMetadata] = useState<Partial<PlaybookMetadataInput>>({});
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
+
+  // Multi-play generation context
+  const { startGeneration, generatedContents, isComplete } = usePlayContentGeneration();
+
+  // Fetch plays from API - defined as standalone function
+  const fetchPlays = async () => {
+    try {
+      setIsLoading(true);
+      const apiUrl = getPlaybooksApiUrl();
+      const response = await fetch(apiUrl);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch playbooks');
+      }
+
+      const data = await response.json();
+      setPlays(data);
+
+      // Select first play by default
+      if (data.length > 0) {
+        setSelectedPlayId(data[0].id);
+      }
+    } catch (err: any) {
+      console.error('Error fetching plays:', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch plays on mount
+  useEffect(() => {
+    fetchPlays();
+  }, []);
+
+  // Show review modal when multi-play generation is complete
+  useEffect(() => {
+    if (isComplete && generatedContents.length > 0) {
+      setShowReviewModal(true);
+    }
+  }, [isComplete, generatedContents]);
+
+  // Reset pending changes when selected play changes
+  useEffect(() => {
+    setPendingMetadata({});
+    setHasUnsavedChanges(false);
+  }, [selectedPlayId]);
+
+  // Track metadata changes locally (don't save immediately)
+  const handleMetadataChange = (updates: Partial<PlaybookMetadataInput>) => {
+    setPendingMetadata(prev => ({ ...prev, ...updates }));
+    setHasUnsavedChanges(true);
+  };
+
+  // Get current value for a field (pending or saved)
+  const getCurrentMetadataValue = (field: keyof PlaybookMetadataInput) => {
+    if (field in pendingMetadata) {
+      return pendingMetadata[field];
+    }
+    return selectedPlay?.metadata?.[field];
+  };
+
+  // Save metadata changes
+  const handleSaveMetadata = async () => {
+    if (!selectedPlay?.metadata?.id) return;
+
+    try {
+      const apiUrl = getPlaybookMetadataApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedPlay.metadata.id,
+          ...pendingMetadata,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update metadata');
+      }
+
+      // Update local state
+      setPlays((prev) =>
+        prev.map((p) =>
+          p.id === selectedPlayId && p.metadata
+            ? { ...p, metadata: { ...p.metadata, ...pendingMetadata } }
+            : p
+        )
+      );
+
+      // Reset pending changes
+      setPendingMetadata({});
+      setHasUnsavedChanges(false);
+
+      setUpdateSuccess(true);
+      setTimeout(() => setUpdateSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+      alert('Failed to update metadata');
+    }
+  };
+
+  // Update metadata (used by other functions that need direct updates)
+  const handleUpdateMetadata = async (updates: Partial<PlaybookMetadataInput>) => {
+    if (!selectedPlay?.metadata?.id) return;
+
+    try {
+      const apiUrl = getPlaybookMetadataApiUrl();
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedPlay.metadata.id,
+          ...updates,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update metadata');
+      }
+
+      // Update local state
+      setPlays((prev) =>
+        prev.map((p) =>
+          p.id === selectedPlayId && p.metadata
+            ? { ...p, metadata: { ...p.metadata, ...updates } }
+            : p
+        )
+      );
+
+      setUpdateSuccess(true);
+      setTimeout(() => setUpdateSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+      alert('Failed to update metadata');
+    }
+  };
+
+  // Toggle multi-select mode
+  const handleToggleMultiSelect = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    if (isMultiSelectMode) {
+      setSelectedPlayIds(new Set());
+      setSelectedTagFilter(null);
+    }
+  };
+
+  // Filter plays by tag
+  const filteredPlays = selectedTagFilter
+    ? plays.filter((play) => play.metadata?.tags?.includes(selectedTagFilter))
+    : plays;
+
+  // Handle tag filter selection
+  const handleTagFilterClick = (tag: PlaybookTag) => {
+    if (selectedTagFilter === tag) {
+      setSelectedTagFilter(null);
+    } else {
+      setSelectedTagFilter(tag);
+    }
+  };
+
+  // Select all plays with current tag filter
+  const handleSelectAllFiltered = () => {
+    const newSelected = new Set(selectedPlayIds);
+    filteredPlays.forEach((play) => newSelected.add(play.id));
+    setSelectedPlayIds(newSelected);
+  };
+
+  // Toggle play selection
+  const handleTogglePlaySelection = (playId: string) => {
+    const newSelected = new Set(selectedPlayIds);
+    if (newSelected.has(playId)) {
+      newSelected.delete(playId);
+    } else {
+      newSelected.add(playId);
+    }
+    setSelectedPlayIds(newSelected);
+  };
+
+  // Generate content for multiple plays (creates separate play records)
+  const handleGenerateMultiplePlays = async () => {
+    if (selectedPlayIds.size === 0) {
+      alert('Please select at least one play');
+      return;
+    }
+
+    const selectedPlays = plays
+      .filter((p) => selectedPlayIds.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        fileName: p.fileName,
+        name: p.name || 'Untitled Play',
+        url: p.url,
+        metadataId: p.metadata?.id,
+      }));
+
+    // Warn about files without metadata (but don't block)
+    const playsWithoutMetadata = selectedPlays.filter(p => !p.metadataId);
+    if (playsWithoutMetadata.length > 0) {
+      const fileNames = playsWithoutMetadata.map(p => p.fileName).join(', ');
+      const proceed = window.confirm(
+        `The following files are missing metadata and will be analyzed with minimal context:\n\n${fileNames}\n\n` +
+        `Do you want to continue? (Metadata will be auto-created during generation)`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+
+    // Include all plays - context handles orgId from auth
+    await startGeneration(selectedPlays);
+  };
+
+  // NEW: Generate unified play from multiple source files
+  const handleGenerateUnifiedPlay = async () => {
+    if (selectedPlayIds.size === 0) {
+      alert('Please select at least one file');
+      return;
+    }
+
+    // Show prompt for user instructions
+    setGenerationType('unified');
+    setShowGenerationPrompt(true);
+  };
+
+  const executeUnifiedGeneration = async (additionalContext: string) => {
+    const selectedPlays = plays.filter((p) => selectedPlayIds.has(p.id));
+
+    // Warn about files without metadata (but don't block)
+    const playsWithoutMetadata = selectedPlays.filter(p => !p.metadata?.id);
+    if (playsWithoutMetadata.length > 0) {
+      const fileNames = playsWithoutMetadata.map(p => p.fileName).join(', ');
+      const proceed = window.confirm(
+        `The following files are missing metadata and will be analyzed with minimal context:\n\n${fileNames}\n\n` +
+        `Do you want to continue? (Metadata will be auto-created during generation)`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+
+    if (!orgId) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
+    setIsGenerating(true);
+    setShowGenerationPrompt(false);
+
+    try {
+      // Create metadata for files that don't have it
+      const metadataIds: string[] = [];
+
+      for (const play of selectedPlays) {
+        if (play.metadata?.id) {
+          // File already has metadata
+          metadataIds.push(play.metadata.id);
+        } else {
+          // Create metadata for this file
+          console.log('[Unified Gen] Creating metadata for:', play.fileName);
+
+          const metadataResponse = await fetch('/api/playbook-metadata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orgId: orgId,
+              filePath: `public/${play.fileName}`,
+              formationName: play.fileName.replace(/\.[^/.]+$/, ''),
+              customNotes: 'Auto-created during unified play generation',
+              positionRelevance: ['all'],
+              tags: [],
+            }),
+          });
+
+          if (metadataResponse.ok) {
+            const metadataData = await metadataResponse.json();
+            metadataIds.push(metadataData.id);
+            console.log('[Unified Gen] Metadata created:', metadataData.id);
+          } else {
+            console.warn('[Unified Gen] Failed to create metadata for:', play.fileName);
+            // Continue without this file's metadata
+          }
+        }
+      }
+
+      if (metadataIds.length === 0) {
+        throw new Error('No metadata available for selected files');
+      }
+
+      // Use first file's image/data as the primary visual
+      const primaryPlay = selectedPlays[0];
+
+      const apiUrl = '/api/generate-play-content';
+      const requestBody = {
+        playbookMetadataIds: metadataIds,
+        imageUrl: primaryPlay.url,
+        fileName: primaryPlay.fileName,
+        orgId: orgId,
+        generateInsights: true,
+        generateAssignments: true,
+        generateKnowledge: true,
+        additionalContext, // Add user's context
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to generate content: ${errorText.substring(0, 200)}`);
+      }
+
+      const data = await response.json();
+      setGeneratedContent(data);
+      setShowReviewModal(true);
+
+      // Clear selection after successful generation
+      setSelectedPlayIds(new Set());
+      setIsMultiSelectMode(false);
+      setSelectedTagFilter(null);
+      setGenerationNotes('');
+
+      // Refresh plays list to show newly created metadata
+      await fetchPlays();
+    } catch (err: any) {
+      console.error('Failed to generate unified content:', err);
+      alert(`Failed to generate content: ${err.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Generate AI content (insights + assignments + knowledge cards)
+  const handleGenerateContent = async () => {
+    if (!selectedPlay) {
+      alert('Please select a play first');
+      return;
+    }
+
+    // Show prompt for user instructions
+    setGenerationType('single');
+    setShowGenerationPrompt(true);
+  };
+
+  // Execute single file generation with user message
+  const executeSingleGeneration = async (additionalContext: string) => {
+    if (!selectedPlay) {
+      alert('Please select a play first');
+      return;
+    }
+
+    if (!session?.access_token || !orgId) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
+    setShowGenerationPrompt(false);
+    setIsGenerating(true);
+
+    console.log('[SingleGen] Generate content - selectedPlay:', selectedPlay);
+    console.log('[SingleGen] Metadata ID:', selectedPlay?.metadata?.id);
+
+    // If no metadata exists, create it first
+    let metadataId = selectedPlay.metadata?.id;
+    if (!metadataId) {
+      console.log('[SingleGen] No metadata found, creating minimal metadata...');
+      try {
+        const metadataApiUrl = getPlaybookMetadataApiUrl();
+        const filePath = `public/${selectedPlay.fileName}`;
+
+        const response = await fetch(metadataApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            org_id: orgId,
+            file_paths: [filePath],
+            position_relevance: ['all'],
+            formation_name: selectedPlay.name,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create metadata');
+        }
+
+        const newMetadata = await response.json();
+        metadataId = newMetadata.id;
+
+        // Update local state with new metadata
+        setPlays((prev) =>
+          prev.map((p) =>
+            p.id === selectedPlayId ? { ...p, metadata: newMetadata } : p
+          )
+        );
+
+        console.log('[SingleGen] Created metadata:', newMetadata);
+      } catch (err) {
+        console.error('[SingleGen] Failed to create metadata:', err);
+        alert('Failed to create metadata. Please try adding metadata manually first.');
+        setIsGenerating(false);
+        return;
+      }
+    }
+
+    let pollIntervalId: NodeJS.Timeout | null = null;
+
+    try {
+      // Step 1: Create play record using new API
+      console.log('[SingleGen] Step 1: Creating play record...');
+      const createResponse = await playsAPI.createPlay({
+        orgId,
+        playbookMetadataId: metadataId,
+        name: selectedPlay.name,
+        triggerProcessing: true, // Trigger AI processing immediately
+      }, session.access_token);
+
+      const playId = createResponse.play.id;
+      console.log('[SingleGen] Play created with ID:', playId);
+
+      // Step 2: Poll for completion
+      console.log('[SingleGen] Step 2: Polling for completion...');
+      let pollCount = 0;
+      const maxPolls = 300; // 15 minutes
+
+      pollIntervalId = setInterval(async () => {
+        pollCount++;
+
+        if (pollCount > maxPolls) {
+          if (pollIntervalId) clearInterval(pollIntervalId);
+          console.error('[SingleGen] Polling timeout');
+          alert('Generation is taking longer than expected. Please refresh and check back.');
+          setIsGenerating(false);
+          return;
+        }
+
+        try {
+          const statusData = await playsAPI.getPlay(playId, session.access_token, {
+            includeAssignments: true,
+            includeFlashcards: true,
+          });
+
+          console.log(`[SingleGen] Poll ${pollCount}: Status = ${statusData.play.contentStatus}`);
+
+          if (statusData.play.contentStatus === 'approved') {
+            // Generation complete
+            if (pollIntervalId) clearInterval(pollIntervalId);
+            console.log('[SingleGen] ✅ Generation complete!');
+            setGeneratedContent(statusData);
+            setShowReviewModal(true);
+            setIsGenerating(false);
+            setGenerationNotes('');
+          } else if (statusData.play.contentStatus === 'rejected') {
+            // Failed
+            if (pollIntervalId) clearInterval(pollIntervalId);
+            console.error('[SingleGen] ❌ Generation failed');
+            alert('Content generation failed. Please try again.');
+            setIsGenerating(false);
+          }
+          // If status is 'draft' or 'generating', continue polling
+        } catch (pollError) {
+          console.error('[SingleGen] Polling error:', pollError);
+          // Continue polling even on errors
+        }
+      }, 3000); // Poll every 3 seconds
+
+    } catch (err: any) {
+      console.error('[SingleGen] ❌ Failed to generate content:', err);
+      if (pollIntervalId) clearInterval(pollIntervalId);
+      alert(`Failed to generate content: ${err.message}`);
+      setIsGenerating(false);
+    }
+  };
+
+  // Handle approve content
+  const handleApprove = async (editedContent: any, notes: string, playId?: string) => {
+    const targetPlayId = playId || generatedContent?.playId;
+    console.log('[Approve] Approving play:', targetPlayId);
+
+    if (!targetPlayId) {
+      console.error('[Approve] No playId provided');
+      return;
+    }
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
+    try {
+      console.log('[Approve] Calling plays API...');
+
+      await playsAPI.updatePlayStatus(targetPlayId, {
+        contentStatus: 'approved',
+        isPublished: true,
+      }, session.access_token);
+
+      console.log('[Approve] ✅ Approve successful');
+
+      // Only close modal and clear if single-play mode
+      if (!playId) {
+        setShowReviewModal(false);
+        setGeneratedContent(null);
+        alert('Content approved and published successfully!');
+
+        // Refresh play library
+        const fetchUrl = getPlaybooksApiUrl();
+        const fetchResponse = await fetch(fetchUrl);
+        const data = await fetchResponse.json();
+        setPlays(data);
+      }
+    } catch (err: any) {
+      console.error('[Approve] ❌ Failed:', err);
+      alert(`Failed to approve content: ${err.message}`);
+    }
+  };
+
+  // Handle reject content
+  const handleReject = async (notes: string, playId?: string) => {
+    const targetPlayId = playId || generatedContent?.playId;
+    console.log('[Reject] Rejecting play:', targetPlayId);
+
+    if (!targetPlayId) {
+      console.error('[Reject] No playId provided');
+      return;
+    }
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
+    try {
+      console.log('[Reject] Calling plays API...');
+
+      await playsAPI.updatePlayStatus(targetPlayId, {
+        contentStatus: 'rejected',
+      }, session.access_token);
+
+      console.log('[Reject] ✅ Reject successful');
+
+      // Only close modal and clear if single-play mode
+      if (!playId) {
+        setShowReviewModal(false);
+        setGeneratedContent(null);
+        alert('Content rejected');
+      }
+    } catch (err: any) {
+      console.error('[Reject] ❌ Failed:', err);
+      alert(`Failed to reject content: ${err.message}`);
+    }
+  };
+
+  // Handle save draft
+  const handleSaveDraft = async (editedContent: any) => {
+    if (!generatedContent?.playId) return;
+
+    if (!session?.access_token) {
+      alert('Not authenticated. Please sign in.');
+      return;
+    }
+
+    try {
+      console.log('[SaveDraft] Saving draft for play:', generatedContent.playId);
+
+      await playsAPI.updatePlayStatus(generatedContent.playId, {
+        contentStatus: 'draft',
+      }, session.access_token);
+
+      console.log('[SaveDraft] ✅ Draft saved');
+
+      setShowReviewModal(false);
+      setGeneratedContent(null);
+      alert('Draft saved successfully');
+    } catch (err: any) {
+      console.error('[SaveDraft] ❌ Failed:', err);
+      alert(`Failed to save draft: ${err.message}`);
+    }
+  };
+
+
+  // Delete play (cascades to metadata and associated play records)
+  const handleDeletePlay = async () => {
+    if (!selectedPlay) return;
+
+    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play file (image/PDF)\n• Metadata record\n• Associated play record (if exists)\n• All assignments\n• All flashcards\n\nThis cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const apiUrl = getPlaybooksApiUrl();
+      const deletePayload = {
+        fileName: selectedPlay.fileName,
+        metadataId: selectedPlay.metadata?.id, // Include metadata ID for cascade delete
+      };
+
+      console.log('[Delete Play] Request payload:', deletePayload);
+      console.log('[Delete Play] Selected play:', selectedPlay);
+
+      const response = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deletePayload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[Delete Play] API error response:', errorData);
+        throw new Error(errorData.error || 'Failed to delete play');
+      }
+
+      const result = await response.json();
+      console.log('[Delete Play] API success response:', result);
+
+      // Show success message
+      alert('Playbook deleted successfully!\n\nDeleted:\n• File from storage\n• Metadata record\n• Associated play records\n• All assignments and flashcards');
+
+      // Remove from local state
+      setPlays((prev) => {
+        const newPlays = prev.filter((p) => p.id !== selectedPlayId);
+        if (newPlays.length > 0) {
+          setSelectedPlayId(newPlays[0].id);
+        } else {
+          setSelectedPlayId(null);
+        }
+        return newPlays;
+      });
+    } catch (err: any) {
+      console.error('[Delete Play] Error:', err);
+      alert(`Failed to delete play: ${err.message}\n\nCheck console for details.`);
+    }
+  };
+
+  // Delete multiple selected plays
+  const handleDeleteSelected = async () => {
+    if (selectedPlayIds.size === 0) return;
+
+    const count = selectedPlayIds.size;
+    const confirmMessage = `Delete ${count} selected playbook${count > 1 ? 's' : ''}?\n\nThis will permanently delete:\n• ${count} play file${count > 1 ? 's' : ''}\n• ${count} metadata record${count > 1 ? 's' : ''}\n• Associated play records\n• All assignments and flashcards\n\nThis cannot be undone.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      setIsGenerating(true); // Reuse loading state
+      const apiUrl = getPlaybooksApiUrl();
+
+      // Get selected plays data
+      const playsToDelete = plays.filter((p) => selectedPlayIds.has(p.id));
+
+      // Delete each play
+      const deletePromises = playsToDelete.map((play) =>
+        fetch(apiUrl, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: play.fileName,
+            metadataId: play.metadata?.id,
+          }),
+        })
+      );
+
+      const results = await Promise.all(deletePromises);
+      const failedCount = results.filter((r) => !r.ok).length;
+
+      if (failedCount > 0) {
+        alert(`${count - failedCount} of ${count} playbooks deleted successfully.\n${failedCount} failed - check console for details.`);
+      } else {
+        alert(`Successfully deleted ${count} playbook${count > 1 ? 's' : ''}!`);
+      }
+
+      // Remove deleted plays from local state
+      setPlays((prev) => {
+        const newPlays = prev.filter((p) => !selectedPlayIds.has(p.id));
+        if (newPlays.length > 0 && !newPlays.find((p) => p.id === selectedPlayId)) {
+          setSelectedPlayId(newPlays[0].id);
+        } else if (newPlays.length === 0) {
+          setSelectedPlayId(null);
+        }
+        return newPlays;
+      });
+
+      // Clear selection and exit multi-select mode
+      setSelectedPlayIds(new Set());
+      setIsMultiSelectMode(false);
+    } catch (err: any) {
+      console.error('[Delete Selected] Error:', err);
+      alert(`Failed to delete playbooks: ${err.message}\n\nCheck console for details.`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="h-full w-full bg-[#0A0A0A] flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
+          <span className="text-sm text-slate-400">Loading play library...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex bg-[#0A0A0A]">
+      {/* Left Sidebar: Play List */}
+      <aside className="flex w-80 flex-col border-r border-[#1B1E20] bg-[#0A0A0A]">
+        {/* Header */}
+        <div className="border-b border-[#1B1E20] px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+              Play Library
+            </h2>
+            <span className="rounded bg-[#1B1E20] px-2 py-0.5 text-xs font-medium text-slate-500">
+              {plays.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              onClick={onFileUpload}
+              className="bg-[#00F6E5] text-black font-bold px-3 py-2.5 rounded-lg hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] flex items-center justify-center gap-1.5 text-xs"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              FILE UPLOAD
+            </button>
+            <button
+              onClick={onCreatePlay}
+              className="bg-[#A855F7] text-white font-bold px-3 py-2.5 rounded-lg hover:bg-[#9333EA] transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] flex items-center justify-center gap-1.5 text-xs"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+              CREATE PLAY
+            </button>
+          </div>
+
+          {/* Multi-select controls */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleToggleMultiSelect}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                isMultiSelectMode
+                  ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
+                  : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]/70'
+              }`}
+            >
+              {isMultiSelectMode ? `Selected (${selectedPlayIds.size})` : 'Multi-Select'}
+            </button>
+            {isMultiSelectMode && (
+              <>
+                <button
+                  onClick={handleGenerateUnifiedPlay}
+                  disabled={selectedPlayIds.size === 0 || isGenerating}
+                  className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#00F6E5] text-black hover:bg-[#3DF3FF] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
+                  title="Generate one unified play from all selected files"
+                >
+                  {isGenerating ? 'Generating...' : 'Unified Play'}
+                </button>
+                <button
+                  onClick={handleGenerateMultiplePlays}
+                  disabled={selectedPlayIds.size === 0 || isGenerating}
+                  className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#A855F7] text-white hover:bg-[#9333EA] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(168,85,247,0.3)]"
+                  title="Generate separate plays for each selected file"
+                >
+                  {isGenerating ? 'Generating...' : 'Batch'}
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={selectedPlayIds.size === 0}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-red-900/20 text-red-400 hover:bg-red-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Tag filters (only in multi-select mode) */}
+          {isMultiSelectMode && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Filter by Tag</span>
+                {selectedTagFilter && (
+                  <button
+                    onClick={handleSelectAllFiltered}
+                    className="text-xs text-[#00F6E5] hover:text-[#3DF3FF] font-medium"
+                  >
+                    Select All {selectedTagFilter}
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {PLAYBOOK_TAGS.map((tag) => {
+                  const playCount = plays.filter((p) => p.metadata?.tags?.includes(tag)).length;
+                  if (playCount === 0) return null;
+                  return (
+                    <button
+                      key={tag}
+                      onClick={() => handleTagFilterClick(tag)}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                        selectedTagFilter === tag
+                          ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]/70'
+                      }`}
+                    >
+                      {tag} ({playCount})
+                    </button>
+                  );
+                })}
+              </div>
+              {filteredPlays.length < plays.length && (
+                <p className="text-xs text-slate-500">
+                  Showing {filteredPlays.length} of {plays.length} plays
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Play List */}
+        <div className="flex-1 overflow-y-auto p-2">
+          {plays.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <p className="text-sm text-slate-500 mb-2">No plays found</p>
+              <p className="text-xs text-slate-600">Upload plays to get started</p>
+            </div>
+          ) : filteredPlays.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <p className="text-sm text-slate-500 mb-2">No plays with this tag</p>
+              <button
+                onClick={() => setSelectedTagFilter(null)}
+                className="text-xs text-[#00F6E5] hover:text-[#3DF3FF] mt-1"
+              >
+                Clear filter
+              </button>
+            </div>
+          ) : (
+            filteredPlays.map((play) => (
+              <div
+                key={play.id}
+                className={`group mb-1 w-full rounded-lg px-3 py-2.5 transition-all ${
+                  play.id === selectedPlayId
+                    ? "bg-[#00F6E5]/10 ring-1 ring-[#00F6E5]/30"
+                    : "hover:bg-[#1B1E20]/50"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  {isMultiSelectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedPlayIds.has(play.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleTogglePlaySelection(play.id);
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-gray-600 bg-[#1B1E20] text-[#00F6E5] focus:ring-[#00F6E5] focus:ring-offset-0"
+                    />
+                  )}
+                  <button
+                    onClick={() => setSelectedPlayId(play.id)}
+                    className="flex-1 text-left"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`truncate text-sm font-semibold ${
+                            play.id === selectedPlayId ? "text-[#00F6E5]" : "text-white"
+                          }`}
+                        >
+                          {play.name || "Untitled Play"}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {play.metadata?.formation_name || "Unknown"} • {formatDate(play.uploadedAt)}
+                        </p>
+                        {play.metadata?.tags && play.metadata.tags.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {play.metadata.tags.slice(0, 3).map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-block px-1.5 py-0.5 bg-[#1B1E20] text-[10px] text-slate-400 rounded"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {play.metadata.tags.length > 3 && (
+                              <span className="inline-block px-1.5 py-0.5 text-[10px] text-slate-500">
+                                +{play.metadata.tags.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {!isMultiSelectMode && play.id === selectedPlayId && (
+                        <div className="ml-2 mt-1 h-2 w-2 shrink-0 rounded-full bg-[#00F6E5]" />
+                      )}
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto">
+        {!selectedPlay ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-slate-500">Select a play to view details</p>
+          </div>
+        ) : (
+          <div className="p-6">
+            {/* Header with Actions */}
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  {selectedPlay.name || "Untitled Play"}
+                </h1>
+                <p className="mt-1 text-sm text-slate-400">
+                  Uploaded {formatDate(selectedPlay.uploadedAt)}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleGenerateContent}
+                  disabled={isGenerating}
+                  className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(0,246,229,0.3)]"
+                >
+                  {isGenerating ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                      </svg>
+                      Generate AI Content
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleDeletePlay}
+                  className="flex items-center gap-1.5 rounded-lg bg-red-900/20 px-3 py-2 text-xs font-semibold text-red-400 transition-colors hover:bg-red-900/30"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            {/* Play Preview */}
+            <div className="mb-6 rounded-lg border border-[#1B1E20] bg-[#0d1117] overflow-hidden">
+              {selectedPlay.type === 'built-play' && selectedPlay.metadata?.play_data ? (
+                // Built play - render visually
+                <div className="p-6">
+                  <PlayRenderer playData={selectedPlay.metadata.play_data} className="max-h-[500px]" />
+                </div>
+              ) : selectedPlay.type === 'image' ? (
+                // Uploaded image
+                <img
+                  src={selectedPlay.url}
+                  alt={selectedPlay.name}
+                  className="w-full h-auto max-h-[500px] object-contain"
+                />
+              ) : (
+                // PDF document
+                <div className="flex items-center justify-center h-64 text-slate-400">
+                  <div className="text-center">
+                    <svg className="mx-auto h-12 w-12 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                    <p className="text-sm">PDF Document</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Success Message */}
+            {updateSuccess && (
+              <div className="mb-4 rounded-lg bg-green-900/20 border border-green-500/30 px-4 py-2 text-sm text-green-400">
+                Metadata updated successfully
+              </div>
+            )}
+
+            {/* Metadata Form */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Play Metadata</h2>
+
+              {/* Formation & Concept */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Formation
+                  </label>
+                  <input
+                    type="text"
+                    value={(getCurrentMetadataValue('formation_name') as string) || ""}
+                    onChange={(e) =>
+                      handleMetadataChange({ formation_name: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                    placeholder="Formation name..."
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Concept
+                  </label>
+                  <input
+                    type="text"
+                    value={(getCurrentMetadataValue('concept_name') as string) || ""}
+                    onChange={(e) =>
+                      handleMetadataChange({ concept_name: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                    placeholder="Concept name..."
+                  />
+                </div>
+              </div>
+
+              {/* Side of Ball & Content Type */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Side of Ball
+                  </label>
+                  <select
+                    value={(getCurrentMetadataValue('side_of_ball') as string) || ""}
+                    onChange={(e) => {
+                      // When side of ball changes, reset position_relevance to 'all'
+                      handleMetadataChange({
+                        side_of_ball: e.target.value as any,
+                        position_relevance: ['all'],
+                      });
+                    }}
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  >
+                    <option value="">Select...</option>
+                    <option value="offense">Offense</option>
+                    <option value="defense">Defense</option>
+                    <option value="special_teams">Special Teams</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Content Type
+                  </label>
+                  <select
+                    value={(getCurrentMetadataValue('content_type') as string) || ""}
+                    onChange={(e) =>
+                      handleMetadataChange({ content_type: e.target.value as any })
+                    }
+                    className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  >
+                    <option value="">Select...</option>
+                    <option value="full_playbook">Full Playbook</option>
+                    <option value="single_play">Single Play</option>
+                    <option value="formation">Formation</option>
+                    <option value="concept">Concept</option>
+                    <option value="coverage">Coverage</option>
+                    <option value="notes">Notes</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Level */}
+              {/* <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Level
+                </label>
+                <select
+                  value={(getCurrentMetadataValue('level') as string) || ""}
+                  onChange={(e) =>
+                    handleMetadataChange({ level: e.target.value as any })
+                  }
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                >
+                  <option value="">Select...</option>
+                  <option value="high_school">High School</option>
+                  <option value="college">College</option>
+                  <option value="pro">Pro</option>
+                </select>
+              </div> */}
+
+              {/* Position Relevance */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Position Relevance
+                  {!getCurrentMetadataValue('side_of_ball') && (
+                    <span className="ml-2 text-xs text-amber-400 normal-case">Select "Side of Ball" first</span>
+                  )}
+                </label>
+                {getCurrentMetadataValue('side_of_ball') ? (
+                  <div className="flex flex-wrap gap-2">
+                    {/* "All" button */}
+                    <button
+                      onClick={() => {
+                        handleMetadataChange({ position_relevance: ['all'] });
+                      }}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase transition-all ${
+                        ((getCurrentMetadataValue('position_relevance') as string[]) || ["all"]).includes('all')
+                          ? "bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30"
+                          : "bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]"
+                      }`}
+                    >
+                      ALL
+                    </button>
+
+                    {/* Positions for selected side of ball */}
+                    {getPositionsForSideOfBall(getCurrentMetadataValue('side_of_ball') as SideOfBall).map((pos) => {
+                      const currentPositions = (getCurrentMetadataValue('position_relevance') as string[]) || ["all"];
+                      const isSelected = currentPositions.includes(pos) || currentPositions.includes('all');
+                      const posInfo = ALL_POSITIONS[pos];
+
+                      return (
+                        <button
+                          key={pos}
+                          onClick={() => {
+                            const updated = isSelected && !currentPositions.includes('all')
+                              ? currentPositions.filter((p) => p !== pos)
+                              : [...currentPositions.filter((p) => p !== "all"), pos];
+                            handleMetadataChange({
+                              position_relevance: updated.length === 0 ? ["all"] : updated,
+                            });
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase transition-all ${
+                            isSelected
+                              ? "bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30"
+                              : "bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]"
+                          }`}
+                          title={posInfo?.name || pos}
+                        >
+                          {pos}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-4 py-3 text-center text-sm text-slate-500">
+                    Please select a "Side of Ball" to choose position relevance
+                  </div>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Tags
+                  <span className="ml-2 text-xs text-slate-500 font-normal normal-case">(Organize files for multi-file generation)</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {PLAYBOOK_TAGS.map((tag) => {
+                    const currentTags = (getCurrentMetadataValue('tags') as PlaybookTag[]) || [];
+                    const isSelected = currentTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => {
+                          const updated = isSelected
+                            ? currentTags.filter((t) => t !== tag)
+                            : [...currentTags, tag];
+                          handleMetadataChange({ tags: updated });
+                        }}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                          isSelected
+                            ? "bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30"
+                            : "bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]"
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Tags help organize files for multi-file assignment generation. Select multiple files with the same tags to create comprehensive assignments.
+                </p>
+              </div>
+
+              {/* Additional Information / Custom Notes */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Additional Information
+                  <span className="ml-2 text-xs text-slate-500 font-normal normal-case">(Helps AI generate better content)</span>
+                </label>
+                <textarea
+                  value={(getCurrentMetadataValue('custom_notes') as string) || ""}
+                  onChange={(e) =>
+                    handleMetadataChange({ custom_notes: e.target.value })
+                  }
+                  rows={6}
+                  className="w-full resize-none rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white transition-all focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  placeholder="Add detailed context: QB progressions, protection schemes, route details, blocking assignments, reads, adjustments, etc. This information helps the AI generate more accurate and detailed content."
+                />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Providing detailed information here will help the AI generate more accurate assignments, insights, and quiz questions when you click "Generate AI Content".
+                </p>
+              </div>
+
+              {/* Save Button - Only shown when there are unsaved changes */}
+              {hasUnsavedChanges && (
+                <div className="flex items-center gap-3 pt-4 border-t border-[#1B1E20]">
+                  <button
+                    onClick={handleSaveMetadata}
+                    className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-6 py-2.5 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Save Changes
+                  </button>
+                  <span className="text-xs text-slate-400">
+                    You have unsaved changes
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Review Modal */}
+      {showReviewModal && (generatedContent || generatedContents.length > 0) && (
+        <PlayContentReviewModal
+          content={generatedContent}
+          playName={selectedPlay?.name || 'Untitled Play'}
+          imageUrl={selectedPlay?.url}
+          playData={selectedPlay?.metadata?.play_data}
+          isBuiltPlay={selectedPlay?.type === 'built-play' || selectedPlay?.isBuiltPlay}
+          multipleContents={generatedContents.length > 0 ? generatedContents : undefined}
+          onClose={() => {
+            setShowReviewModal(false);
+            setGeneratedContent(null);
+          }}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onSaveDraft={handleSaveDraft}
+        />
+      )}
+
+      {/* Generation Prompt Modal */}
+      {showGenerationPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#0F1419] border border-[#1E2732] rounded-2xl shadow-2xl w-full max-w-lg mx-4">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[#1E2732]">
+              <h3 className="text-xl font-bold text-white">
+                {generationType === 'unified' ? 'Generate Unified Play' : 'Generate AI Content'}
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                {generationType === 'unified'
+                  ? `You've selected ${selectedPlayIds.size} files. Describe the play you want to create from these images.`
+                  : 'Provide instructions to guide the AI in analyzing this play.'
+                }
+              </p>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              {/* Selected Files - Only show for unified generation */}
+              {generationType === 'unified' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    Selected Files
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {plays.filter((p) => selectedPlayIds.has(p.id)).map((play) => (
+                      <div
+                        key={play.id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-[#1E2732] rounded-lg text-xs"
+                      >
+                        <span className="text-white font-medium truncate max-w-[150px]" title={play.name}>
+                          {play.name}
+                        </span>
+                        {play.metadata?.tags && play.metadata.tags.length > 0 && (
+                          <span className="text-[#00F6E5] text-[10px]">
+                            {play.metadata.tags.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Generation Instructions */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  <span className="text-[#00F6E5]">★</span> Instructions for AI Analysis
+                  <span className="ml-2 text-xs text-slate-500 font-normal normal-case">(Optional but highly recommended)</span>
+                </label>
+                <textarea
+                  value={generationNotes}
+                  onChange={(e) => setGenerationNotes(e.target.value)}
+                  placeholder={generationType === 'unified'
+                    ? "Example: 'These images show a Trips formation running Mesh concept. The first image is the base play, the second shows protection adjustments vs blitz, and the third is the route tree with hot routes.'"
+                    : "Example: 'This is a Cover 3 defense. Focus on the deep thirds responsibilities and flat zone coverage. The image shows both base alignment and cloud/sky adjustments.'"
+                  }
+                  rows={5}
+                  className="w-full px-3 py-2 bg-[#1E2732] border border-[#2A3440] rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[#00F6E5]/50 focus:ring-2 focus:ring-[#00F6E5]/10 resize-none"
+                  autoFocus
+                />
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-[#00F6E5] font-semibold">
+                    💡 This message is VERY important to the AI
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Explain what the {generationType === 'unified' ? 'images contain' : 'image contains'}, the type of content (single play, glossary, formation variations, protection schemes, etc.), and what you want the AI to focus on when analyzing.
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {generationType === 'unified'
+                      ? 'Since you selected multiple files, describe how they relate to each other and what unified play should be created.'
+                      : 'Be specific about formation, concept, coverages, and any special details you want captured in the assignments.'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[#1E2732] flex items-center justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowGenerationPrompt(false);
+                  setGenerationNotes('');
+                }}
+                className="px-4 py-2 rounded-lg bg-[#1E2732] text-slate-300 font-semibold hover:bg-[#2A3440] transition-all"
+                disabled={isGenerating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (generationType === 'unified') {
+                    executeUnifiedGeneration(generationNotes);
+                  } else {
+                    executeSingleGeneration(generationNotes);
+                  }
+                }}
+                className="px-6 py-2 rounded-lg bg-[#00F6E5] text-black font-bold hover:bg-[#3DF3FF] transition-all shadow-[0_0_15px_rgba(0,246,229,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isGenerating}
+              >
+                {isGenerating ? 'Generating...' : 'Generate Content'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Icon component
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+
+
+
+

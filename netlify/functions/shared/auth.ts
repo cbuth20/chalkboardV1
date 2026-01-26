@@ -1,0 +1,240 @@
+/**
+ * Authentication & Authorization Middleware
+ * Enforces organization-scoped RBAC
+ */
+
+import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
+import { getSupabaseClient, getSupabaseAdmin } from './supabase';
+import { AuthError, ForbiddenError, ValidationError, formatErrorResponse } from './errors';
+import { validateUUID } from './validators';
+
+export type UserRole = 'admin' | 'coach' | 'player';
+
+export interface AuthenticatedUser {
+  userId: string;
+  authId: string;
+  orgId: string;
+  role: UserRole;
+  teamId: string | null;
+  email: string;
+}
+
+export interface AuthenticatedEvent extends HandlerEvent {
+  user: AuthenticatedUser;
+}
+
+/**
+ * Extract JWT token from Authorization header
+ */
+function extractToken(event: HandlerEvent): string | null {
+  const authHeader = event.headers.authorization || event.headers.Authorization;
+  if (!authHeader) {
+    return null;
+  }
+
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+    return null;
+  }
+
+  return parts[1];
+}
+
+/**
+ * Extract orgId from request (body or query params)
+ */
+function extractOrgId(event: HandlerEvent): string | null {
+  // Try query params first
+  if (event.queryStringParameters?.orgId) {
+    return event.queryStringParameters.orgId;
+  }
+
+  // Try body
+  if (event.body) {
+    try {
+      const body = JSON.parse(event.body);
+      if (body.orgId) {
+        return body.orgId;
+      }
+    } catch {
+      // Invalid JSON, will be caught by validation later
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Role hierarchy for permission checks
+ * Higher number = more permissions
+ */
+const ROLE_HIERARCHY: Record<UserRole, number> = {
+  admin: 3,
+  coach: 2,
+  player: 1,
+};
+
+/**
+ * Check if user has required role or higher
+ */
+function hasPermission(userRole: UserRole, requiredRole: UserRole): boolean {
+  return ROLE_HIERARCHY[userRole] >= ROLE_HIERARCHY[requiredRole];
+}
+
+/**
+ * Middleware: Authenticate user and verify org membership
+ * @param requiredRole - Minimum role required (admin, coach, player)
+ * @param requireOrgId - Whether orgId must be present in request (default: true)
+ */
+export function withOrgAuth(
+  requiredRole: UserRole = 'player',
+  requireOrgId: boolean = true
+) {
+  return (handler: (event: AuthenticatedEvent, context: HandlerContext) => Promise<any>): Handler => {
+    return async (event: HandlerEvent, context: HandlerContext) => {
+      try {
+        // 1. Extract JWT token
+        const token = extractToken(event);
+        if (!token) {
+          throw new AuthError('Missing authorization token');
+        }
+
+        // 2. Verify token with Supabase
+        const supabase = getSupabaseClient(token);
+        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+
+        if (authError || !authUser) {
+          throw new AuthError('Invalid or expired token');
+        }
+
+        // 3. Extract orgId from request
+        const orgId = extractOrgId(event);
+        if (requireOrgId && !orgId) {
+          throw new ValidationError('orgId is required', 'orgId');
+        }
+
+        if (orgId) {
+          validateUUID(orgId, 'orgId');
+        }
+
+        // 4. Get user's org membership (if orgId provided)
+        let membership: any = null;
+        if (orgId) {
+          const supabaseAdmin = getSupabaseAdmin();
+
+          // First, get the user's internal ID from the users table
+          const { data: userData, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('id, email')
+            .eq('auth_id', authUser.id)
+            .single();
+
+          if (userError || !userData) {
+            throw new AuthError('User not found in database');
+          }
+
+          // Now get the org membership using the user's internal ID
+          const { data, error } = await supabaseAdmin
+            .from('org_memberships')
+            .select(`
+              id,
+              role,
+              team_id,
+              is_active
+            `)
+            .eq('org_id', orgId)
+            .eq('user_id', userData.id)
+            .eq('is_active', true)
+            .single();
+
+          if (error || !data) {
+            throw new ForbiddenError('You are not a member of this organization');
+          }
+
+          membership = {
+            ...data,
+            user: userData
+          };
+        } else {
+          // No orgId required, just get user info
+          const supabaseAdmin = getSupabaseAdmin();
+          const { data: userData, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('id, email')
+            .eq('auth_id', authUser.id)
+            .single();
+
+          if (userError || !userData) {
+            throw new AuthError('User not found in database');
+          }
+
+          membership = {
+            user: userData,
+            role: 'player', // Default role if no org context
+            team_id: null,
+          };
+        }
+
+        // 5. Check role permissions
+        const userRole = membership.role as UserRole;
+        if (!hasPermission(userRole, requiredRole)) {
+          throw new ForbiddenError(
+            `This action requires ${requiredRole} role or higher. You have ${userRole} role.`
+          );
+        }
+
+        // 6. Attach authenticated user to event
+        const authenticatedEvent: AuthenticatedEvent = {
+          ...event,
+          user: {
+            userId: membership.user.id,
+            authId: authUser.id,
+            orgId: orgId || '',
+            role: userRole,
+            teamId: membership.team_id,
+            email: membership.user.email,
+          },
+        };
+
+        // 7. Call the handler with authenticated event
+        return await handler(authenticatedEvent, context);
+      } catch (error) {
+        // Format and return error
+        return formatErrorResponse(error);
+      }
+    };
+  };
+}
+
+/**
+ * Middleware: Only allow service role (for background jobs)
+ */
+export function withServiceAuth() {
+  return (handler: Handler): Handler => {
+    return async (event: HandlerEvent, context: HandlerContext) => {
+      try {
+        // Check if request is from a Netlify background function
+        // or has the service role key in headers (for testing)
+        const serviceKey = event.headers['x-service-key'];
+        if (serviceKey !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          throw new ForbiddenError('This endpoint is only accessible to background jobs');
+        }
+
+        return await handler(event, context);
+      } catch (error) {
+        return formatErrorResponse(error);
+      }
+    };
+  };
+}
+
+/**
+ * Helper: Get user from event (after withOrgAuth middleware)
+ */
+export function getAuthenticatedUser(event: HandlerEvent): AuthenticatedUser {
+  const authEvent = event as AuthenticatedEvent;
+  if (!authEvent.user) {
+    throw new AuthError('User not authenticated. Use withOrgAuth middleware first.');
+  }
+  return authEvent.user;
+}

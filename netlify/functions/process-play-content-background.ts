@@ -233,6 +233,7 @@ export const handler: Handler = async (event, context) => {
 
           return {
             play_id: playId,
+            org_id: play.org_id, // Explicitly set org_id for proper scoping
             position: normalizedPosition,
             alignment: posData.alignment || '',
             landmark: posData.landmark || '',
@@ -274,6 +275,7 @@ export const handler: Handler = async (event, context) => {
     if (knowledgeCards.length > 0 && generateKnowledge) {
       const flashcardRecords = knowledgeCards.map((card, index) => ({
         play_id: playId,
+        org_id: play.org_id, // Explicitly set org_id for proper scoping
         position: 'QB', // Knowledge cards aren't position-specific, but field is required
         category: card.category || 'play_concept',
         question_prompt: card.question,
@@ -308,9 +310,15 @@ export const handler: Handler = async (event, context) => {
       );
 
       if (assignmentFlashcards.length > 0) {
+        // Add org_id to all assignment flashcards for proper scoping
+        const flashcardsWithOrgId = assignmentFlashcards.map((fc) => ({
+          ...fc,
+          org_id: play.org_id,
+        }));
+
         const { data: insertedAssignmentCards, error: assignmentCardsError } = await supabase
           .from('flashcard_templates')
-          .insert(assignmentFlashcards)
+          .insert(flashcardsWithOrgId)
           .select();
 
         if (assignmentCardsError) {

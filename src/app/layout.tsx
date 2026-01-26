@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { PlaysProvider } from "@/contexts/PlaysContext";
 import { AssignmentGenerationProvider } from "@/contexts/AssignmentGenerationContext";
+import { UnhandledRejectionGuard } from "@/components/UnhandledRejectionGuard";
 
 const rajdhani = Rajdhani({
   weight: ["300", "400", "500", "600", "700"],
@@ -41,6 +42,7 @@ export default function RootLayout({
       <body
         className={`${rajdhani.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
+        <UnhandledRejectionGuard />
         <AuthProvider>
           <OnboardingProvider>
             <PlaysProvider>

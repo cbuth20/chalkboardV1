@@ -36,14 +36,21 @@ const ALL_POSITIONS: SkillPosition[] = [
   ...POSITIONS_BY_CATEGORY['special-teams']
 ];
 
+interface Team {
+  id: string;
+  name: string;
+}
+
 export default function AssignmentLibraryPage() {
-  const { teamId, loading: authLoading } = useAuth();
+  const { orgId, teamId: userTeamId, loading: authLoading } = useAuth();
   const { mode } = useMode();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPositionCategory, setFilterPositionCategory] = useState<PositionCategory | 'all'>('all');
   const [filterPosition, setFilterPosition] = useState<SkillPosition | 'all'>('all');
+  const [filterTeamId, setFilterTeamId] = useState<string>('all'); // Team filter
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [showCreator, setShowCreator] = useState(false);
@@ -53,23 +60,51 @@ export default function AssignmentLibraryPage() {
   const [isQuizExpanded, setIsQuizExpanded] = useState(false); // Collapsed by default
   const [reviewFlashcards, setReviewFlashcards] = useState<any[]>([]);
 
-  // Fetch assignments
+  // Fetch teams for filtering
   useEffect(() => {
-    console.log('[Coach Assignments] useEffect triggered - teamId:', teamId, 'authLoading:', authLoading);
-    if (teamId) {
+    if (orgId) {
+      fetchTeams();
+    }
+  }, [orgId]);
+
+  // Fetch assignments when orgId or filterTeamId changes
+  useEffect(() => {
+    console.log('[Coach Assignments] useEffect triggered - orgId:', orgId, 'authLoading:', authLoading);
+    if (orgId) {
       fetchAssignments();
     } else if (!authLoading) {
-      // Auth is done loading but no teamId - stop loading
-      console.warn('[Coach Assignments] No teamId and auth loading complete');
+      // Auth is done loading but no orgId - stop loading
+      console.warn('[Coach Assignments] No orgId and auth loading complete');
       setLoading(false);
     }
-  }, [teamId, authLoading]);
+  }, [orgId, authLoading, filterTeamId]);
+
+  const fetchTeams = async () => {
+    try {
+      console.log('[Coach Assignments] Fetching teams for orgId:', orgId);
+      const response = await fetch(`/api/organizations/${orgId}/teams`);
+      if (response.ok) {
+        const data = await response.json();
+        setTeams(data.teams || []);
+        console.log('[Coach Assignments] Teams loaded:', data.teams?.length || 0);
+      }
+    } catch (error) {
+      console.error('[Coach Assignments] Error fetching teams:', error);
+    }
+  };
 
   const fetchAssignments = async () => {
     try {
       setLoading(true);
-      console.log('[Coach Assignments] Fetching assignments for teamId:', teamId);
-      const response = await fetch(`/api/coach/assignments?teamId=${teamId}`);
+      console.log('[Coach Assignments] Fetching assignments for orgId:', orgId, 'teamFilter:', filterTeamId);
+
+      // Build query params
+      const params = new URLSearchParams({ orgId: orgId! });
+      if (filterTeamId && filterTeamId !== 'all') {
+        params.append('teamId', filterTeamId);
+      }
+
+      const response = await fetch(`/api/coach/assignments?${params}`);
       console.log('[Coach Assignments] Response status:', response.status);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -90,7 +125,7 @@ export default function AssignmentLibraryPage() {
   // Fetch quiz questions automatically when assignment is selected
   const loadQuizQuestions = useCallback(async (playId: string, position: SkillPosition) => {
     try {
-      const response = await fetch(`/api/get-approved-plays?teamId=${teamId}&playId=${playId}&type=assignment-flashcards&position=${position}`);
+      const response = await fetch(`/api/get-approved-plays?orgId=${orgId}&playId=${playId}&type=assignment-flashcards&position=${position}`);
       if (!response.ok) throw new Error('Failed to fetch flashcards');
 
       const data = await response.json();
@@ -99,15 +134,15 @@ export default function AssignmentLibraryPage() {
       console.error('Failed to load quiz questions:', error);
       setReviewFlashcards([]);
     }
-  }, [teamId]);
+  }, [orgId]);
 
   // Load quiz questions when assignment is selected
   useEffect(() => {
-    if (showEditor && selectedAssignment && teamId) {
+    if (showEditor && selectedAssignment && orgId) {
       loadQuizQuestions(selectedAssignment.play_id, selectedAssignment.position);
       setIsQuizExpanded(false); // Collapsed by default
     }
-  }, [showEditor, selectedAssignment, teamId, loadQuizQuestions]);
+  }, [showEditor, selectedAssignment, orgId, loadQuizQuestions]);
 
   // Delete single assignment
   const handleDeleteAssignment = async (assignmentId: string) => {
@@ -263,8 +298,8 @@ export default function AssignmentLibraryPage() {
           <div className="text-center">
             <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
             <p className="text-slate-400">Loading...</p>
-            {!teamId && (
-              <p className="text-xs text-red-400 mt-2">No team ID found - check authentication</p>
+            {!orgId && (
+              <p className="text-xs text-red-400 mt-2">No organization ID found - check authentication</p>
             )}
           </div>
         </div>
@@ -272,8 +307,8 @@ export default function AssignmentLibraryPage() {
     );
   }
 
-  // Show error if no teamId
-  if (!authLoading && !loading && !teamId) {
+  // Show error if no orgId
+  if (!authLoading && !loading && !orgId) {
     return (
       <SidebarLayout>
         <div className="flex items-center justify-center h-screen">
@@ -281,10 +316,10 @@ export default function AssignmentLibraryPage() {
             <div className="text-red-400 text-5xl mb-4">⚠️</div>
             <h2 className="text-xl font-bold text-white mb-2">Authentication Issue</h2>
             <p className="text-slate-400 mb-4">
-              No team ID found. Please sign in or check your browser console for errors.
+              No organization found. Please sign in or check your browser console for errors.
             </p>
             <p className="text-xs text-slate-500">
-              Team ID: {teamId || 'null'} | Auth Loading: {authLoading.toString()}
+              Org ID: {orgId || 'null'} | Auth Loading: {authLoading.toString()}
             </p>
           </div>
         </div>
@@ -378,6 +413,20 @@ export default function AssignmentLibraryPage() {
                 className="w-full px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
               />
             </div>
+
+            {/* Team Filter */}
+            {teams.length > 0 && (
+              <select
+                value={filterTeamId}
+                onChange={(e) => setFilterTeamId(e.target.value)}
+                className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2F35] text-white focus:outline-none focus:ring-2 focus:ring-[#00F6E5]"
+              >
+                <option value="all">All Teams</option>
+                {teams.map(team => (
+                  <option key={team.id} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            )}
 
             {/* Position Category Filter */}
             <select

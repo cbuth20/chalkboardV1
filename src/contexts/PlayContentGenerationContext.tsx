@@ -1,11 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import {
-  getCreatePlayRecordApiUrl,
-  getProcessPlayContentApiUrl,
-  getCheckPlayStatusApiUrl
-} from '@/lib/api-config';
+import { useAuth } from '@/contexts/AuthContext';
+import { playsAPI, CreatePlayRequest } from '@/lib/api/plays';
 
 interface PlayMetadata {
   id: string;
@@ -13,7 +10,7 @@ interface PlayMetadata {
   name: string;
   url: string;
   metadataId?: string;
-  teamId?: string;
+  orgId?: string;
 }
 
 interface GeneratedPlayContent {
@@ -34,7 +31,7 @@ interface PlayContentGenerationContextType {
   };
   error: string | null;
   generatedContents: GeneratedPlayContent[];
-  startGeneration: (plays: PlayMetadata[], teamId: string) => Promise<void>;
+  startGeneration: (plays: PlayMetadata[]) => Promise<void>;
   reset: () => void;
 }
 
@@ -49,6 +46,7 @@ export function usePlayContentGeneration() {
 }
 
 export function PlayContentGenerationProvider({ children }: { children: React.ReactNode }) {
+  const { session, orgId } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -56,10 +54,16 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
   const [generatedContents, setGeneratedContents] = useState<GeneratedPlayContent[]>([]);
   const isGeneratingRef = useRef(false);
 
-  const startGeneration = useCallback(async (plays: PlayMetadata[], teamId: string) => {
+  const startGeneration = useCallback(async (plays: PlayMetadata[]) => {
     // Prevent duplicate runs
     if (isGeneratingRef.current) {
-      console.log('Generation already in progress, skipping');
+      console.log('[PlayContentGeneration] Already in progress, skipping');
+      return;
+    }
+
+    if (!session?.access_token || !orgId) {
+      console.error('[PlayContentGeneration] Missing auth credentials');
+      setError('Not authenticated. Please sign in.');
       return;
     }
 
@@ -71,131 +75,90 @@ export function PlayContentGenerationProvider({ children }: { children: React.Re
     setGeneratedContents([]);
 
     try {
-      const createUrl = getCreatePlayRecordApiUrl();
-      const processUrl = getProcessPlayContentApiUrl();
-      const statusUrl = getCheckPlayStatusApiUrl();
       const results: GeneratedPlayContent[] = [];
 
       for (let i = 0; i < plays.length; i++) {
         const play = plays[i];
 
         try {
-          console.log(`Generating content for play ${i + 1}/${plays.length}: ${play.name}`);
+          console.log(`[PlayContentGeneration] Processing play ${i + 1}/${plays.length}: ${play.name}`);
 
-          // Step 1: Create play record
-          const createResponse = await fetch(createUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              playbookMetadataId: play.metadataId,
-              imageUrl: play.url,
-              fileName: play.fileName,
-              teamId: teamId,
-            }),
-          });
+          // Step 1: Create play record using new API
+          const createData: CreatePlayRequest = {
+            orgId: orgId,
+            playbookMetadataId: play.metadataId || '',
+            name: play.name,
+            triggerProcessing: true, // Trigger AI processing immediately
+          };
 
-          if (!createResponse.ok) {
-            const errorData = await createResponse.json().catch(() => ({}));
-            console.error('Failed to create play record:', {
-              play: play.name,
-              status: createResponse.status,
-              statusText: createResponse.statusText,
-              error: errorData
-            });
-            throw new Error(`Failed to create play record for ${play.name}: ${errorData.error || createResponse.statusText}`);
+          const createResponse = await playsAPI.createPlay(createData, session.access_token);
+          const playId = createResponse.playId;
+          console.log(`[PlayContentGeneration] Play created with ID: ${playId}`);
+
+          // Step 2: Poll for completion
+          // The new API triggers processing automatically, so we just need to poll
+          let attempts = 0;
+          const maxAttempts = 300; // 15 minutes
+          let complete = false;
+
+          while (!complete && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+            attempts++;
+
+            try {
+              const statusData = await playsAPI.getPlay(playId, session.access_token, {
+                orgId,
+                includeAssignments: true,
+                includeFlashcards: true,
+              });
+
+              console.log(`[PlayContentGeneration] Poll ${attempts}: Status = ${statusData.play.contentStatus}`);
+
+              if (statusData.play.contentStatus === 'draft' || statusData.play.contentStatus === 'approved') {
+                // Generation complete (draft = ready for review, approved = already reviewed)
+                complete = true;
+                results.push({
+                  playId: statusData.play.id,
+                  playMetadataId: play.metadataId || '',
+                  fileName: play.fileName,
+                  playName: play.name,
+                  imageUrl: play.url,
+                  content: statusData,
+                });
+              } else if (statusData.play.contentStatus === 'rejected') {
+                throw new Error(`Generation failed for ${play.name}`);
+              }
+              // If status is 'generating', continue polling
+            } catch (pollError) {
+              console.error(`[PlayContentGeneration] Polling error:`, pollError);
+              // Continue polling even if there's an error
+            }
           }
 
-          const createData = await createResponse.json();
-          const playId = createData.playId;
-          console.log(`Play record created with ID: ${playId}`);
-
-          // Check if we're on localhost (where everything is done in one call)
-          const isLocalhost = typeof window !== 'undefined' &&
-                            (window.location.hostname === 'localhost' ||
-                             window.location.hostname === '127.0.0.1');
-
-          if (isLocalhost) {
-            // On localhost, the endpoint does everything in one call
-            // No need for Step 2 or Step 3
-            results.push({
-              playId: playId,
-              playMetadataId: play.metadataId || '',
-              fileName: play.fileName,
-              playName: play.name,
-              imageUrl: play.url,
-              content: createData,
-            });
-          } else {
-            // On production, we need background processing
-
-            // Step 2: Trigger background processing
-            await fetch(processUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                playId,
-                imageUrl: play.url,
-                fileName: play.fileName,
-                generateInsights: true,
-                generateAssignments: true,
-                generateKnowledge: true,
-              }),
-            });
-
-            // Step 3: Poll for completion
-            let attempts = 0;
-            const maxAttempts = 300; // 15 minutes
-            let complete = false;
-
-            while (!complete && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
-              attempts++;
-
-              const statusResponse = await fetch(`${statusUrl}?playId=${playId}`);
-              if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-
-                if (statusData.status === 'draft') {
-                  complete = true;
-                  results.push({
-                    playId: statusData.playId,
-                    playMetadataId: play.metadataId || '',
-                    fileName: play.fileName,
-                    playName: play.name,
-                    imageUrl: play.url,
-                    content: statusData,
-                  });
-                } else if (statusData.status === 'rejected') {
-                  throw new Error(`Generation failed for ${play.name}`);
-                }
-              }
-            }
-
-            if (!complete) {
-              throw new Error(`Timeout waiting for ${play.name} to complete`);
-            }
+          if (!complete) {
+            throw new Error(`Timeout waiting for ${play.name} to complete`);
           }
 
           // Update progress
           setProgress({ current: i + 1, total: plays.length });
           setGeneratedContents([...results]);
         } catch (err) {
-          console.error(`Error generating content for ${play.name}:`, err);
+          console.error(`[PlayContentGeneration] Error generating content for ${play.name}:`, err);
           // Continue with next play instead of stopping completely
         }
       }
 
-      console.log(`Generation complete: ${results.length}/${plays.length} plays processed`);
+      console.log(`[PlayContentGeneration] Complete: ${results.length}/${plays.length} plays processed`);
       setIsComplete(true);
       setIsGenerating(false);
     } catch (err: any) {
-      console.error('Error during generation:', err);
+      console.error('[PlayContentGeneration] Error during generation:', err);
       setError(err.message || 'Failed to generate content');
       setIsGenerating(false);
     } finally {
       isGeneratingRef.current = false;
     }
-  }, []);
+  }, [session, orgId]);
 
   const reset = useCallback(() => {
     setIsGenerating(false);

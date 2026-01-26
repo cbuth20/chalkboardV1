@@ -10,6 +10,7 @@ import { PlayContentGenerationProvider } from '@/contexts/PlayContentGenerationC
 import { getPlaybooksApiUrl } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import { SidebarLayout } from '@/components/SidebarLayout';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER' | 'CREATE_PLAY';
 
@@ -20,6 +21,7 @@ interface SelectedFile {
 }
 
 export default function PlayRecognitionPage() {
+  const { orgId, loading: authLoading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>('LIBRARY');
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -35,7 +37,11 @@ export default function PlayRecognitionPage() {
 
   const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
-      const teamId = '00000000-0000-0000-0000-000000000000'; // TODO: Get from auth context
+      if (!orgId) {
+        alert('Authentication error. Please sign in.');
+        return;
+      }
+
       const apiUrl = getPlaybooksApiUrl();
 
       // Upload all files in parallel
@@ -47,7 +53,7 @@ export default function PlayRecognitionPage() {
             fileName: file.fileName,
             fileData: file.fileData,
             metadata: file.metadata,
-            teamId,
+            orgId,
           }),
         })
       );

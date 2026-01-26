@@ -5,7 +5,6 @@ import Link from "next/link";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { DEV_TEAM_ID } from "@/lib/constants";
 import { ChevronLeft, CheckCircle, XCircle } from "lucide-react";
 import { SkillPosition } from "@/lib/supabase/types/database";
 import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPositionCategory } from '@/lib/positions';
@@ -109,8 +108,7 @@ export default function AssignmentPage() {
 }
 
 function AssignmentTracker() {
-  const { userPositions, userRole, loading: authLoading } = useAuth();
-  const [teamId] = useState<string>(DEV_TEAM_ID);
+  const { userPositions, userRole, orgId, loading: authLoading } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("assignments");
 
   // Assignments data
@@ -143,21 +141,21 @@ function AssignmentTracker() {
 
   useEffect(() => {
     const fetchAssignments = async () => {
-      if (!teamId) return;
+      if (!orgId) return;
 
       try {
         setIsLoadingAssignments(true);
 
         if (userPositions.length === 0) {
           // No positions - fetch all assignments
-          const response = await fetch(`/api/coach/assignments?teamId=${teamId}`);
+          const response = await fetch(`/api/coach/assignments?orgId=${orgId}`);
           if (!response.ok) throw new Error('Failed to fetch assignments');
           const data = await response.json();
           setAssignments(data.assignments || []);
         } else {
           // Fetch assignments for all user positions
           const assignmentPromises = userPositions.map(pos =>
-            fetch(`/api/coach/assignments?teamId=${teamId}&position=${pos}`)
+            fetch(`/api/coach/assignments?orgId=${orgId}&position=${pos}`)
               .then(res => res.json())
           );
 
@@ -191,7 +189,7 @@ function AssignmentTracker() {
     if (!authLoading) {
       fetchAssignments();
     }
-  }, [teamId, userPositions, authLoading]);
+  }, [orgId, userPositions, authLoading]);
 
   // Update formations when assignments change
   useEffect(() => {
@@ -247,10 +245,15 @@ function AssignmentTracker() {
       return;
     }
 
+    if (!orgId) {
+      alert('Authentication error. Please sign in.');
+      return;
+    }
+
     try {
       // Fetch flashcards for this play and user positions
       const flashcardPromises = userPositions.map(pos =>
-        fetch(`/api/get-approved-plays?teamId=${teamId}&playId=${playId}&type=assignment-flashcards&position=${pos}`)
+        fetch(`/api/get-approved-plays?orgId=${orgId}&playId=${playId}&type=assignment-flashcards&position=${pos}`)
           .then(res => res.json())
       );
 
