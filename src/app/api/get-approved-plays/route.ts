@@ -11,15 +11,16 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const teamId = searchParams.get('teamId');
+    const orgId = searchParams.get('orgId');
     const playId = searchParams.get('playId');
     const type = searchParams.get('type') || 'all';
     const playType = searchParams.get('playType'); // PASS, RUN, RPO, etc.
     const formation = searchParams.get('formation');
     const position = searchParams.get('position'); // Filter by position visibility
 
-    if (!teamId) {
+    if (!teamId && !orgId) {
       return NextResponse.json(
-        { error: 'teamId is required' },
+        { error: 'teamId or orgId is required' },
         { status: 400 }
       );
     }
@@ -48,8 +49,16 @@ export async function GET(request: NextRequest) {
           custom_notes,
           file_paths
         )
-      `)
-      .eq('team_id', teamId)
+      `);
+
+    // Filter by org or team
+    if (orgId) {
+      playsQuery = playsQuery.eq('org_id', orgId);
+    } else if (teamId) {
+      playsQuery = playsQuery.eq('team_id', teamId);
+    }
+
+    playsQuery = playsQuery
       .eq('content_status', 'approved')
       .order('created_at', { ascending: false });
 

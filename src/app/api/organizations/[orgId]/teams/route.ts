@@ -7,10 +7,10 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { orgId: string } }
+  { params }: { params: Promise<{ orgId: string }> }
 ) {
   try {
-    const { orgId } = params;
+    const { orgId } = await params;
 
     if (!orgId) {
       return NextResponse.json(
