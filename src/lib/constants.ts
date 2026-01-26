@@ -45,10 +45,10 @@ export const FLASHCARD_CATEGORIES = {
 } as const;
 
 // API endpoints
+// NOTE: Most play-related endpoints have been migrated to Netlify functions
+// See /netlify/functions/ for new API architecture
 export const API_ENDPOINTS = {
-  PLAYBOOKS: '/api/playbooks',
+  // Legacy endpoints - still in use, will be migrated
   PLAYBOOK_METADATA: '/api/playbook-metadata',
-  GENERATE_PLAY_CONTENT: '/api/generate-play-content',
-  REVIEW_PLAY_CONTENT: '/api/review-play-content',
-  GET_APPROVED_PLAYS: '/api/get-approved-plays',
+  GET_APPROVED_PLAYS: '/api/get-approved-plays', // TODO: Migrate to plays-list + flashcards-list
 } as const;
