@@ -36,7 +36,7 @@ export default function Sidebar() {
 
   // Coach navigation items (6 items)
   const coachNavItems: NavItem[] = [
-    { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
+    // { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
     { name: "PLAYBOOK", href: "/coach/playbook", icon: PlaybookIcon },
     { name: "TEAM", href: "/coach/team", icon: TeamIcon },
     { name: "ASSIGNMENT LIBRARY", href: "/coach/assignments", icon: AssignmentLibraryIcon },

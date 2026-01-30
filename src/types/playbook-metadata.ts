@@ -66,6 +66,8 @@ export interface PlaybookMetadata {
   user_id?: string;
 }
 
+export type Unit = 'O' | 'D' | 'ST';
+
 export interface PlaybookMetadataInput {
   file_paths?: string[]; // Optional - API will set this after upload
   side_of_ball?: SideOfBall;
@@ -76,6 +78,12 @@ export interface PlaybookMetadataInput {
   concept_name?: string;
   custom_notes?: string;
   tags?: PlaybookTag[];
+  // v1 Classification fields
+  unit?: Unit;
+  playbook_section?: string;
+  primary_classification?: string;
+  situation?: string;
+  play_type?: 'PASS' | 'RUN' | 'RPO' | 'SCREEN';
 }
 
 // UI labels for display
@@ -112,6 +120,66 @@ export const PLAYBOOK_TAGS: PlaybookTag[] = [
   'Hot Routes',
   'Checks',
 ];
+
+// v1 Classification labels
+export const UNIT_LABELS: Record<Unit, string> = {
+  O: 'Offense',
+  D: 'Defense',
+  ST: 'Special Teams',
+};
+
+export const PLAY_TYPE_LABELS: Record<'PASS' | 'RUN' | 'RPO' | 'SCREEN', string> = {
+  PASS: 'Pass',
+  RUN: 'Run',
+  RPO: 'RPO',
+  SCREEN: 'Screen',
+};
+
+// Primary classifications by unit
+export const OFFENSE_CLASSIFICATIONS = ['PASS', 'RUN'];
+export const DEFENSE_CLASSIFICATIONS = ['COVERAGE', 'PRESSURE', 'FRONT'];
+export const SPECIAL_TEAMS_CLASSIFICATIONS = ['Kickoff', 'Punt', 'Field Goal', 'PAT', 'Kickoff Return', 'Punt Return'];
+
+// Suggested playbook sections
+export const SUGGESTED_SECTIONS = [
+  'General',
+  'Formations',
+  'Pass Game',
+  'Run Game',
+  'Third Down',
+  'Red Zone',
+  'Goal Line',
+  'Two Minute',
+  'Screen Game',
+  'Play Action',
+];
+
+// Suggested situations
+export const SUGGESTED_SITUATIONS = [
+  '1st-2nd Down',
+  '3rd Down',
+  '3rd & Short',
+  '3rd & Long',
+  'Red Zone',
+  'Goal Line',
+  'Two Minute',
+];
+
+// Helper to get primary classifications based on unit
+export function getPrimaryClassificationsForUnit(unit: Unit | undefined): string[] {
+  if (!unit) return [];
+
+  switch (unit) {
+    case 'O':
+      return OFFENSE_CLASSIFICATIONS;
+    case 'D':
+      return DEFENSE_CLASSIFICATIONS;
+    case 'ST':
+      return SPECIAL_TEAMS_CLASSIFICATIONS;
+    default:
+      return [];
+  }
+}
 
 // Helper function to get positions based on side of ball
 export function getPositionsForSideOfBall(sideOfBall: SideOfBall | undefined): SkillPosition[] {

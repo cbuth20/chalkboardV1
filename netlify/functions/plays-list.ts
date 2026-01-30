@@ -58,6 +58,10 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         is_published,
         created_at,
         updated_at,
+        unit,
+        playbook_section,
+        primary_classification,
+        situation,
         playbook_metadata:playbook_metadata_id (
           id,
           formation_name,
@@ -101,11 +105,31 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
     console.log(`✅ Listed ${plays?.length || 0} plays for user ${user.userId}`);
 
+    // Transform snake_case to camelCase for frontend
+    const transformedPlays = (plays || []).map(play => ({
+      id: play.id,
+      name: play.name,
+      shortName: play.short_name,
+      formationName: play.formation_name,
+      concept: play.concept,
+      playType: play.play_type,
+      contentStatus: play.content_status,
+      isPublished: play.is_published,
+      aiInsights: null, // Not fetched in list view
+      createdAt: play.created_at,
+      updatedAt: play.updated_at,
+      unit: play.unit,
+      playbookSection: play.playbook_section,
+      primaryClassification: play.primary_classification,
+      situation: play.situation,
+      metadata: play.playbook_metadata,
+    }));
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        plays: plays || [],
+        plays: transformedPlays,
         total: count || 0,
         limit,
         offset,

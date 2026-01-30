@@ -182,6 +182,17 @@ export const handler: Handler = async (event, context) => {
       playType = 'PASS';
     }
 
+    // v1 Classification fields - use directly from metadata if available, otherwise derive from side_of_ball
+    let unit = metadata?.unit;
+    if (!unit && metadata?.side_of_ball) {
+      const sideOfBallToUnit: Record<string, 'O' | 'D' | 'ST' | undefined> = {
+        offense: 'O',
+        defense: 'D',
+        special_teams: 'ST',
+      };
+      unit = sideOfBallToUnit[metadata.side_of_ball];
+    }
+
     const { error: updateError } = await supabase
       .from('plays')
       .update({
@@ -192,6 +203,11 @@ export const handler: Handler = async (event, context) => {
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
         content_status: 'draft', // Mark as draft, ready for review
+        // v1 Classification fields from metadata
+        unit: unit,
+        playbook_section: metadata?.playbook_section,
+        primary_classification: metadata?.primary_classification,
+        situation: metadata?.situation,
       })
       .eq('id', playId);
 

@@ -186,3 +186,65 @@ export function useProcessPlay() {
 
   return { processPlay, loading, error };
 }
+
+export interface UpdatePlayRequest {
+  name?: string;
+  shortName?: string;
+  playType?: 'PASS' | 'RUN' | 'RPO' | 'SCREEN';
+  formationName?: string;
+  concept?: string;
+  unit?: 'O' | 'D' | 'ST';
+  playbookSection?: string;
+  primaryClassification?: string;
+  situation?: string;
+}
+
+export function useUpdatePlay() {
+  const { session, orgId } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const updatePlay = useCallback(
+    async (playId: string, data: UpdatePlayRequest) => {
+      if (!session?.access_token || !orgId) {
+        throw new Error('Not authenticated');
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const baseURL = typeof window !== 'undefined' &&
+          (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+          ? 'http://localhost:8888/.netlify/functions'
+          : '/.netlify/functions';
+
+        const response = await fetch(`${baseURL}/plays-update/${playId}?orgId=${orgId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          throw new Error(errorData.error || 'Failed to update play');
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to update play';
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [session, orgId]
+  );
+
+  return { updatePlay, loading, error };
+}

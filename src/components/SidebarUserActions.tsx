@@ -80,7 +80,7 @@ export function SidebarUserActions() {
     // Navigate to appropriate default route when switching modes
     if (newMode === 'coach' && isPlayerRoute) {
       // Switching to coach mode while on a player page - go to Scanner (default coach page)
-      router.push('/play-recognition');
+      router.push('/coach/playbook');
     } else if (newMode === 'player' && isCoachRoute) {
       // Switching to player mode while on a coach page - go to Playbook (default player page)
       router.push('/playbook');

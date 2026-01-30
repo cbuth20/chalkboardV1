@@ -1,16 +1,17 @@
 import React, { useState, useRef } from 'react';
 import {
   SideOfBall,
-  ContentType,
-  Level,
   Position,
   PlaybookMetadataInput,
-  SIDE_OF_BALL_LABELS,
-  CONTENT_TYPE_LABELS,
-  LEVEL_LABELS,
   PLAYBOOK_TAGS,
   PlaybookTag,
   getPositionsForSideOfBall,
+  Unit,
+  UNIT_LABELS,
+  PLAY_TYPE_LABELS,
+  SUGGESTED_SECTIONS,
+  SUGGESTED_SITUATIONS,
+  getPrimaryClassificationsForUnit,
 } from '@/types/playbook-metadata';
 import { ALL_POSITIONS } from '@/lib/positions';
 
@@ -54,7 +55,11 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
               name: file.name,
               type: file.type,
               preview: result,
-              metadata: { position_relevance: ['all'], tags: [] },
+              metadata: {
+                position_relevance: ['all'],
+                tags: [],
+                content_type: 'play', // Default content type (database enum value)
+              },
             });
           };
           reader.readAsDataURL(file);
@@ -128,11 +133,20 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
     handleUpdateMetadata({ position_relevance: newPositions });
   };
 
-  const handleSideOfBallChange = (sideOfBall: SideOfBall) => {
-    // When side of ball changes, reset positions to 'all'
+  const handleUnitChange = (unit: Unit) => {
+    // Map unit to side_of_ball for backend compatibility
+    const unitToSideOfBall: Record<Unit, SideOfBall> = {
+      'O': 'offense',
+      'D': 'defense',
+      'ST': 'special_teams',
+    };
+
     handleUpdateMetadata({
-      side_of_ball: sideOfBall,
-      position_relevance: ['all'],
+      unit: unit,
+      side_of_ball: unitToSideOfBall[unit],
+      position_relevance: ['all'], // Reset positions when unit changes
+      primary_classification: undefined, // Reset classification when unit changes
+      content_type: 'play', // Default content type (database enum value)
     });
   };
 
@@ -404,46 +418,106 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                       />
                     </div>
 
-                    {/* Concept Name */}
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-300 mb-2">Concept Name</label>
-                      <input
-                        type="text"
-                        value={currentFile.metadata.concept_name || ''}
-                        onChange={(e) => handleUpdateMetadata({ concept_name: e.target.value })}
-                        placeholder="e.g., Mesh, Power, Cover 3"
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                      />
-                    </div>
+                    {/* Classification Section */}
+                    <div className="border-t border-white/10 pt-5">
+                      <h4 className="text-base font-bold text-white mb-4">Play Classification</h4>
 
-                    {/* Side of Ball & Content Type */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-300 mb-2">Side of Ball</label>
-                        <select
-                          value={currentFile.metadata.side_of_ball || ''}
-                          onChange={(e) => handleSideOfBallChange(e.target.value as SideOfBall)}
-                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                        >
-                          <option value="">Select...</option>
-                          {(Object.entries(SIDE_OF_BALL_LABELS) as [SideOfBall, string][]).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
+                      {/* Unit & Play Type */}
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-300 mb-2">
+                            Unit <span className="text-red-400">*</span>
+                          </label>
+                          <select
+                            value={currentFile.metadata.unit || ''}
+                            onChange={(e) => handleUnitChange(e.target.value as Unit)}
+                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                          >
+                            <option value="">Select Unit...</option>
+                            {(Object.entries(UNIT_LABELS) as [Unit, string][]).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {currentFile.metadata.unit === 'O' && (
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">
+                              Play Type
+                            </label>
+                            <select
+                              value={currentFile.metadata.play_type || ''}
+                              onChange={(e) => handleUpdateMetadata({ play_type: e.target.value as 'PASS' | 'RUN' | 'RPO' | 'SCREEN' })}
+                              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                            >
+                              <option value="">Select Type...</option>
+                              {(Object.entries(PLAY_TYPE_LABELS) as [keyof typeof PLAY_TYPE_LABELS, string][]).map(([value, label]) => (
+                                <option key={value} value={value}>{label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-300 mb-2">Content Type</label>
-                        <select
-                          value={currentFile.metadata.content_type || ''}
-                          onChange={(e) => handleUpdateMetadata({ content_type: e.target.value as ContentType })}
-                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                        >
-                          <option value="">Select...</option>
-                          {(Object.entries(CONTENT_TYPE_LABELS) as [ContentType, string][]).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
+                      {/* Playbook Section */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">
+                          Playbook Section
+                          <span className="ml-2 text-xs text-slate-500 font-normal">(e.g., Pass Game, Run Game, Third Down)</span>
+                        </label>
+                        <input
+                          type="text"
+                          list="section-suggestions"
+                          value={currentFile.metadata.playbook_section || ''}
+                          onChange={(e) => handleUpdateMetadata({ playbook_section: e.target.value })}
+                          placeholder="Enter or select a section..."
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        />
+                        <datalist id="section-suggestions">
+                          {SUGGESTED_SECTIONS.map(section => (
+                            <option key={section} value={section} />
                           ))}
-                        </select>
+                        </datalist>
+                      </div>
+
+                      {/* Primary Classification */}
+                      {currentFile.metadata.unit && (
+                        <div className="mb-4">
+                          <label className="block text-sm font-semibold text-slate-300 mb-2">
+                            Primary Classification
+                          </label>
+                          <select
+                            value={currentFile.metadata.primary_classification || ''}
+                            onChange={(e) => handleUpdateMetadata({ primary_classification: e.target.value })}
+                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                          >
+                            <option value="">Select Classification...</option>
+                            {getPrimaryClassificationsForUnit(currentFile.metadata.unit).map(classification => (
+                              <option key={classification} value={classification}>{classification}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Situation */}
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">
+                          Situation
+                          <span className="ml-2 text-xs text-slate-500 font-normal">(Optional - e.g., 3rd Down, Red Zone)</span>
+                        </label>
+                        <input
+                          type="text"
+                          list="situation-suggestions"
+                          value={currentFile.metadata.situation || ''}
+                          onChange={(e) => handleUpdateMetadata({ situation: e.target.value })}
+                          placeholder="Enter or select a situation..."
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        />
+                        <datalist id="situation-suggestions">
+                          {SUGGESTED_SITUATIONS.map(situation => (
+                            <option key={situation} value={situation} />
+                          ))}
+                        </datalist>
                       </div>
                     </div>
 
@@ -451,11 +525,11 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                     <div>
                       <label className="block text-sm font-semibold text-slate-300 mb-2">
                         Position Relevance
-                        {!currentFile.metadata.side_of_ball && (
-                          <span className="ml-2 text-xs text-amber-400">Select "Side of Ball" first</span>
+                        {!currentFile.metadata.unit && (
+                          <span className="ml-2 text-xs text-amber-400">Select "Unit" first</span>
                         )}
                       </label>
-                      {currentFile.metadata.side_of_ball ? (
+                      {currentFile.metadata.unit && currentFile.metadata.side_of_ball ? (
                         <div className="grid grid-cols-5 gap-2">
                           {/* "All" button */}
                           <button
@@ -495,7 +569,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                         </div>
                       ) : (
                         <div className="p-4 rounded-lg bg-white/5 border border-white/10 text-center text-slate-400 text-sm">
-                          Please select a "Side of Ball" to choose position relevance
+                          Please select a "Unit" to choose position relevance
                         </div>
                       )}
                     </div>
@@ -503,13 +577,13 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                     {/* Additional Information */}
                     <div>
                       <label className="block text-sm font-semibold text-slate-300 mb-2">
-                        Additional Information
-                        <span className="ml-2 text-xs text-slate-500 font-normal">(Helps AI generate better content)</span>
+                        Additional Notes
+                        <span className="ml-2 text-xs text-slate-500 font-normal">(Optional - helps AI generate better content)</span>
                       </label>
                       <textarea
                         value={currentFile.metadata.custom_notes || ''}
                         onChange={(e) => handleUpdateMetadata({ custom_notes: e.target.value })}
-                        placeholder="Add context: formations, routes, protections, reads, adjustments, etc."
+                        placeholder="Add any additional context: concepts, routes, protections, reads, adjustments, coaching points, etc."
                         rows={4}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors resize-none"
                       />
