@@ -18,28 +18,25 @@ export default function Sidebar() {
   const { mode } = useMode();
   const { profile, membership, userRole } = useAuth();
 
-  // Debug logging
-  console.log('[Sidebar] RENDER - Profile:', profile);
-  console.log('[Sidebar] RENDER - Membership:', membership);
-  console.log('[Sidebar] Profile role:', profile?.role);
-  console.log('[Sidebar] Membership role:', membership?.role);
-
-  // Player navigation items (6 items)
-  const playerNavItems: NavItem[] = [
-    { name: "PLAYBOOK", href: "/playbook", icon: PlaybookIcon },
-    { name: "FILM ROOM", href: "/film-room", icon: FilmRoomIcon, disabled: true },
+  // Player navigation items - Team Content (coach-managed)
+  const teamContentNavItems: NavItem[] = [
+    { name: "TEAM PLAYBOOK", href: "/playbook", icon: PlaybookIcon },
+    { name: "TEAM ACTIVITIES", href: "/activities", icon: ActivityIcon },
     { name: "GAMES", href: "/games", icon: GamesIcon },
     { name: "ASSIGNMENTS", href: "/games/assignment", icon: AssignmentIcon },
-    { name: "TEAM", href: "/team", icon: TeamIcon },
-    { name: "CHALK TALK", href: "/ai-coach", icon: AICoachIcon, disabled: true },
   ];
 
-  // Coach navigation items (6 items)
+  // Player navigation items - Learning Center (player-created)
+  const learningCenterNavItems: NavItem[] = [
+    { name: "MY LIBRARY", href: "/learning-center", icon: LibraryIcon },
+  ];
+
+  // Coach navigation items (7 items)
   const coachNavItems: NavItem[] = [
-    { name: "SCANNER", href: "/play-recognition", icon: ScannerIcon },
     { name: "PLAYBOOK", href: "/coach/playbook", icon: PlaybookIcon },
-    { name: "TEAM", href: "/coach/team", icon: TeamIcon },
+    { name: "ACTIVITIES", href: "/coach/activities", icon: ActivityIcon },
     { name: "ASSIGNMENT LIBRARY", href: "/coach/assignments", icon: AssignmentLibraryIcon },
+    { name: "TEAM", href: "/coach/team", icon: TeamIcon },
     { name: "LEADERBOARD", href: "/coach/leaderboard", icon: LeaderboardIcon },
     { name: "PERFORMANCE", href: "/coach/performance", icon: PerformanceIcon },
   ];
@@ -47,13 +44,11 @@ export default function Sidebar() {
   const canUseCoachMode = userRole === 'coach' || userRole === 'admin';
 
   // Select navigation based on mode (players are always player nav)
-  const navItems = canUseCoachMode && mode === "coach" ? coachNavItems : playerNavItems;
+  const navItems = canUseCoachMode && mode === "coach" ? coachNavItems : teamContentNavItems;
+  const isPlayerMode = !canUseCoachMode || mode === "player";
 
   // Check if user is admin (role from profile or membership)
   const isAdmin = profile?.role === 'admin' || membership?.role === 'admin';
-
-  // Debug logging (moved above to ensure it runs)
-  console.log('[Sidebar] Is admin:', isAdmin);
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 z-50 bg-[#0A0A0A]/95 backdrop-blur-xl border-r border-[#1B1E20]/80 flex flex-col">
@@ -74,13 +69,16 @@ export default function Sidebar() {
 
       {/* Navigation items */}
       <nav className="flex-1 overflow-y-auto px-4 py-2">
+        {/* Team Content Section (for players) or Main Nav (for coaches) */}
         <div className="space-y-1">
           {navItems.map((item) => {
             const isActive =
               pathname === item.href ||
               (item.href === "/playbook" && pathname === "/") ||
               (item.href === "/games" && pathname === "/games") ||
-              (item.href === "/games/assignment" && pathname === "/games/assignment");
+              (item.href === "/games/assignment" && pathname === "/games/assignment") ||
+              (item.href === "/activities" && pathname.startsWith("/activities")) ||
+              (item.href === "/coach/activities" && pathname.startsWith("/coach/activities"));
 
             if (item.disabled) {
               return (
@@ -118,6 +116,44 @@ export default function Sidebar() {
             );
           })}
         </div>
+
+        {/* Learning Center Section - Only show for players in player mode */}
+        {isPlayerMode && (
+          <>
+            {/* Divider with label */}
+            <div className="mt-6 pt-4 border-t border-[#1B1E20]/80">
+              <div className="px-4 mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Learning Center
+                </span>
+              </div>
+              <div className="space-y-1">
+                {learningCenterNavItems.map((item) => {
+                  const isActive = pathname === item.href;
+
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={`group relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold uppercase tracking-wide transition-all duration-200 ${
+                        isActive
+                          ? "bg-[#00F6E5]/10 text-[#00F6E5] border-l-4 border-[#00F6E5] -ml-[1px] pl-[15px]"
+                          : "text-slate-400 hover:bg-[#1B1E20]/50 hover:text-white"
+                      }`}
+                    >
+                      <item.icon
+                        className={`h-5 w-5 ${
+                          isActive ? "text-[#00F6E5]" : "text-slate-500 group-hover:text-slate-300"
+                        }`}
+                      />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Admin link - only visible to admins */}
         {isAdmin && (
@@ -391,6 +427,45 @@ function AdminIcon({ className }: { className?: string }) {
       <path d="M12 2L2 7l10 5 10-5-10-5z" />
       <path d="M2 17l10 5 10-5" />
       <path d="M2 12l10 5 10-5" />
+    </svg>
+  );
+}
+
+function ActivityIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 10h6" />
+      <path d="M9 14h6" />
+      <path d="M7 10h.01" />
+      <path d="M7 14h.01" />
+    </svg>
+  );
+}
+
+function LibraryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <path d="M8 7h8" />
+      <path d="M8 11h8" />
     </svg>
   );
 }

@@ -136,6 +136,13 @@ export const handler: Handler = async (event, context) => {
         formation_name: metadata.formation_name,
         concept_name: metadata.concept_name,
         custom_notes: metadata.custom_notes,
+        tags: metadata.tags || [],
+        play_type: metadata.play_type,
+        // v1 Classification fields
+        unit: metadata.unit,
+        playbook_section: metadata.playbook_section,
+        primary_classification: metadata.primary_classification,
+        situation: metadata.situation,
       };
 
       console.log('[Metadata Mapping] Frontend content_type:', metadata.content_type, '-> Database:', dbContentType);
@@ -203,6 +210,13 @@ export const handler: Handler = async (event, context) => {
           formation_name: updates.formation_name,
           concept_name: updates.concept_name,
           custom_notes: updates.custom_notes,
+          tags: updates.tags,
+          play_type: updates.play_type,
+          // v1 Classification fields
+          unit: updates.unit,
+          playbook_section: updates.playbook_section,
+          primary_classification: updates.primary_classification,
+          situation: updates.situation,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)

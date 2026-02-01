@@ -28,6 +28,10 @@ export interface BuiltPlayData {
 interface PlayBuilderProps {
   onSave: (playData: BuiltPlayData, metadata?: PlaybookMetadataInput) => void;
   onBack: () => void;
+  orgId?: string;
+  mode?: 'coach' | 'player';
+  initialPlayData?: BuiltPlayData;
+  viewOnly?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -310,22 +314,22 @@ const INITIAL_DEFENSE: DiagramPlayer[] = [
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
-  // Play state
-  const [playMode, setPlayMode] = useState<PlayMode>('pass');
-  const [offensePlayers, setOffensePlayers] = useState<DiagramPlayer[]>(INITIAL_OFFENSE);
-  const [defensePlayers, setDefensePlayers] = useState<DiagramPlayer[]>(INITIAL_DEFENSE);
-  const [routes, setRoutes] = useState<DiagramRoute[]>([]);
-  const [blocking, setBlocking] = useState<BlockingAssignment[]>([]);
-  const [ballCarrierPath, setBallCarrierPath] = useState<BallCarrierPath | undefined>();
+export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlayData, viewOnly = false }: PlayBuilderProps) {
+  // Play state - initialize from initialPlayData if provided
+  const [playMode, setPlayMode] = useState<PlayMode>(initialPlayData?.mode || 'pass');
+  const [offensePlayers, setOffensePlayers] = useState<DiagramPlayer[]>(initialPlayData?.offensePlayers || INITIAL_OFFENSE);
+  const [defensePlayers, setDefensePlayers] = useState<DiagramPlayer[]>(initialPlayData?.defensePlayers || INITIAL_DEFENSE);
+  const [routes, setRoutes] = useState<DiagramRoute[]>(initialPlayData?.routes || []);
+  const [blocking, setBlocking] = useState<BlockingAssignment[]>(initialPlayData?.blocking || []);
+  const [ballCarrierPath, setBallCarrierPath] = useState<BallCarrierPath | undefined>(initialPlayData?.ballCarrierPath);
 
-  // Metadata state
-  const [playName, setPlayName] = useState('');
-  const [formation, setFormation] = useState('');
-  const [concept, setConcept] = useState('');
-  const [playType, setPlayType] = useState<'PASS' | 'RUN' | 'RPO'>('PASS');
-  const [strength, setStrength] = useState<'Right' | 'Left'>('Right');
-  const [personnel, setPersonnel] = useState('11');
+  // Metadata state - initialize from initialPlayData if provided
+  const [playName, setPlayName] = useState(initialPlayData?.metadata?.name || '');
+  const [formation, setFormation] = useState(initialPlayData?.metadata?.formation || '');
+  const [concept, setConcept] = useState(initialPlayData?.metadata?.concept || '');
+  const [playType, setPlayType] = useState<'PASS' | 'RUN' | 'RPO'>(initialPlayData?.metadata?.playType || 'PASS');
+  const [strength, setStrength] = useState<'Right' | 'Left'>(initialPlayData?.metadata?.strength || 'Right');
+  const [personnel, setPersonnel] = useState(initialPlayData?.metadata?.personnel || '11');
 
   // Drawing state
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
@@ -366,6 +370,9 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
 
   const handlePlayerMouseDown = (event: React.MouseEvent<SVGGElement>, playerId: string, side: 'offense' | 'defense') => {
     event.stopPropagation();
+
+    // Disable route drawing in viewOnly mode
+    if (viewOnly) return;
 
     // Only allow route drawing for offensive players in pass mode
     if (playMode !== 'pass' || side !== 'offense') return;
@@ -495,7 +502,7 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
     };
 
     const metadata: PlaybookMetadataInput = {
-      team_id: '00000000-0000-0000-0000-000000000000', // TODO: Get from auth
+      team_id: mode === 'coach' ? (orgId || '00000000-0000-0000-0000-000000000000') : undefined,
       file_paths: [], // No file paths for built plays
       formation_name: formation,
       concept_name: concept || '',
@@ -504,6 +511,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
       level: 'high_school',
       position_relevance: ['all'],
       custom_notes: `Built play: ${playName}. Formation: ${formation}. Concept: ${concept || 'N/A'}`,
+      play_type: playType,
+      unit: 'O',
     };
 
     onSave(playData, metadata);
@@ -529,18 +538,20 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
               Back
             </button>
             <div className="h-6 w-px bg-[#1B1E20]" />
-            <h1 className="text-2xl font-bold text-white">Play Builder</h1>
+            <h1 className="text-2xl font-bold text-white">{viewOnly ? 'View Play' : 'Play Builder'}</h1>
           </div>
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-6 py-2.5 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] shadow-[0_0_15px_rgba(0,246,229,0.3)]"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-              <polyline points="17 21 17 13 7 13 7 21"/>
-            </svg>
-            Save Play
-          </button>
+          {!viewOnly && (
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-2 rounded-lg bg-[#00F6E5] px-6 py-2.5 text-sm font-semibold text-black transition-all hover:bg-[#3DF3FF] shadow-[0_0_15px_rgba(0,246,229,0.3)]"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+              </svg>
+              Save Play
+            </button>
+          )}
         </div>
       </header>
 
@@ -557,7 +568,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 <select
                   value={offensiveFormation}
                   onChange={(e) => handleOffensiveFormationChange(e.target.value)}
-                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  disabled={viewOnly}
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {Object.keys(OFFENSIVE_FORMATIONS).map(formation => (
                     <option key={formation} value={formation}>{formation}</option>
@@ -572,7 +584,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 <select
                   value={defensiveFormation}
                   onChange={(e) => handleDefensiveFormationChange(e.target.value)}
-                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  disabled={viewOnly}
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {Object.keys(DEFENSIVE_FORMATIONS).map(formation => (
                     <option key={formation} value={formation}>{formation}</option>
@@ -597,7 +610,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 type="text"
                 value={playName}
                 onChange={(e) => setPlayName(e.target.value)}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                disabled={viewOnly}
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="e.g., 'Y-Sail Combo'"
               />
             </div>
@@ -610,7 +624,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 type="text"
                 value={formation}
                 onChange={(e) => setFormation(e.target.value)}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                disabled={viewOnly}
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="e.g., 'Trips Right'"
               />
             </div>
@@ -623,7 +638,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 type="text"
                 value={concept}
                 onChange={(e) => setConcept(e.target.value)}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                disabled={viewOnly}
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="e.g., 'Levels Concept'"
               />
             </div>
@@ -635,7 +651,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
               <select
                 value={playType}
                 onChange={(e) => setPlayType(e.target.value as any)}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                disabled={viewOnly}
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="PASS">Pass</option>
                 <option value="RUN">Run</option>
@@ -651,7 +668,8 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                 <select
                   value={strength}
                   onChange={(e) => setStrength(e.target.value as any)}
-                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  disabled={viewOnly}
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="Right">Right</option>
                   <option value="Left">Left</option>
@@ -665,39 +683,42 @@ export function PlayBuilder({ onSave, onBack }: PlayBuilderProps) {
                   type="text"
                   value={personnel}
                   onChange={(e) => setPersonnel(e.target.value)}
-                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10"
+                  disabled={viewOnly}
+                  className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none focus:ring-2 focus:ring-[#00F6E5]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="11"
                 />
               </div>
             </div>
 
-            <div className="pt-4 border-t border-[#1B1E20]">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Mode
-              </label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPlayMode('pass')}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                    playMode === 'pass'
-                      ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
-                  }`}
-                >
-                  Pass
-                </button>
-                <button
-                  onClick={() => setPlayMode('run')}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                    playMode === 'run'
-                      ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
-                  }`}
-                >
-                  Run
-                </button>
+            {!viewOnly && (
+              <div className="pt-4 border-t border-[#1B1E20]">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                  Mode
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPlayMode('pass')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                      playMode === 'pass'
+                        ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
+                        : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                    }`}
+                  >
+                    Pass
+                  </button>
+                  <button
+                    onClick={() => setPlayMode('run')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                      playMode === 'run'
+                        ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/10'
+                        : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                    }`}
+                  >
+                    Run
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
           </div>
         </aside>

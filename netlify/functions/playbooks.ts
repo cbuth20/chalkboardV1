@@ -23,6 +23,31 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 const BUCKET_NAME = 'Chalkboard Bucket';
 const FOLDER_PATH = 'public'; // Store files in public folder within bucket
 
+// Map frontend content types to database enum values
+function mapContentTypeToDatabase(frontendType: string | undefined): string | undefined {
+  if (!frontendType) return undefined;
+
+  const mapping: Record<string, string> = {
+    'single_play': 'play',
+    'notes': 'legend',
+    'install_notes': 'legend',
+    'full_playbook': 'index',
+    'concept': 'reference',
+  };
+
+  const mappedType = mapping[frontendType] || frontendType;
+
+  // Validate the mapped type is valid for database
+  const validTypes = ['play', 'coverage', 'formation', 'legend', 'index', 'coaching_points', 'technique', 'terminology', 'reference', 'other'];
+
+  if (!validTypes.includes(mappedType)) {
+    console.warn(`[Content Type Mapping] Unknown type "${frontendType}" mapped to "${mappedType}", using "other" as fallback`);
+    return 'other';
+  }
+
+  return mappedType;
+}
+
 export const handler: Handler = async (event, context) => {
   const { httpMethod } = event;
 
@@ -231,12 +256,15 @@ export const handler: Handler = async (event, context) => {
       // Save metadata if provided
       let savedMetadata = null;
       if (metadata && orgId) {
+        // Map frontend content type to database enum value
+        const dbContentType = mapContentTypeToDatabase(metadata.content_type);
+
         const metadataToSave = {
           org_id: orgId,
           team_id: teamId || null, // Optional team filter
           file_paths: metadata.file_paths || [filePath],
           side_of_ball: metadata.side_of_ball,
-          content_type: metadata.content_type,
+          content_type: dbContentType,
           position_relevance: metadata.position_relevance || ['all'],
           level: metadata.level,
           formation_name: metadata.formation_name,
@@ -244,7 +272,17 @@ export const handler: Handler = async (event, context) => {
           custom_notes: metadata.custom_notes,
           is_built_play: isBuiltPlay || false, // Mark if this is a built play
           play_data: isBuiltPlay && playData ? playData : null, // Store structured play data
+          tags: metadata.tags || [],
+          // v1 Classification fields
+          unit: metadata.unit,
+          playbook_section: metadata.playbook_section,
+          primary_classification: metadata.primary_classification,
+          situation: metadata.situation,
+          play_type: metadata.play_type,
         };
+
+        console.log('[Metadata Mapping] Frontend content_type:', metadata.content_type, '-> Database:', dbContentType);
+        console.log('[Upload] Attempting to save metadata:', JSON.stringify(metadataToSave, null, 2));
 
         const { data: metadataData, error: metadataError } = await supabase
           .from('playbook_metadata')
@@ -260,9 +298,49 @@ export const handler: Handler = async (event, context) => {
             details: metadataError.details,
             hint: metadataError.hint,
           });
+          console.error('[Upload] Metadata that failed:', JSON.stringify(metadataToSave, null, 2));
           // Continue without failing the upload
         } else {
+          console.log('[Upload] Metadata saved successfully:', metadataData.id);
           savedMetadata = metadataData;
+
+          // Create a play record for this metadata
+          console.log('[Upload] Creating play record...');
+          const playData = {
+            org_id: orgId,
+            team_id: teamId || null,
+            playbook_metadata_id: metadataData.id,
+            name: metadata.formation_name || fileName.replace(/\.[^/.]+$/, ''),
+            short_name: (metadata.formation_name || fileName).substring(0, 50),
+            play_type: metadata.play_type || 'PASS',
+            concept: metadata.concept_name,
+            formation_name: metadata.formation_name,
+            content_status: 'draft',
+            is_published: false,
+            // v1 Classification fields
+            unit: metadata.unit,
+            playbook_section: metadata.playbook_section,
+            primary_classification: metadata.primary_classification,
+            situation: metadata.situation,
+          };
+
+          const { data: play, error: playError } = await supabase
+            .from('plays')
+            .insert(playData)
+            .select()
+            .single();
+
+          if (playError) {
+            console.error('[Upload] Failed to create play:', playError);
+            console.error('[Upload] Play error details:', {
+              code: playError.code,
+              message: playError.message,
+              details: playError.details,
+              hint: playError.hint,
+            });
+          } else {
+            console.log('[Upload] Play created successfully:', play.id);
+          }
         }
       } else if (metadata && !orgId) {
         console.warn('[Upload] Metadata provided but orgId missing - skipping metadata save');

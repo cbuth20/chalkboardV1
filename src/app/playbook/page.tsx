@@ -1,257 +1,412 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { SidebarLayout } from "@/components/SidebarLayout";
-import { ToastProvider, useToast } from "@/components/playbook-builder";
-import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { useAuth } from "@/contexts/AuthContext";
-import { usePlays } from "@/hooks/usePlaysAPI";
+import React, { useState, useMemo } from 'react';
+import { SidebarLayout } from '@/components/SidebarLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePlays } from '@/hooks/usePlaysAPI';
+import { Play, Unit } from '@/lib/api/plays';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PLAYBOOK PAGE — Main container component
-// ═══════════════════════════════════════════════════════════════════════════
-
-export default function PlaybookPage() {
-  return (
-    <ProtectedRoute>
-      <ToastProvider>
-        <PlaybookBuilder />
-      </ToastProvider>
-    </ProtectedRoute>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// PLAYBOOK BUILDER — Core state management and layout
-// ═══════════════════════════════════════════════════════════════════════════
-
-function PlaybookBuilder() {
-  const { showToast } = useToast();
+export default function PlayerPlaybookPage() {
   const { orgId, loading: authLoading } = useAuth();
+  // Players only see approved & published plays (API filters automatically)
+  const { plays, loading, error, refetch } = usePlays({});
 
-  // Core state
-  const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
-
-  // Fetch approved plays using new API
-  const { plays, loading: playsLoading, error: playsError } = usePlays({
-    status: 'approved'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState<Unit | 'all'>('all');
+  const [selectedSection, setSelectedSection] = useState<string>('all');
+  const [expandedPlayId, setExpandedPlayId] = useState<string | null>(null);
+  const [expandedUnits, setExpandedUnits] = useState<Record<Unit, boolean>>({
+    O: true,
+    D: true,
+    ST: true,
   });
 
-  // Derived: selected play
-  const selectedPlay = plays.find((p) => p.id === selectedPlayId) || null;
+  // Organize plays by unit
+  const organizedPlays = useMemo(() => {
+    const organized: Record<Unit, Play[]> = {
+      O: [],
+      D: [],
+      ST: [],
+    };
 
-  // Auto-select first play when plays load
-  useEffect(() => {
-    if (!playsLoading && plays.length > 0 && !selectedPlayId) {
-      setSelectedPlayId(plays[0].id);
-    }
-  }, [plays, playsLoading, selectedPlayId]);
+    plays.forEach((play) => {
+      const unit = play.unit || 'O';
+      organized[unit].push(play);
+    });
 
-  // Show error toast if fetching fails
-  useEffect(() => {
-    if (playsError) {
-      showToast(playsError || "Failed to load playbook. Please try again.", "error");
-    }
-  }, [playsError, showToast]);
+    // Sort plays within each unit by name
+    Object.keys(organized).forEach((unit) => {
+      organized[unit as Unit].sort((a, b) => a.name.localeCompare(b.name));
+    });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PLAY LIST HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
+    return organized;
+  }, [plays]);
 
-  const handleSelectPlay = useCallback((id: string) => {
-    setSelectedPlayId(id);
-  }, []);
+  // Get unique sections for filtering
+  const availableSections = useMemo(() => {
+    const sections = new Set<string>();
+    plays.forEach((play) => {
+      if (play.playbookSection) {
+        sections.add(play.playbookSection);
+      }
+    });
+    return Array.from(sections).sort();
+  }, [plays]);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // LOADING STATE
-  // ═══════════════════════════════════════════════════════════════════════════
+  // Filter plays
+  const filteredPlays = useMemo(() => {
+    return plays.filter(play => {
+      const matchesSearch =
+        play.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        play.concept?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        play.formationName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        play.playbookSection?.toLowerCase().includes(searchQuery.toLowerCase());
 
-  if (authLoading || playsLoading) {
+      const matchesUnit = selectedUnit === 'all' || play.unit === selectedUnit;
+      const matchesSection = selectedSection === 'all' || play.playbookSection === selectedSection;
+
+      return matchesSearch && matchesUnit && matchesSection;
+    });
+  }, [plays, searchQuery, selectedUnit, selectedSection]);
+
+  // Stats by unit
+  const stats = useMemo(() => {
+    return {
+      total: plays.length,
+      offense: plays.filter(p => p.unit === 'O').length,
+      defense: plays.filter(p => p.unit === 'D').length,
+      specialTeams: plays.filter(p => p.unit === 'ST').length,
+    };
+  }, [plays]);
+
+  const toggleUnit = (unit: Unit) => {
+    setExpandedUnits(prev => ({ ...prev, [unit]: !prev[unit] }));
+  };
+
+  const handleRowClick = (playId: string) => {
+    setExpandedPlayId(expandedPlayId === playId ? null : playId);
+  };
+
+  if (authLoading || loading) {
     return (
       <SidebarLayout>
-        <div className="flex h-screen items-center justify-center">
-          <div className="flex items-center gap-3">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#00F6E5] border-t-transparent" />
-            <span className="text-sm text-slate-400">Loading playbook...</span>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
+            <p className="text-slate-400">Loading playbook...</p>
           </div>
         </div>
       </SidebarLayout>
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MAIN LAYOUT
-  // ═══════════════════════════════════════════════════════════════════════════
+  if (!orgId) {
+    return (
+      <SidebarLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md">
+            <div className="text-red-400 text-5xl mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-white mb-2">Authentication Issue</h2>
+            <p className="text-slate-400 mb-4">
+              No organization found. Please sign in or check your browser console for errors.
+            </p>
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <SidebarLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md">
+            <div className="text-red-400 text-5xl mb-4">❌</div>
+            <h2 className="text-xl font-bold text-white mb-2">Error Loading Playbook</h2>
+            <p className="text-slate-400 mb-4">{error}</p>
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 bg-[#00F6E5] text-black font-semibold rounded-lg hover:bg-[#00F6E5]/90"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
+
+  const filteredIds = new Set(filteredPlays.map(p => p.id));
 
   return (
     <SidebarLayout>
-      <main className="flex h-screen text-white">
-        {/* Left Sidebar: Play List */}
-        <aside className="flex w-72 flex-col border-r border-[#1B1E20] bg-[#0A0A0A]">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-[#1B1E20] px-4 py-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-              Approved Plays
-            </h2>
-            <span className="rounded bg-[#1B1E20] px-2 py-0.5 text-xs font-medium text-slate-500">
-              {plays.length}
-            </span>
+      <main className="mx-auto max-w-[1600px] px-4 py-8 lg:px-8">
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-white lg:text-4xl mb-2">
+                Team Playbook
+              </h1>
+              <p className="text-slate-400">
+                Approved plays for your team
+              </p>
+            </div>
           </div>
 
-          {/* Play List */}
-          <div className="flex-1 overflow-y-auto p-2">
-            {plays.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                <svg className="mx-auto h-12 w-12 mb-3 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-sm text-slate-500 mb-2">No approved plays yet</p>
-                <p className="text-xs text-slate-600">Ask your coach to upload and approve plays</p>
-              </div>
-            ) : (
-              plays.map((play) => (
-                <button
-                  key={play.id}
-                  onClick={() => handleSelectPlay(play.id)}
-                  className={`group mb-1 w-full rounded-lg px-3 py-2.5 text-left transition-all ${
-                    play.id === selectedPlayId
-                      ? "bg-[#00F6E5]/10 ring-1 ring-[#00F6E5]/30"
-                      : "hover:bg-[#1B1E20]/50"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`truncate text-sm font-semibold ${
-                          play.id === selectedPlayId ? "text-[#00F6E5]" : "text-white"
-                        }`}
-                      >
-                        {play.name || "Untitled Play"}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {play.formationName || "Unknown"} • {play.concept || "Unknown"}
-                      </p>
-                    </div>
-                    {play.id === selectedPlayId && (
-                      <div className="ml-2 mt-1 h-2 w-2 shrink-0 rounded-full bg-[#00F6E5]" />
-                    )}
-                  </div>
-                </button>
-              ))
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="glass-card p-4">
+              <div className="text-2xl font-black text-[#00F6E5]">{stats.total}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Total Plays</div>
+            </div>
+            <div className="glass-card p-4">
+              <div className="text-2xl font-black text-blue-400">{stats.offense}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Offense</div>
+            </div>
+            <div className="glass-card p-4">
+              <div className="text-2xl font-black text-red-400">{stats.defense}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Defense</div>
+            </div>
+            <div className="glass-card p-4">
+              <div className="text-2xl font-black text-yellow-400">{stats.specialTeams}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider">Special Teams</div>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+            <input
+              type="text"
+              placeholder="Search plays..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2E30] text-white placeholder-slate-500 focus:border-[#00F6E5] focus:outline-none"
+            />
+
+            <select
+              value={selectedUnit}
+              onChange={(e) => setSelectedUnit(e.target.value as Unit | 'all')}
+              className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2E30] text-white focus:border-[#00F6E5] focus:outline-none"
+            >
+              <option value="all">All Units</option>
+              <option value="O">Offense</option>
+              <option value="D">Defense</option>
+              <option value="ST">Special Teams</option>
+            </select>
+
+            {availableSections.length > 0 && (
+              <select
+                value={selectedSection}
+                onChange={(e) => setSelectedSection(e.target.value)}
+                className="px-4 py-2 rounded-lg bg-[#1B1E20] border border-[#2A2E30] text-white focus:border-[#00F6E5] focus:outline-none"
+              >
+                <option value="all">All Sections</option>
+                {availableSections.map((section) => (
+                  <option key={section} value={section}>
+                    {section}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
-        </aside>
+        </header>
 
-        {/* Main Content: AI Insights */}
-        <div className="flex-1 overflow-y-auto">
-          {!selectedPlay ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <svg className="mx-auto h-16 w-16 mb-4 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-sm text-slate-500">Select a play to view coach-approved insights</p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-8 max-w-4xl mx-auto">
-              {/* Header */}
-              <div className="mb-8">
-                <div className="flex items-center gap-2 mb-2">
-                  <h1 className="text-3xl font-bold text-white">
-                    {selectedPlay.name || "Untitled Play"}
-                  </h1>
-                  <span className="px-2 py-1 text-xs font-semibold bg-green-900/20 text-green-400 border border-green-500/30 rounded">
-                    ✓ APPROVED
-                  </span>
-                </div>
-                <div className="flex items-center gap-4 text-sm text-slate-400">
-                  <span>{selectedPlay.formationName || 'Unknown Formation'}</span>
-                  <span>•</span>
-                  <span>{selectedPlay.concept || 'Unknown Concept'}</span>
-                  {selectedPlay.metadata?.side_of_ball && (
-                    <>
-                      <span>•</span>
-                      <span className="capitalize">{selectedPlay.metadata.side_of_ball}</span>
-                    </>
+        {/* Content */}
+        {filteredPlays.length === 0 ? (
+          <div className="glass-card p-12 text-center">
+            <div className="text-slate-400 mb-2">No plays found</div>
+            <p className="text-sm text-slate-500">
+              {searchQuery || selectedUnit !== 'all' || selectedSection !== 'all'
+                ? 'Try adjusting your filters'
+                : 'Your coach hasn\'t published any plays yet'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {(['O', 'D', 'ST'] as Unit[]).map((unit) => {
+              const unitPlays = organizedPlays[unit].filter(play => filteredIds.has(play.id));
+
+              if (unitPlays.length === 0) return null;
+
+              const unitConfig = {
+                O: { label: 'Offense', color: 'blue-400', bgColor: 'blue-900/20', icon: '⚡' },
+                D: { label: 'Defense', color: 'red-400', bgColor: 'red-900/20', icon: '🛡️' },
+                ST: { label: 'Special Teams', color: 'yellow-400', bgColor: 'yellow-900/20', icon: '⭐' },
+              };
+
+              const config = unitConfig[unit];
+
+              return (
+                <div key={unit} className="glass-card overflow-hidden">
+                  <button
+                    onClick={() => toggleUnit(unit)}
+                    className="w-full px-6 py-4 bg-[#1B1E20] hover:bg-[#2A2E30] transition-colors flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{config.icon}</span>
+                      <h2 className={`text-2xl font-black text-${config.color}`}>
+                        {config.label}
+                      </h2>
+                      <span className="text-slate-400 text-sm font-semibold">
+                        ({unitPlays.length} plays)
+                      </span>
+                    </div>
+                    <span className="text-slate-400 text-xl">
+                      {expandedUnits[unit] ? '▼' : '▶'}
+                    </span>
+                  </button>
+
+                  {expandedUnits[unit] && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-[#1B1E20] bg-[#0D1117]">
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Play Name
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Section
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Classification
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Formation
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Concept
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Type
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {unitPlays.map((play) => (
+                            <React.Fragment key={play.id}>
+                              <tr
+                                onClick={() => handleRowClick(play.id)}
+                                className={`border-b border-[#1B1E20]/50 transition-colors cursor-pointer ${
+                                  expandedPlayId === play.id ? 'bg-[#00F6E5]/5' : 'hover:bg-[#1B1E20]/30'
+                                }`}
+                              >
+                                <td className="px-4 py-3">
+                                  <div className="font-semibold text-white">{play.name}</div>
+                                  {play.shortName && (
+                                    <div className="text-xs text-slate-500">{play.shortName}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-300 text-sm">
+                                  {play.playbookSection || '-'}
+                                </td>
+                                <td className="px-4 py-3 text-slate-300 text-sm">
+                                  {play.primaryClassification || '-'}
+                                </td>
+                                <td className="px-4 py-3 text-slate-300 text-sm">
+                                  {play.formationName || '-'}
+                                </td>
+                                <td className="px-4 py-3 text-slate-300 text-sm">
+                                  {play.concept || '-'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded ${
+                                    play.playType === 'PASS' ? 'bg-blue-900/20 text-blue-400' :
+                                    play.playType === 'RUN' ? 'bg-green-900/20 text-green-400' :
+                                    play.playType === 'RPO' ? 'bg-purple-900/20 text-purple-400' :
+                                    'bg-slate-700/20 text-slate-400'
+                                  }`}>
+                                    {play.playType}
+                                  </span>
+                                </td>
+                              </tr>
+
+                              {/* Expanded Row - Play Details (Read Only) */}
+                              {expandedPlayId === play.id && (
+                                <tr className="bg-[#0D1117] border-b border-[#1B1E20]">
+                                  <td colSpan={6} className="px-6 py-6">
+                                    <PlayDetailsView play={play} />
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
-              </div>
-
-              {/* AI Insights Section */}
-              <div className="bg-gradient-to-br from-[#151a1e] to-[#0f1215] border border-[#1B1E20] rounded-2xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center">
-                    <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-white">Coach-Approved Insights</h2>
-                    <p className="text-xs text-slate-500">AI-generated and reviewed by your coach</p>
-                  </div>
-                </div>
-
-                {/* AI Insights Content */}
-                {selectedPlay.aiInsights ? (
-                  <div className="prose prose-invert prose-sm max-w-none">
-                    <div className="text-slate-300 whitespace-pre-wrap leading-relaxed">
-                      {selectedPlay.aiInsights}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-8 text-center text-slate-500">
-                    <p className="text-sm">No insights available for this play</p>
-                    <p className="text-xs mt-1">Ask your coach to generate insights</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Play Metadata Card */}
-              {selectedPlay.metadata && (
-                <div className="mt-6 bg-[#0d1117] border border-[#1B1E20] rounded-xl p-6">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">
-                    Play Metadata
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {selectedPlay.metadata.level && (
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Level</div>
-                        <div className="text-sm text-white capitalize">
-                          {selectedPlay.metadata.level.replace('_', ' ')}
-                        </div>
-                      </div>
-                    )}
-                    {selectedPlay.metadata.content_type && (
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Type</div>
-                        <div className="text-sm text-white capitalize">
-                          {selectedPlay.metadata.content_type.replace('_', ' ')}
-                        </div>
-                      </div>
-                    )}
-                    {selectedPlay.metadata.position_relevance &&
-                     selectedPlay.metadata.position_relevance.length > 0 && (
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Positions</div>
-                        <div className="text-sm text-white uppercase">
-                          {selectedPlay.metadata.position_relevance.join(', ')}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {selectedPlay.metadata.custom_notes && (
-                    <div className="mt-4 pt-4 border-t border-[#1B1E20]">
-                      <div className="text-xs text-slate-500 mb-1">Coach Notes</div>
-                      <div className="text-sm text-slate-300">{selectedPlay.metadata.custom_notes}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </main>
     </SidebarLayout>
+  );
+}
+
+// Read-Only Play Details View Component
+function PlayDetailsView({ play }: { play: Play }) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-white mb-2">{play.name}</h3>
+          {play.shortName && (
+            <p className="text-slate-400 text-sm mb-1">Short Name: {play.shortName}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1.5 rounded-lg bg-green-900/20 text-green-400 text-xs font-semibold border border-green-500/30">
+            ✓ Approved
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <DetailField label="Play Type" value={play.playType} />
+        <DetailField label="Formation" value={play.formationName} />
+        <DetailField label="Concept" value={play.concept} />
+        <DetailField label="Unit" value={play.unit} />
+        <DetailField label="Section" value={play.playbookSection} />
+        <DetailField label="Classification" value={play.primaryClassification} />
+        <DetailField label="Situation" value={play.situation} />
+      </div>
+
+      {play.aiInsights && (
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-[#00F6E5]/10 flex items-center justify-center">
+              <svg className="w-5 h-5 text-[#00F6E5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="text-lg font-bold text-white">Coach-Approved Insights</h4>
+              <p className="text-xs text-slate-500">AI-generated and reviewed by your coach</p>
+            </div>
+          </div>
+          <div className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+            {play.aiInsights}
+          </div>
+        </div>
+      )}
+
+      {!play.aiInsights && (
+        <div className="glass-card p-6 text-center">
+          <p className="text-sm text-slate-500">No coach insights available for this play yet</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Detail Field Component
+function DetailField({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="glass-card p-3">
+      <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-white font-semibold">{value || '-'}</div>
+    </div>
   );
 }

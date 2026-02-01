@@ -30,8 +30,9 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
     const supabase = getSupabaseAdmin();
 
     // Get play ID from path
-    const pathParts = event.path.split('/');
-    const playId = pathParts[pathParts.indexOf('plays') + 1];
+    // Path format: /.netlify/functions/plays-process/:playId
+    const pathParts = event.path.split('?')[0].split('/').filter(Boolean);
+    const playId = pathParts[pathParts.length - 1]; // Get the last segment (after removing query params)
     validateUUID(playId, 'playId');
 
     // Parse request body

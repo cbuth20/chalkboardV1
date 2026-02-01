@@ -127,6 +127,11 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
           aiInsights: play.ai_insights,
           createdAt: play.created_at,
           updatedAt: play.updated_at,
+          // v1 Classification fields
+          unit: play.unit,
+          playbookSection: play.playbook_section,
+          primaryClassification: play.primary_classification,
+          situation: play.situation,
           metadata: play.playbook_metadata,
         },
         assignments,

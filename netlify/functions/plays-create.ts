@@ -19,6 +19,11 @@ interface CreatePlayRequest {
   formationName?: string;
   concept?: string;
   triggerProcessing?: boolean; // Whether to trigger background AI processing
+  // v1 Classification fields
+  unit?: 'O' | 'D' | 'ST';
+  playbookSection?: string;
+  primaryClassification?: string;
+  situation?: string;
 }
 
 const handler: Handler = withOrgAuth('coach')(async (event, context) => {
@@ -96,6 +101,11 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
         content_status: body.triggerProcessing ? 'generating' : 'draft',
         is_published: false,
         created_by: user.userId,
+        // v1 Classification fields
+        unit: body.unit || null,
+        playbook_section: body.playbookSection || null,
+        primary_classification: body.primaryClassification || null,
+        situation: body.situation || null,
       })
       .select()
       .single();

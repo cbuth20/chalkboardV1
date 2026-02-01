@@ -21,7 +21,7 @@ interface SelectedFile {
 }
 
 export default function PlayRecognitionPage() {
-  const { orgId, loading: authLoading } = useAuth();
+  const { orgId, teamId, loading: authLoading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>('LIBRARY');
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -42,11 +42,17 @@ export default function PlayRecognitionPage() {
         return;
       }
 
+      console.log('[Upload] Starting upload for', files.length, 'files');
+      console.log('[Upload] Auth context:', { orgId, teamId });
+
       const apiUrl = getPlaybooksApiUrl();
 
       // Upload all files in parallel
-      const uploadPromises = files.map(file =>
-        fetch(apiUrl, {
+      const uploadPromises = files.map(file => {
+        console.log('[Upload] Uploading file:', file.fileName);
+        console.log('[Upload] Metadata:', file.metadata);
+
+        return fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -54,11 +60,24 @@ export default function PlayRecognitionPage() {
             fileData: file.fileData,
             metadata: file.metadata,
             orgId,
+            teamId,
           }),
-        })
-      );
+        });
+      });
 
       const responses = await Promise.all(uploadPromises);
+
+      // Check responses and log any errors
+      for (let i = 0; i < responses.length; i++) {
+        const response = responses[i];
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[Upload] File ${i} failed:`, response.status, errorText);
+        } else {
+          const result = await response.json();
+          console.log(`[Upload] File ${i} succeeded:`, result);
+        }
+      }
 
       // Check if all uploads succeeded
       const failedUploads = responses.filter(r => !r.ok);
@@ -66,11 +85,13 @@ export default function PlayRecognitionPage() {
         throw new Error(`Failed to upload ${failedUploads.length} of ${files.length} files`);
       }
 
+      console.log('[Upload] All files uploaded successfully');
+
       // Refresh library and go back to it
       setRefreshKey(prev => prev + 1);
       setCurrentView('LIBRARY');
     } catch (error) {
-      console.error('Error uploading files:', error);
+      console.error('[Upload] Error uploading files:', error);
       alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };

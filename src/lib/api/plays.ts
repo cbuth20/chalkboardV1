@@ -11,7 +11,14 @@ export interface CreatePlayRequest {
   formationName?: string;
   concept?: string;
   triggerProcessing?: boolean;
+  // v1 Classification fields
+  unit?: Unit;
+  playbookSection?: string;
+  primaryClassification?: string;
+  situation?: string;
 }
+
+export type Unit = 'O' | 'D' | 'ST';
 
 export interface Play {
   id: string;
@@ -26,6 +33,11 @@ export interface Play {
   createdAt: string;
   updatedAt: string;
   metadata?: any;
+  // v1 Classification fields
+  unit?: Unit;
+  playbookSection?: string;
+  primaryClassification?: string;
+  situation?: string;
 }
 
 export interface PlayDetails extends Play {

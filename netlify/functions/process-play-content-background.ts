@@ -10,6 +10,14 @@ import {
   type ContentType,
 } from './content-generation-prompts';
 import { generateAssignmentFlashcards } from './flashcard-templates';
+import {
+  QUESTION_GENERATION_SYSTEM_PROMPT,
+  buildQuestionGenerationPrompt,
+} from '../../src/lib/question-generation-prompts';
+import {
+  getDefaultDifficultyDistribution,
+  getRecommendedQuestionTypes,
+} from '../../src/lib/services/question-generator';
 
 // Initialize Supabase client with service role key for admin operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -182,6 +190,17 @@ export const handler: Handler = async (event, context) => {
       playType = 'PASS';
     }
 
+    // v1 Classification fields - use directly from metadata if available, otherwise derive from side_of_ball
+    let unit = metadata?.unit;
+    if (!unit && metadata?.side_of_ball) {
+      const sideOfBallToUnit: Record<string, 'O' | 'D' | 'ST' | undefined> = {
+        offense: 'O',
+        defense: 'D',
+        special_teams: 'ST',
+      };
+      unit = sideOfBallToUnit[metadata.side_of_ball];
+    }
+
     const { error: updateError } = await supabase
       .from('plays')
       .update({
@@ -192,6 +211,11 @@ export const handler: Handler = async (event, context) => {
         formation_name: playAnalysis?.formation || metadata.formation_name,
         ai_insights: insights,
         content_status: 'draft', // Mark as draft, ready for review
+        // v1 Classification fields from metadata
+        unit: unit,
+        playbook_section: metadata?.playbook_section,
+        primary_classification: metadata?.primary_classification,
+        situation: metadata?.situation,
       })
       .eq('id', playId);
 
@@ -298,34 +322,216 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
-    // Generate assignment flashcards (position-specific multiple choice questions)
+    // Generate AI-powered quiz questions
     if (playAnalysis?.positions && generateAssignments && assignments.length > 0) {
-      console.log('Generating assignment flashcards...');
-      const assignmentFlashcards = await generateAssignmentFlashcards(
-        playAnalysis,
-        assignments,
-        playId,
-        metadata,
-        shuffleArray
-      );
+      console.log('🤖 Generating AI-powered quiz questions...');
 
-      if (assignmentFlashcards.length > 0) {
-        // Add org_id to all assignment flashcards for proper scoping
-        const flashcardsWithOrgId = assignmentFlashcards.map((fc) => ({
-          ...fc,
-          org_id: play.org_id,
-        }));
+      try {
+        // Get positions from assignments
+        const positions = [...new Set(assignments.map((a: any) => a.position)), 'all'];
 
-        const { data: insertedAssignmentCards, error: assignmentCardsError } = await supabase
-          .from('flashcard_templates')
-          .insert(flashcardsWithOrgId)
-          .select();
+        // Determine difficulty distribution based on play complexity
+        const difficultyDist = getDefaultDifficultyDistribution(
+          playType,
+          assignments.length
+        );
 
-        if (assignmentCardsError) {
-          console.error('Failed to insert assignment flashcards:', assignmentCardsError);
+        // Get recommended question types
+        const questionTypes = getRecommendedQuestionTypes(
+          playType,
+          !!metadata?.situation
+        );
+
+        // Build prompt for AI question generation
+        const questionPrompt = buildQuestionGenerationPrompt({
+          playData: {
+            name: playAnalysis.name || play.name,
+            concept: playAnalysis.concept || play.concept,
+            playType: playType,
+            formation: playAnalysis.formation || play.formation_name,
+            unit: unit,
+            situation: metadata?.situation,
+          },
+          assignments: assignments.map((a: any) => ({
+            position: a.position,
+            alignment: a.alignment,
+            assignment: a.assignment,
+            key_read: a.key_read,
+            category: a.category,
+          })),
+          positions,
+          questionCount: Math.min(12, assignments.length * 2), // ~2 questions per position, max 12
+          difficultyDistribution: difficultyDist,
+          questionTypes: questionTypes as any[],
+        });
+
+        // Call OpenAI to generate questions
+        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [
+              {
+                role: 'system',
+                content: QUESTION_GENERATION_SYSTEM_PROMPT,
+              },
+              {
+                role: 'user',
+                content: questionPrompt,
+              },
+            ],
+            temperature: 0.7,
+            response_format: { type: 'json_object' },
+          }),
+        });
+
+        if (aiResponse.ok) {
+          const aiResult = await aiResponse.json();
+          const questionsData = JSON.parse(aiResult.choices[0].message.content);
+          const generatedQuestions = questionsData.questions || [];
+
+          console.log(`✅ Generated ${generatedQuestions.length} AI questions`);
+
+          // Transform questions for database
+          const assignmentMap = new Map(
+            assignments.map((a: any) => [a.position, a.id])
+          );
+
+          const dbQuestions = generatedQuestions.map((q: any) => {
+            // Map topic to legacy category
+            const categoryMap: Record<string, string> = {
+              formation_identification: 'formation',
+              alignment_rules: 'alignment',
+              route_running: 'route',
+              blocking_assignments: 'blocking',
+              pass_protection: 'protection',
+              coverage_recognition: 'coverage',
+              pre_snap_reads: 'read',
+              post_snap_reads: 'read',
+              coverage_adjustments: 'adjustments',
+              play_concepts: 'general',
+              situational_football: 'general',
+            };
+
+            const category = categoryMap[q.topic] || 'general';
+            const assignmentId = q.position !== 'all' ? assignmentMap.get(q.position) || null : null;
+
+            return {
+              play_id: playId,
+              org_id: play.org_id,
+              assignment_id: assignmentId,
+              position: q.position,
+              question_type: q.question_type || 'multiple_choice',
+              topic: q.topic || null,
+              category,
+              question_prompt: q.question_prompt,
+              correct_answer: q.correct_answer,
+              options: q.options ? q.options : null,
+              explanation: q.explanation || null,
+              scenario_context: q.scenario_context || null,
+              learning_objective: q.learning_objective || '',
+              tags: q.tags || [],
+              hints: q.hints || [],
+              difficulty: q.difficulty || 'intermediate',
+              card_type: 'knowledge',
+              is_auto_generated: true,
+              is_active: true,
+              ai_generation_metadata: {
+                generated_at: new Date().toISOString(),
+                model: 'gpt-4o',
+                related_concepts: q.related_concepts || [],
+              },
+              requires_position: q.position !== 'all',
+              visible_to_positions: q.position !== 'all' ? [q.position] : ['all'],
+            };
+          });
+
+          // Insert AI-generated questions
+          if (dbQuestions.length > 0) {
+            const { data: insertedQuestions, error: questionsError } = await supabase
+              .from('flashcard_templates')
+              .insert(dbQuestions)
+              .select();
+
+            if (questionsError) {
+              console.error('❌ Failed to insert AI questions:', questionsError);
+              // Fall back to old system if AI fails
+              console.log('⚠️  Falling back to basic flashcard generation...');
+              const basicFlashcards = await generateAssignmentFlashcards(
+                playAnalysis,
+                assignments,
+                playId,
+                metadata,
+                shuffleArray
+              );
+
+              if (basicFlashcards.length > 0) {
+                const flashcardsWithOrgId = basicFlashcards.map((fc) => ({
+                  ...fc,
+                  org_id: play.org_id,
+                }));
+
+                await supabase
+                  .from('flashcard_templates')
+                  .insert(flashcardsWithOrgId);
+              }
+            } else {
+              flashcards.push(...(insertedQuestions || []));
+              console.log(`✅ Inserted ${insertedQuestions?.length || 0} AI-generated questions`);
+            }
+          }
         } else {
-          flashcards.push(...(insertedAssignmentCards || []));
-          console.log(`Inserted ${insertedAssignmentCards?.length || 0} assignment flashcards`);
+          console.error('❌ AI question generation failed, falling back to basic flashcards');
+          // Fall back to old system
+          const basicFlashcards = await generateAssignmentFlashcards(
+            playAnalysis,
+            assignments,
+            playId,
+            metadata,
+            shuffleArray
+          );
+
+          if (basicFlashcards.length > 0) {
+            const flashcardsWithOrgId = basicFlashcards.map((fc) => ({
+              ...fc,
+              org_id: play.org_id,
+            }));
+
+            const { data: insertedCards } = await supabase
+              .from('flashcard_templates')
+              .insert(flashcardsWithOrgId)
+              .select();
+
+            if (insertedCards) {
+              flashcards.push(...insertedCards);
+              console.log(`✅ Inserted ${insertedCards.length} basic flashcards (fallback)`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error in AI question generation:', error);
+        // Fall back to old system on any error
+        const basicFlashcards = await generateAssignmentFlashcards(
+          playAnalysis,
+          assignments,
+          playId,
+          metadata,
+          shuffleArray
+        );
+
+        if (basicFlashcards.length > 0) {
+          const flashcardsWithOrgId = basicFlashcards.map((fc) => ({
+            ...fc,
+            org_id: play.org_id,
+          }));
+
+          await supabase
+            .from('flashcard_templates')
+            .insert(flashcardsWithOrgId);
         }
       }
     }
