@@ -1,7 +1,7 @@
 /**
- * POST /api/plays/:id/process
- * Trigger background processing for a play (AI analysis and flashcard generation)
- * Auth: Coach/Admin
+ * POST /api/player-plays-process/:id
+ * Trigger background processing for a player play (AI analysis and flashcard generation)
+ * Auth: Player (only access own content)
  */
 
 import { Handler } from '@netlify/functions';
@@ -10,13 +10,13 @@ import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, NotFoundError, ForbiddenError, ValidationError } from './shared/errors';
 import { validateUUID } from './shared/validators';
 
-interface ProcessPlayRequest {
+interface ProcessPlayerPlayRequest {
   generateInsights?: boolean;
   generateAssignments?: boolean;
   generateKnowledge?: boolean;
 }
 
-const handler: Handler = withOrgAuth('coach')(async (event, context) => {
+const handler: Handler = withOrgAuth('player')(async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -30,25 +30,26 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
     const supabase = getSupabaseAdmin();
 
     // Get play ID from path
-    // Path format: /.netlify/functions/plays-process/:playId
     const pathParts = event.path.split('?')[0].split('/').filter(Boolean);
-    const playId = pathParts[pathParts.length - 1]; // Get the last segment (after removing query params)
+    const playId = pathParts[pathParts.length - 1];
     validateUUID(playId, 'playId');
 
     // Parse request body
-    const body: ProcessPlayRequest = JSON.parse(event.body || '{}');
+    const body: ProcessPlayerPlayRequest = JSON.parse(event.body || '{}');
     const generateInsights = body.generateInsights !== false; // Default true
     const generateAssignments = body.generateAssignments !== false; // Default true
     const generateKnowledge = body.generateKnowledge !== false; // Default true
 
     // Fetch play to verify ownership and get image URL
     const { data: play, error: playError } = await supabase
-      .from('plays')
+      .from('player_plays')
       .select(`
         id,
+        user_id,
         org_id,
         content_status,
-        playbook_metadata:playbook_metadata_id (
+        diagram_data,
+        player_playbook_metadata:player_playbook_metadata_id (
           id,
           file_paths
         )
@@ -57,11 +58,11 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       .single();
 
     if (playError || !play) {
-      throw new NotFoundError('Play');
+      throw new NotFoundError('Player play');
     }
 
-    // Verify play belongs to user's org
-    if (play.org_id !== user.orgId) {
+    // Verify play belongs to user
+    if (play.user_id !== user.userId || play.org_id !== user.orgId) {
       throw new ForbiddenError('Access denied to this play');
     }
 
@@ -70,38 +71,47 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       throw new ValidationError('Play is already being processed');
     }
 
-    // Get image URL from metadata
-    const metadata = (play as any).playbook_metadata;
-    const filePath = metadata?.file_paths?.[0];
+    // Check if this is a diagram play or image play
+    const isDiagramPlay = play.diagram_data && play.diagram_data.offensePlayers;
+    console.log(`Play type check: isDiagramPlay=${isDiagramPlay}, hasDiagramData=${!!play.diagram_data}`);
 
-    if (!filePath) {
-      throw new ValidationError('No image file path found for this play');
+    // Get image URL from metadata (only for image-based plays)
+    let imageUrl = null;
+    if (!isDiagramPlay) {
+      const metadata = (play as any).player_playbook_metadata;
+      const filePath = metadata?.file_paths?.[0];
+
+      if (!filePath) {
+        throw new ValidationError('No image file path found for this play. Diagram plays should have diagram_data.');
+      }
+
+      // Get the full public URL from Supabase Storage
+      const { data: urlData } = supabase.storage
+        .from('Chalkboard Bucket')
+        .getPublicUrl(filePath);
+
+      imageUrl = urlData.publicUrl;
     }
-
-    // Get the full public URL from Supabase Storage
-    const { data: urlData } = supabase.storage
-      .from('Chalkboard Bucket')
-      .getPublicUrl(filePath);
-
-    const imageUrl = urlData.publicUrl;
 
     // Update play status to generating
     const { error: updateError } = await supabase
-      .from('plays')
+      .from('player_plays')
       .update({ content_status: 'generating' })
       .eq('id', playId);
 
     if (updateError) {
-      throw new Error(`Failed to update play status: ${updateError.message}`);
+      throw new Error(`Failed to update player play status: ${updateError.message}`);
     }
 
     // Call background processing function
-    // Note: In production, this would be an async invocation
-    // For now, we'll make a direct HTTP call to the background function
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-play-content-background`;
+    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-player-play-content-background`;
 
-    console.log(`🚀 Triggering background processing for play ${playId}`);
-    console.log(`📷 Image URL: ${imageUrl}`);
+    console.log(`🚀 Triggering background processing for player play ${playId}`);
+    if (isDiagramPlay) {
+      console.log(`📐 Diagram play - using diagram data`);
+    } else {
+      console.log(`📷 Image URL: ${imageUrl}`);
+    }
 
     // Fire-and-forget call to background function
     fetch(backgroundFunctionUrl, {
@@ -121,7 +131,7 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       // Don't throw - we already updated the status
     });
 
-    console.log(`✅ Background processing triggered for play ${playId}`);
+    console.log(`✅ Background processing triggered for player play ${playId}`);
 
     return {
       statusCode: 202, // Accepted
@@ -134,7 +144,7 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       }),
     };
   } catch (error) {
-    console.error('Error triggering play processing:', error);
+    console.error('Error triggering player play processing:', error);
     return formatErrorResponse(error);
   }
 });

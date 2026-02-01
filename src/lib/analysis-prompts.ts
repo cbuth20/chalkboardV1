@@ -1,194 +1,276 @@
 /**
- * Shared prompts for play/coverage/formation analysis
- * Used by both netlify/functions/analyze-plays.ts and src/app/api/analyze-plays/route.ts
+ * AI Prompts for analyzing football playbook content (plays, coverages, formations)
+ * These prompts extract structured data that feeds into the question generation system
  */
 
 export type ContentType = 'play' | 'coverage' | 'formation' | 'notes';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SYSTEM PROMPTS - Define the AI's role and expertise
+// PLAY ANALYSIS - Extract assignments and route details
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const PLAY_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach and analyst. Your job is to analyze football play diagrams and extract structured information about the play.
+export const PLAY_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach analyzing play diagrams. Extract structured, detailed information about every position's assignment.
 
-When analyzing a play diagram, identify:
-1. The play name and formation
-2. The play type (pass, run, RPO, screen)
-3. The concept being used (e.g., Mesh, Flood, Power, Zone, etc.)
-4. Position assignments for each skill position (QB, RB, FB, X, Z, H, Y, TE)
+# Your Task
+Analyze the play diagram and extract:
+1. Play identification (name, formation, concept, type)
+2. Every position's assignment with precise details
+3. Routes with depths and adjustments
+4. Keys and reads for each position
 
-For each position assignment, extract:
-- alignment: Where they line up (e.g., "Slot left", "Split right 12 yards", "Pistol")
-- landmark: Their aiming point (e.g., "Inside shoulder of #2", "Frontside A-gap", "Backside hash")
-- assignment: Their route or responsibility (e.g., "15-yard dig", "Lead block backside linebacker", "Pass protect")
-- read: What they're reading (e.g., "Safety rotation", "Mike linebacker", "Cornerback leverage")
-- category: The assignment category - use ONE of these exact values:
-  - "formation" for alignment/formation details
-  - "route" for routes and route running
-  - "coverage" for coverage reads and adjustments
-  - "protection" for pass protection
-  - "blocking" for run blocking
-  - "run_fits" for run game fits and gaps
-  - "adjustments" for play adjustments
-  - "hot_routes" for hot routes and audibles
-  - "checks" for pre-snap checks
-  - "general" for general assignments that don't fit other categories
-- adjustments: How they adjust vs different coverages
-  - vsMan: What to do vs man coverage
-  - vsZone: What to do vs zone coverage
-  - vsBlitz: What to do vs blitz (if applicable)
-- routeId: The route name if it's a passing play (e.g., "go", "out", "slant", "post", "corner", "dig", "curl", "seam")
-- depth: Route depth in yards (if applicable)
+# Assignment Categories
+Categorize each assignment into ONE of these:
+- **formation**: Alignment and formation details
+- **route**: Pass routes and route running
+- **coverage**: Coverage reads and recognition
+- **protection**: Pass protection assignments
+- **blocking**: Run blocking assignments
+- **run_fits**: Run defense gap responsibilities
+- **adjustments**: Play adjustments and checks
+- **hot_routes**: Hot routes and audibles
+- **checks**: Pre-snap checks and indicators
+- **general**: General assignments (default)
 
-Return your analysis as a JSON object with this structure:
+# Output Format
+
+Return JSON in this exact structure:
+
+\`\`\`json
 {
   "name": "Full play name",
   "shortName": "Short name (max 20 chars)",
   "formation": "Formation name",
-  "playType": "pass" | "run" | "rpo" | "screen",
-  "concept": "Play concept",
-  "description": "Brief description of the play",
-  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
-  "bestAgainst": ["Coverage 1", "Coverage 2"],
+  "playType": "PASS" | "RUN" | "RPO" | "SCREEN",
+  "concept": "Play concept (Mesh, Flood, Inside Zone, etc.)",
+  "description": "1-2 sentence description of how the play works",
+  "keyPoints": [
+    "Key coaching point 1",
+    "Key coaching point 2",
+    "Key coaching point 3"
+  ],
+  "bestAgainst": [
+    "Cover 2",
+    "Man coverage"
+  ],
   "positions": {
-    "QB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "formation", "adjustments": { "vsMan": "...", "vsZone": "...", "vsBlitz": "..." } },
-    "RB": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "blocking" },
-    "X": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "route", "adjustments": { "vsMan": "...", "vsZone": "..." }, "routeId": "dig", "depth": 15 },
-    ... (include all visible positions)
+    "QB": {
+      "alignment": "Gun",
+      "landmark": "Under center / Pistol / Gun",
+      "assignment": "3-step drop, read safety rotation",
+      "read": "High safety to #2 side",
+      "category": "formation",
+      "adjustments": {
+        "vsMan": "Look for X on slant",
+        "vsZone": "Hit H on seam",
+        "vsBlitz": "Hot to RB"
+      }
+    },
+    "RB": {
+      "alignment": "Offset right",
+      "landmark": "Behind right guard",
+      "assignment": "Check-release to flat",
+      "read": "Mike linebacker",
+      "category": "protection"
+    },
+    "X": {
+      "alignment": "Split left 12 yards",
+      "landmark": "On numbers",
+      "assignment": "15-yard dig from #1",
+      "read": "Leverage of corner",
+      "category": "route",
+      "adjustments": {
+        "vsMan": "Sell vertical, break at 15",
+        "vsZone": "Sit in window vs 2-high"
+      },
+      "routeId": "dig",
+      "depth": 15
+    },
+    "Z": {
+      "alignment": "Split right 12 yards",
+      "landmark": "On numbers",
+      "assignment": "9-yard out from #1",
+      "read": "Corner depth",
+      "category": "route",
+      "routeId": "out",
+      "depth": 9
+    }
+    // ... include ALL visible positions
   }
 }
+\`\`\`
 
-If the image is unclear or doesn't contain a football play, return:
-{
-  "error": "Unable to identify a football play in this image",
-  "suggestion": "Please provide a clear football play diagram"
-}
+# Important Notes
+- Include EVERY position shown in the diagram
+- Be specific: "12 yards split" not "wide"
+- Include route depths: "15-yard dig" not just "dig"
+- Adjustments should be actionable: "Sit at 8 yards" not "adjust route"
+- For run plays, include gap assignments and landmarks
+- If unclear, return: {"error": "Unable to identify play", "suggestion": "Provide clearer diagram"}
 
-Only return valid JSON, no additional text or markdown.`;
+Return ONLY valid JSON. No markdown, no explanatory text.`;
 
-export const COVERAGE_ANALYSIS_SYSTEM_PROMPT = `You are an expert football defensive coordinator and coverage specialist. Your job is to analyze defensive coverage diagrams and extract structured information.
+// ═══════════════════════════════════════════════════════════════════════════
+// COVERAGE ANALYSIS - Extract defensive assignments
+// ═══════════════════════════════════════════════════════════════════════════
 
-When analyzing a coverage diagram, identify:
-1. The coverage name and type (Cover 0, Cover 1, Cover 2, Cover 3, Cover 4, Cover 6, etc.)
-2. The coverage family (Man, Zone, Quarters, Halves, etc.)
-3. The defensive front and alignment
-4. Responsibilities for each defensive position
+export const COVERAGE_ANALYSIS_SYSTEM_PROMPT = `You are an expert defensive coordinator analyzing coverage diagrams. Extract structured information about defensive responsibilities.
 
-For each defensive position, extract:
-- alignment: Where they line up (e.g., "Outside shade", "7-tech", "Mike linebacker depth 5 yards")
-- landmark: Their key/aiming point (e.g., "Inside receiver", "Strong side A-gap", "#2 receiver")
-- assignment: Their coverage responsibility (e.g., "Deep half", "Flat zone", "Man on #1", "Spy QB")
-- read: What they're reading (e.g., "Release of #2", "QB dropback", "Run/pass key")
-- category: The assignment category - use ONE of these exact values:
-  - "coverage" for coverage responsibilities (USE THIS for most defensive assignments)
-  - "run_fits" for run defense fits and gap assignments
-  - "formation" for alignment details
-  - "adjustments" for coverage adjustments
-  - "checks" for pre-snap checks
-  - "general" for general assignments that don't fit other categories
-  Note: For defensive content, prioritize "coverage" and "run_fits" categories
-- adjustments: How coverage adjusts vs different formations/routes
-  - vsTrips: What to do vs trips formation
-  - vs2x2: What to do vs 2x2 sets
-  - vsEmpty: What to do vs empty formation
-  - vsMotion: How to handle motion
+# Your Task
+Analyze the coverage and extract:
+1. Coverage identification (name, type, family, front)
+2. Every defender's responsibility
+3. Strengths and weaknesses
+4. How offenses attack it
 
-Return your analysis as a JSON object with this structure:
+# Assignment Categories for Defense
+- **coverage**: Primary coverage responsibilities (USE THIS MOST)
+- **run_fits**: Run defense and gap assignments
+- **formation**: Alignment details
+- **adjustments**: Coverage adjustments vs formations
+- **checks**: Pre-snap checks
+
+# Output Format
+
+\`\`\`json
 {
   "name": "Full coverage name",
-  "shortName": "Short name (max 20 chars)",
+  "shortName": "Short name (e.g., C3)",
   "coverageType": "Cover 0" | "Cover 1" | "Cover 2" | "Cover 3" | "Cover 4" | "Cover 6" | "Other",
   "coverageFamily": "Man" | "Zone" | "Quarters" | "Halves" | "Combo",
   "front": "4-3" | "3-4" | "Nickel" | "Dime" | "Other",
-  "description": "Brief description of the coverage",
-  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
-  "strengths": ["What this coverage is good against"],
-  "weaknesses": ["What this coverage struggles against"],
+  "description": "How the coverage works",
+  "keyPoints": [
+    "Key characteristic 1",
+    "Key characteristic 2"
+  ],
+  "strengths": [
+    "What this coverage defends well"
+  ],
+  "weaknesses": [
+    "What beats this coverage"
+  ],
   "positions": {
-    "FS": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage", "adjustments": { "vsTrips": "...", "vs2x2": "...", "vsEmpty": "..." } },
-    "SS": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
-    "CB1": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
-    "CB2": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "coverage" },
-    "MIKE": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
-    "WILL": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
-    "SAM": { "alignment": "...", "landmark": "...", "assignment": "...", "read": "...", "category": "run_fits" },
-    ... (include all visible positions)
+    "FS": {
+      "alignment": "12 yards deep, middle of field",
+      "landmark": "Center the formation",
+      "assignment": "Deep middle third",
+      "read": "#2 receiver vertical release",
+      "category": "coverage",
+      "adjustments": {
+        "vsTrips": "Rotate to trips side",
+        "vs2x2": "Stay middle",
+        "vsEmpty": "Play deep middle"
+      }
+    },
+    "SS": {
+      "alignment": "8 yards deep, rolled to strong side",
+      "landmark": "#2 receiver strong side",
+      "assignment": "Curl to flat strong",
+      "read": "#2 vertical or flat",
+      "category": "coverage"
+    },
+    "CB": {
+      "alignment": "7 yards off, inside shade",
+      "landmark": "#1 receiver",
+      "assignment": "Outside third",
+      "read": "#1 vertical release",
+      "category": "coverage"
+    },
+    "MIKE": {
+      "alignment": "4 yards deep, head up on center",
+      "landmark": "Center/guard gap",
+      "assignment": "A-gap run fit, hook zone",
+      "read": "Guard pull / RB flow",
+      "category": "run_fits"
+    }
+    // ... include ALL defenders
   }
 }
+\`\`\`
 
-If the image is unclear or doesn't contain a coverage diagram, return:
-{
-  "error": "Unable to identify a defensive coverage in this image",
-  "suggestion": "Please provide a clear defensive coverage diagram"
-}
+Return ONLY valid JSON. No markdown formatting.`;
 
-Only return valid JSON, no additional text or markdown.`;
+// ═══════════════════════════════════════════════════════════════════════════
+// FORMATION ANALYSIS - Extract formation details
+// ═══════════════════════════════════════════════════════════════════════════
 
-export const FORMATION_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach specializing in formations and alignments. Your job is to analyze formation diagrams and extract structured information.
+export const FORMATION_ANALYSIS_SYSTEM_PROMPT = `You are an expert coach analyzing formation diagrams. Extract alignment rules and characteristics.
 
-When analyzing a formation diagram (which may contain multiple formations), identify:
-1. All formations shown in the image
-2. For each formation: name, personnel grouping, alignment details
+# Your Task
+Analyze formations shown and extract:
+1. Formation names and personnel groupings
+2. Alignment rules for each position
 3. Key characteristics and variations
-4. Common plays run from each formation
+4. Common plays from each formation
 
-Return your analysis as a JSON object with this structure:
-{
-  "title": "Title of the diagram (e.g., 'Formation Sheet', 'Spread Formations')",
-  "description": "Overall description of what's shown",
-  "formations": [
-    {
-      "name": "Formation name",
-      "personnel": "Personnel grouping (e.g., '11 personnel', '12 personnel', '21 personnel')",
-      "alignment": "Alignment description",
-      "keyFeatures": ["Feature 1", "Feature 2"],
-      "commonPlays": ["Play concept 1", "Play concept 2"],
-      "positions": {
-        "QB": { "alignment": "..." },
-        "RB": { "alignment": "..." },
-        "X": { "alignment": "..." },
-        "Z": { "alignment": "..." },
-        ... (include all visible positions)
-      }
-    }
-  ],
-  "notes": "Any additional notes or coaching points shown in the diagram"
-}
+# Output Format
 
-If the image shows a single formation rather than multiple formations, return:
+For single formation:
+\`\`\`json
 {
   "name": "Formation name",
-  "personnel": "Personnel grouping",
-  "alignment": "Alignment description",
-  "keyFeatures": ["Feature 1", "Feature 2"],
-  "commonPlays": ["Play concept 1", "Play concept 2"],
+  "personnel": "11 personnel",
+  "alignment": "Description of formation structure",
+  "keyFeatures": [
+    "3x1 strength to boundary",
+    "Single high safety look"
+  ],
+  "commonPlays": [
+    "Mesh concept",
+    "Y-Cross"
+  ],
   "positions": {
-    "QB": { "alignment": "..." },
-    ... (include all visible positions)
+    "QB": { "alignment": "Gun" },
+    "RB": { "alignment": "Offset left" },
+    "X": { "alignment": "Split left 12 yards" }
+    // ... all positions
   },
-  "notes": "Any additional notes"
+  "notes": "Additional coaching points"
 }
+\`\`\`
 
-If the image is unclear or doesn't contain formation information, return:
+For multiple formations:
+\`\`\`json
 {
-  "error": "Unable to identify formations in this image",
-  "suggestion": "Please provide a clear formation diagram"
+  "title": "Formation sheet title",
+  "description": "Overview of formations shown",
+  "formations": [
+    {
+      "name": "Formation 1",
+      "personnel": "11 personnel",
+      // ... same structure as above
+    },
+    {
+      "name": "Formation 2",
+      // ...
+    }
+  ]
 }
+\`\`\`
 
-Only return valid JSON, no additional text or markdown.`;
+Return ONLY valid JSON.`;
 
-export const NOTES_ANALYSIS_SYSTEM_PROMPT = `You are an expert football coach assistant. Your job is to analyze coaching notes, playbook pages, diagrams, legends, or any football-related reference material.
+// ═══════════════════════════════════════════════════════════════════════════
+// REFERENCE CONTENT - Notes, legends, terminology
+// ═══════════════════════════════════════════════════════════════════════════
 
-When analyzing notes/reference material, identify:
-1. The type of content (legend, index, coaching points, technique diagrams, terminology, etc.)
-2. The main topics or categories covered
-3. Key information that would be valuable for players or coaches
+export const NOTES_ANALYSIS_SYSTEM_PROMPT = `You are a football coach assistant analyzing reference material (legends, terminology, coaching points, techniques).
 
-Return your analysis as a JSON object with this structure:
+# Your Task
+Extract key information from:
+- Playbook legends and symbol keys
+- Terminology and definitions
+- Coaching point sheets
+- Technique diagrams
+- Index pages
+
+# Output Format
+
+\`\`\`json
 {
-  "title": "Title or heading from the page",
+  "title": "Page title or heading",
   "contentType": "legend" | "index" | "coaching_points" | "technique" | "terminology" | "reference" | "other",
-  "description": "What this page contains",
+  "description": "What this page covers",
   "sections": [
     {
       "heading": "Section heading",
@@ -198,48 +280,46 @@ Return your analysis as a JSON object with this structure:
   ],
   "terminology": [
     {
-      "term": "Football term or abbreviation",
-      "definition": "What it means"
+      "term": "RPO",
+      "definition": "Run-Pass Option - QB reads defender post-snap"
     }
   ],
   "diagrams": [
     {
-      "description": "What the diagram shows",
-      "keyPoints": ["Point 1", "Point 2"]
+      "description": "What diagram shows",
+      "keyPoints": ["Teaching point 1"]
     }
   ],
-  "coachingPoints": ["Important coaching point 1", "Important coaching point 2"],
-  "notes": "Any additional relevant information"
+  "coachingPoints": [
+    "Important coaching point 1",
+    "Important coaching point 2"
+  ],
+  "notes": "Additional relevant information"
 }
+\`\`\`
 
-Be flexible in your analysis - some pages may only have sections, others only terminology, others only diagrams. Include whatever is most relevant.
+Be flexible - include whatever is most relevant from the page. Not all sections will have content.
 
-If the image is unclear or doesn't contain football-related content, return:
-{
-  "error": "Unable to identify football-related content in this image",
-  "suggestion": "Please provide a clear image of football notes or reference material"
-}
-
-Only return valid JSON, no additional text or markdown.`;
+Return ONLY valid JSON.`;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// USER PROMPTS - Content-specific analysis instructions
+// USER PROMPTS - Simple analysis requests
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const PLAY_USER_PROMPT = `Analyze this football play diagram and extract the play information, formations, routes, and position assignments.`;
+export const PLAY_USER_PROMPT = `Analyze this football play diagram. Extract the play name, formation, concept, play type, and detailed assignments for every visible position.`;
 
-export const COVERAGE_USER_PROMPT = `Analyze this defensive coverage diagram and extract the coverage type, responsibilities, and defensive position assignments.`;
+export const COVERAGE_USER_PROMPT = `Analyze this defensive coverage diagram. Extract the coverage type, name, and detailed responsibilities for every defensive position.`;
 
-export const FORMATION_USER_PROMPT = `Analyze this formation diagram and extract all formations shown, their alignments, personnel groupings, and key characteristics.`;
+export const FORMATION_USER_PROMPT = `Analyze this formation diagram. Extract all formations shown with their names, personnel groupings, alignment rules, and key characteristics.`;
 
-export const NOTES_USER_PROMPT = `Analyze this football coaching material and extract key information, terminology, diagrams, and coaching points.`;
+export const NOTES_USER_PROMPT = `Analyze this football reference material. Extract terminology, coaching points, diagrams, and any key information that would help players or coaches.`;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Get the appropriate system prompt based on content type
+ * Get system prompt based on content type
  */
 export function getSystemPrompt(contentType?: string): string {
   const type = (contentType?.toLowerCase() || 'play') as ContentType;
@@ -258,7 +338,7 @@ export function getSystemPrompt(contentType?: string): string {
 }
 
 /**
- * Get the appropriate user prompt based on content type
+ * Get user prompt based on content type
  */
 export function getUserPrompt(contentType?: string): string {
   const type = (contentType?.toLowerCase() || 'play') as ContentType;
@@ -277,23 +357,84 @@ export function getUserPrompt(contentType?: string): string {
 }
 
 /**
- * Build metadata context string from metadata object
+ * Build metadata context string for AI
  */
 export function buildMetadataContext(metadata?: any): string {
   if (!metadata) return '';
 
   const contextParts: string[] = [];
 
-  if (metadata.side_of_ball) contextParts.push(`Side of ball: ${metadata.side_of_ball}`);
-  if (metadata.content_type) contextParts.push(`Content type: ${metadata.content_type}`);
-  if (metadata.level) contextParts.push(`Level: ${metadata.level}`);
-  if (metadata.formation_name) contextParts.push(`Formation: ${metadata.formation_name}`);
-  if (metadata.concept_name) contextParts.push(`Concept: ${metadata.concept_name}`);
+  if (metadata.side_of_ball) {
+    contextParts.push(`Side of ball: ${metadata.side_of_ball}`);
+  }
+  if (metadata.content_type) {
+    contextParts.push(`Content type: ${metadata.content_type}`);
+  }
+  if (metadata.level) {
+    contextParts.push(`Level: ${metadata.level}`);
+  }
+  if (metadata.formation_name) {
+    contextParts.push(`Formation: ${metadata.formation_name}`);
+  }
+  if (metadata.concept_name) {
+    contextParts.push(`Concept: ${metadata.concept_name}`);
+  }
+  if (metadata.play_type) {
+    contextParts.push(`Play type: ${metadata.play_type}`);
+  }
+  if (metadata.unit) {
+    contextParts.push(`Unit: ${metadata.unit}`);
+  }
+  if (metadata.playbook_section) {
+    contextParts.push(`Section: ${metadata.playbook_section}`);
+  }
+  if (metadata.primary_classification) {
+    contextParts.push(`Classification: ${metadata.primary_classification}`);
+  }
+  if (metadata.situation) {
+    contextParts.push(`Situation: ${metadata.situation}`);
+  }
   if (metadata.position_relevance && metadata.position_relevance.length > 0) {
     contextParts.push(`Position relevance: ${metadata.position_relevance.join(', ')}`);
   }
 
   if (contextParts.length === 0) return '';
 
-  return `\n\nAdditional context about this image:\n${contextParts.join('\n')}`;
+  return `\n\nAdditional context:\n${contextParts.join('\n')}`;
+}
+
+/**
+ * Validate that play analysis has required fields
+ */
+export function validatePlayAnalysis(analysis: any): boolean {
+  if (!analysis) return false;
+  if (!analysis.name || !analysis.playType) return false;
+  if (!analysis.positions || Object.keys(analysis.positions).length === 0) return false;
+
+  // Check that each position has required fields
+  for (const [pos, data] of Object.entries(analysis.positions)) {
+    const posData = data as any;
+    if (!posData.alignment || !posData.assignment) {
+      console.warn(`Position ${pos} missing required fields`);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Normalize play type to database enum
+ */
+export function normalizePlayType(playType: string): 'PASS' | 'RUN' | 'RPO' | 'SCREEN' {
+  const normalized = playType?.toUpperCase();
+  const validTypes: Array<'PASS' | 'RUN' | 'RPO' | 'SCREEN'> = ['PASS', 'RUN', 'RPO', 'SCREEN'];
+
+  if (validTypes.includes(normalized as any)) {
+    return normalized as 'PASS' | 'RUN' | 'RPO' | 'SCREEN';
+  }
+
+  // Default to PASS if invalid
+  console.warn(`Invalid play type "${playType}", defaulting to PASS`);
+  return 'PASS';
 }

@@ -13,7 +13,7 @@ import { getPlaybooksApiUrl } from '@/lib/api-config';
 type ViewState = 'list' | 'upload' | 'create';
 
 export default function CoachPlaybookPage() {
-  const { orgId, teamId, userRole, loading: authLoading } = useAuth();
+  const { orgId, teamId, userRole, session, loading: authLoading } = useAuth();
   const { plays, loading, error, refetch } = usePlays({});
   const { updateStatus } = useUpdatePlayStatus();
   const { updatePlay } = useUpdatePlay();
@@ -28,11 +28,13 @@ export default function CoachPlaybookPage() {
   const [editingPlayId, setEditingPlayId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<UpdatePlayRequest>({});
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isRegeneratingQuestions, setIsRegeneratingQuestions] = useState(false);
   const [expandedUnits, setExpandedUnits] = useState<Record<Unit, boolean>>({
     O: true,
     D: true,
     ST: true,
   });
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   // Organize plays by unit
   const organizedPlays = useMemo(() => {
@@ -99,6 +101,29 @@ export default function CoachPlaybookPage() {
       unpublished: plays.filter(p => !p.isPublished).length,
     };
   }, [plays]);
+
+  // Mark initial load as complete once we have data
+  React.useEffect(() => {
+    if (!loading && isInitialLoad) {
+      setIsInitialLoad(false);
+    }
+  }, [loading, isInitialLoad]);
+
+  // Polling mechanism: Auto-refresh when plays are being generated
+  React.useEffect(() => {
+    const generatingPlays = plays.filter(p => p.contentStatus === 'generating');
+    if (generatingPlays.length === 0) {
+      return;
+    }
+
+    console.log(`Polling for ${generatingPlays.length} generating play(s)`);
+    const interval = setInterval(async () => {
+      console.log('Checking status of generating plays...');
+      await refetch();
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [plays, refetch]);
 
   const toggleUnit = (unit: Unit) => {
     setExpandedUnits(prev => ({ ...prev, [unit]: !prev[unit] }));
@@ -183,6 +208,139 @@ export default function CoachPlaybookPage() {
       alert('Failed to update status. Please try again.');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleProcessPlay = async (playId: string, playName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!session?.access_token) {
+      alert('You must be signed in to process plays.');
+      return;
+    }
+
+    if (!confirm(`Process "${playName}"? This will analyze the play and generate assignments and questions.`)) {
+      return;
+    }
+
+    try {
+      setIsRegeneratingQuestions(true);
+
+      const baseURL = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://localhost:8888/.netlify/functions'
+        : '/.netlify/functions';
+
+      const response = await fetch(`${baseURL}/plays-process/${playId}?orgId=${orgId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to process play');
+      }
+
+      const result = await response.json();
+
+      // Clear loading state immediately
+      setIsRegeneratingQuestions(false);
+
+      alert(`Processing started! This will take 1-2 minutes. The page will auto-refresh to show results.`);
+
+      // Auto-refresh after 2 minutes to show results
+      setTimeout(async () => {
+        await refetch();
+      }, 120000);
+    } catch (error) {
+      console.error('Error processing play:', error);
+      alert(`Failed to process play: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsRegeneratingQuestions(false);
+    }
+  };
+
+  const handleRegenerateQuestions = async (playId: string, playName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!session?.access_token) {
+      alert('You must be signed in to regenerate questions.');
+      return;
+    }
+
+    if (!confirm(`Regenerate questions for "${playName}"? This will deactivate old questions and create new AI-powered questions.`)) {
+      return;
+    }
+
+    try {
+      setIsRegeneratingQuestions(true);
+
+      const baseURL = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://localhost:8888/.netlify/functions'
+        : '/.netlify/functions';
+
+      const response = await fetch(`${baseURL}/questions-regenerate?orgId=${orgId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          playId,
+          questionCount: 12,
+          deactivateOld: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+        // If play has no assignments, offer to process the full play instead
+        if (errorData.error?.includes('no assignments')) {
+          const shouldProcess = confirm(
+            `This play hasn't been fully processed yet. Would you like to process it now? This will analyze the play and generate assignments and questions.`
+          );
+
+          if (shouldProcess) {
+            // Call process play instead
+            await handleProcessPlay(playId, playName, e);
+            return;
+          }
+        }
+
+        throw new Error(errorData.error || 'Failed to regenerate questions');
+      }
+
+      const result = await response.json();
+
+      // Clear loading state immediately
+      setIsRegeneratingQuestions(false);
+
+      // Background job was triggered (202 response)
+      if (response.status === 202) {
+        alert(`Question generation started! This will take 1-2 minutes. The page will auto-refresh to show results.`);
+
+        // Auto-refresh after 90 seconds to show results
+        setTimeout(async () => {
+          await refetch();
+        }, 90000);
+      } else {
+        // Immediate success (shouldn't happen with background job, but keeping for safety)
+        alert(`Successfully generated ${result.questionsGenerated} new questions!`);
+        await refetch();
+      }
+    } catch (error) {
+      console.error('Error regenerating questions:', error);
+      alert(`Failed to regenerate questions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsRegeneratingQuestions(false);
     }
   };
 
@@ -311,12 +469,18 @@ export default function CoachPlaybookPage() {
   if (currentView === 'create') {
     return (
       <SidebarLayout>
-        <PlayBuilder onSave={handlePlayBuilt} onBack={handleBackToList} />
+        <PlayBuilder
+          onSave={handlePlayBuilt}
+          onBack={handleBackToList}
+          orgId={orgId}
+          mode="coach"
+        />
       </SidebarLayout>
     );
   }
 
-  if (authLoading || loading) {
+  // Only show loading UI on initial load, not during background polling
+  if (authLoading || (loading && isInitialLoad)) {
     return (
       <SidebarLayout>
         <div className="flex items-center justify-center h-screen">
@@ -634,7 +798,10 @@ export default function CoachPlaybookPage() {
                                         onEdit={(e) => handleEditClick(play, e)}
                                         onTogglePublish={(e) => handleTogglePublish(play.id, play.name, play.isPublished, e)}
                                         onStatusChange={(status, e) => handleStatusChange(play.id, status, e)}
+                                        onProcessPlay={(e) => handleProcessPlay(play.id, play.name, e)}
+                                        onRegenerateQuestions={(e) => handleRegenerateQuestions(play.id, play.name, e)}
                                         isUpdating={isUpdating}
+                                        isRegeneratingQuestions={isRegeneratingQuestions}
                                       />
                                     )}
                                   </td>
@@ -662,14 +829,24 @@ function PlayDetailsView({
   onEdit,
   onTogglePublish,
   onStatusChange,
+  onProcessPlay,
+  onRegenerateQuestions,
   isUpdating,
+  isRegeneratingQuestions,
 }: {
   play: Play;
   onEdit: (e: React.MouseEvent) => void;
   onTogglePublish: (e: React.MouseEvent) => void;
   onStatusChange: (status: Play['contentStatus'], e: React.MouseEvent) => void;
+  onProcessPlay: (e: React.MouseEvent) => void;
+  onRegenerateQuestions: (e: React.MouseEvent) => void;
   isUpdating: boolean;
+  isRegeneratingQuestions: boolean;
 }) {
+  // Determine if play has been fully processed (status is draft or approved means processing completed)
+  const hasBeenProcessed = play.contentStatus === 'draft' || play.contentStatus === 'approved';
+  const isCurrentlyProcessing = play.contentStatus === 'generating';
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
@@ -686,6 +863,36 @@ function PlayDetailsView({
           >
             Edit Play
           </button>
+
+          {/* Show appropriate button based on processing state */}
+          {isCurrentlyProcessing ? (
+            <button
+              disabled
+              className="px-4 py-2 rounded-lg bg-blue-900/20 text-blue-400 text-sm font-semibold opacity-50 cursor-not-allowed"
+            >
+              Processing...
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onProcessPlay}
+                disabled={isRegeneratingQuestions}
+                className="px-4 py-2 rounded-lg bg-purple-900/20 text-purple-400 text-sm font-semibold hover:bg-purple-900/30 transition-all disabled:opacity-50"
+                title="Full play processing: analyze image, create assignments, generate questions"
+              >
+                {isRegeneratingQuestions ? 'Processing...' : 'Process Play'}
+              </button>
+              <button
+                onClick={onRegenerateQuestions}
+                disabled={isRegeneratingQuestions}
+                className="px-4 py-2 rounded-lg bg-blue-900/20 text-blue-400 text-sm font-semibold hover:bg-blue-900/30 transition-all disabled:opacity-50"
+                title="Quick regenerate: keep assignments, generate new questions"
+              >
+                {isRegeneratingQuestions ? 'Generating...' : 'Regenerate Questions'}
+              </button>
+            </>
+          )}
+
           <button
             onClick={onTogglePublish}
             disabled={isUpdating}
