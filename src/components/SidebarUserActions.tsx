@@ -46,8 +46,7 @@ export function SidebarUserActions() {
   useEffect(() => {
     if (canUseCoachMode) return;
 
-    const coachRoutes = ['/play-recognition', '/coach'];
-    const isCoachRoute = coachRoutes.some(route => pathname.startsWith(route));
+    const isCoachRoute = pathname.startsWith('/coach') || pathname.startsWith('/play-recognition');
 
     if (mode === "coach") {
       setMode("player");
@@ -67,15 +66,9 @@ export function SidebarUserActions() {
     setMode(newMode);
     setIsDropdownOpen(false);
 
-    // Define coach-specific routes
-    const coachRoutes = ['/play-recognition', '/coach/team', '/coach/assignments', '/coach/games'];
-
-    // Define player-specific routes
-    const playerRoutes = ['/playbook', '/games/assignment', '/team', '/settings', '/film-room', '/games', '/ai-coach'];
-
     // Check if current path is a coach or player route
-    const isCoachRoute = coachRoutes.some(route => pathname.startsWith(route));
-    const isPlayerRoute = playerRoutes.some(route => pathname.startsWith(route));
+    const isCoachRoute = pathname.startsWith('/coach') || pathname.startsWith('/play-recognition');
+    const isPlayerRoute = !isCoachRoute; // Everything else is player territory
 
     // Navigate to appropriate default route when switching modes
     if (newMode === 'coach' && isPlayerRoute) {
