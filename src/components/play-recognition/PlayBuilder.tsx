@@ -510,6 +510,8 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
   const [activePanel, setActivePanel] = useState<FloatingPanelType>(null);
   const [selectedTemplatePlayer, setSelectedTemplatePlayer] = useState<string | null>(null);
   const [copiedRoute, setCopiedRoute] = useState<DiagramRoute | null>(null);
+  const [touchMode, setTouchMode] = useState<'draw' | 'move'>('draw'); // For iPad: draw routes or move players
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   // History for undo/redo
   const [history, setHistory] = useState<HistoryState[]>([]);
@@ -577,6 +579,23 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
       setHistoryIndex(0);
     }
   }, []); // Only run once on mount
+
+  // Detect if touch device
+  useEffect(() => {
+    const checkTouch = () => {
+      setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    };
+    checkTouch();
+  }, []);
+
+  // Auto-switch to move mode in Run mode for touch devices
+  useEffect(() => {
+    if (isTouchDevice && playMode === 'run') {
+      setTouchMode('move');
+    } else if (isTouchDevice && playMode === 'pass') {
+      setTouchMode('draw');
+    }
+  }, [playMode, isTouchDevice]);
 
   // Close panel when clicking outside
   useEffect(() => {
@@ -671,17 +690,33 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
     event.stopPropagation();
     if (viewOnly) return;
 
-    // Check if we're in drag mode or route drawing mode
-    if (playMode === 'pass' && side === 'offense' && !event.shiftKey) {
-      // Route drawing mode (default for offense in pass mode)
+    // Defense always moves (never draws routes)
+    if (side === 'defense') {
+      setIsDraggingPlayer(true);
+      setDraggedPlayerId(playerId);
+      setDraggedPlayerSide(side);
+      return;
+    }
+
+    // On touch devices, use touchMode to determine behavior for offense
+    const shouldDrawRoute = isTouchDevice
+      ? (playMode === 'pass' && touchMode === 'draw')
+      : (playMode === 'pass' && !event.shiftKey);
+
+    const shouldMovePlayer = isTouchDevice
+      ? (touchMode === 'move' || playMode === 'run')
+      : (event.shiftKey || playMode === 'run');
+
+    if (shouldDrawRoute) {
+      // Route drawing mode
       const player = offensePlayers.find(p => p.id === playerId);
       if (!player) return;
 
       setSelectedPlayer(playerId);
       setIsDrawingRoute(true);
       setCurrentRoutePoints([{ x: player.x, y: player.y }]);
-    } else {
-      // Drag mode (hold shift or defense or run mode)
+    } else if (shouldMovePlayer) {
+      // Drag mode
       setIsDraggingPlayer(true);
       setDraggedPlayerId(playerId);
       setDraggedPlayerSide(side);
@@ -1617,8 +1652,14 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
                     <ul className="text-xs text-slate-400 space-y-1">
                       <li>• <strong className="text-white">Double-click/tap</strong> field to reset zoom</li>
                       <li>• <strong className="text-white">Pinch</strong> to zoom on iPad</li>
-                      <li>• Hold <strong className="text-white">Shift</strong> + drag to move players</li>
-                      <li>• Or use <strong className="text-white">Run mode</strong> for drag-only</li>
+                      {isTouchDevice ? (
+                        <li>• Use <strong className="text-white">Touch Mode toggle</strong> (bottom left) to switch between Draw/Move</li>
+                      ) : (
+                        <>
+                          <li>• Hold <strong className="text-white">Shift</strong> + drag to move players</li>
+                          <li>• Or use <strong className="text-white">Run mode</strong> for drag-only</li>
+                        </>
+                      )}
                     </ul>
                   </div>
                 </div>
@@ -1698,7 +1739,9 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
                       <li>• <strong className="text-white">Pinch</strong> to zoom in/out</li>
                       <li>• <strong className="text-white">Double-tap field</strong> to reset zoom to 100%</li>
                       <li>• <strong className="text-white">Drag field</strong> to pan up/down</li>
-                      <li>• <strong className="text-white">Tap & drag</strong> from player to draw route</li>
+                      <li>• Use <strong className="text-white">Touch Mode toggle</strong> (bottom left) to switch between:</li>
+                      <li className="pl-4">- <strong className="text-white">Draw mode:</strong> Tap & drag from player to draw route</li>
+                      <li className="pl-4">- <strong className="text-white">Move mode:</strong> Tap & drag to reposition players</li>
                     </ul>
                   </div>
 
@@ -1714,6 +1757,49 @@ export function PlayBuilder({ onSave, onBack, orgId, mode = 'coach', initialPlay
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Touch Mode Toggle - Bottom left (iPad only) */}
+        {!viewOnly && isTouchDevice && playMode === 'pass' && (
+          <div className="absolute bottom-8 left-8 z-20">
+            <div className="flex flex-col gap-2 backdrop-blur-xl rounded-lg border border-[#00F6E5]/20 bg-[#0A0A0A]/95 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center px-2">
+                Touch Mode
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setTouchMode('draw')}
+                  className={`px-4 py-3 rounded-lg transition flex flex-col items-center gap-1 ${
+                    touchMode === 'draw'
+                      ? 'bg-[#00F6E5]/20 text-[#00F6E5] ring-1 ring-[#00F6E5]'
+                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                  }`}
+                  title="Draw routes from players"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                    <path d="M2 2l7.586 7.586"/>
+                  </svg>
+                  <span className="text-xs font-semibold">Draw</span>
+                </button>
+                <button
+                  onClick={() => setTouchMode('move')}
+                  className={`px-4 py-3 rounded-lg transition flex flex-col items-center gap-1 ${
+                    touchMode === 'move'
+                      ? 'bg-[#00F6E5]/20 text-[#00F6E5] ring-1 ring-[#00F6E5]'
+                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                  }`}
+                  title="Move player positions"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>
+                  </svg>
+                  <span className="text-xs font-semibold">Move</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
