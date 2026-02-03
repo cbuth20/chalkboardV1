@@ -69,10 +69,12 @@ export const handler: Handler = async (event, context) => {
       generateInsights = true,
       generateAssignments = true,
       generateKnowledge = true,
+      useStructuredData = false, // NEW: Flag to use structured assignments instead of image
     } = JSON.parse(event.body || '{}');
 
     playId = inputPlayId;
     console.log('📝 Processing player play:', playId);
+    console.log('🔧 Using structured data:', useStructuredData);
 
     if (!playId) {
       return {
@@ -110,24 +112,43 @@ export const handler: Handler = async (event, context) => {
 
     let playAnalysis = null;
 
-    // Check if this is a diagram-built play or an image-based play
-    const isDiagramPlay = play.diagram_data && play.diagram_data.offensePlayers;
+    // NEW: Check if this is a structured play (with player_responsibilities)
+    const hasStructuredData = useStructuredData && play.player_responsibilities && Object.keys(play.player_responsibilities).length > 0;
 
-    if (isDiagramPlay) {
-      // For diagram plays, convert diagram to text and use that instead of vision
-      console.log('📐 This is a diagram-built play - using diagram data');
-      const diagramText = diagramToText(play.diagram_data, {
-        name: play.name,
-        formation: play.formation_name || '',
-        concept: play.concept || '',
-        playType: play.play_type as 'PASS' | 'RUN' | 'RPO',
-        strength: 'Right',
-        personnel: '11',
-      });
+    if (hasStructuredData) {
+      // For structured plays, use player responsibilities directly
+      console.log('🎯 This is a structured play - using player responsibilities');
 
-      console.log('1️⃣  Analyzing diagram play with GPT-4...');
-      playAnalysis = await analyzeDiagramPlay(openai, diagramText, metadataContext);
+      // Get situational tags
+      const { data: situationalTags } = await supabase
+        .from('player_play_situational_tags')
+        .select('tag_id, situational_tags(name)')
+        .eq('player_play_id', playId);
+
+      const tags = situationalTags?.map((t: any) => t.situational_tags?.name).filter(Boolean) || [];
+
+      const structuredText = buildStructuredPlayText(play, tags);
+      console.log('1️⃣  Analyzing structured play with GPT-4o...');
+      playAnalysis = await analyzeStructuredPlay(openai, structuredText, metadataContext);
     } else {
+      // Check if this is a diagram-built play or an image-based play
+      const isDiagramPlay = play.diagram_data && play.diagram_data.offensePlayers;
+
+      if (isDiagramPlay) {
+        // For diagram plays, convert diagram to text and use that instead of vision
+        console.log('📐 This is a diagram-built play - using diagram data');
+        const diagramText = diagramToText(play.diagram_data, {
+          name: play.name,
+          formation: play.formation_name || '',
+          concept: play.concept || '',
+          playType: play.play_type as 'PASS' | 'RUN' | 'RPO',
+          strength: 'Right',
+          personnel: '11',
+        });
+
+        console.log('1️⃣  Analyzing diagram play with GPT-4o...');
+        playAnalysis = await analyzeDiagramPlay(openai, diagramText, metadataContext);
+      } else {
       // For image plays, use vision AI
       if (!imageUrl) {
         throw new Error('Image URL is required for non-diagram plays');
@@ -145,6 +166,7 @@ export const handler: Handler = async (event, context) => {
 
       console.log('1️⃣  Analyzing play with GPT-4o Vision...');
       playAnalysis = await analyzePlayWithVision(openai, base64Image, mimeType, metadataContext);
+      }
     }
 
     console.log('✅ Analysis complete:', {
@@ -637,4 +659,79 @@ function mapToValidCategory(category: string): string {
 
   // Default to 'assignment' for unknown categories
   return 'assignment';
+}
+
+// NEW: Helper function to build structured play text from player responsibilities
+function buildStructuredPlayText(play: any, situationalTags: string[]): string {
+  const parts: string[] = [];
+
+  // Play metadata
+  parts.push(`Play: ${play.name}`);
+  if (play.side_of_ball) parts.push(`Side of Ball: ${play.side_of_ball}`);
+  if (play.structured_play_type) parts.push(`Play Type: ${play.structured_play_type}`);
+  if (play.formation_name) parts.push(`Formation: ${play.formation_name}`);
+  if (play.personnel) parts.push(`Personnel: ${play.personnel}`);
+
+  // Situational tags
+  if (situationalTags.length > 0) {
+    parts.push(`Situations: ${situationalTags.join(', ')}`);
+  }
+
+  parts.push('\n--- Player Responsibilities ---\n');
+
+  // Player responsibilities (filter by includeInAI flag)
+  const responsibilities = play.player_responsibilities || {};
+  Object.entries(responsibilities).forEach(([playerId, resp]: [string, any]) => {
+    if (resp.includeInAI !== false) { // Include by default
+      const playerLabel = playerId; // You may want to map this to actual player labels
+      parts.push(`${playerLabel}: ${resp.responsibility}`);
+      if (resp.coachingNotes) {
+        parts.push(`  Notes: ${resp.coachingNotes}`);
+      }
+    }
+  });
+
+  return parts.join('\n');
+}
+
+// NEW: Analyze structured play using GPT-4o
+async function analyzeStructuredPlay(
+  openai: OpenAI,
+  structuredText: string,
+  metadataContext: string
+): Promise<any> {
+  const prompt = `You are analyzing a football play with structured player responsibilities.
+
+${metadataContext}
+
+Play Details:
+${structuredText}
+
+Analyze this play and provide:
+1. A brief overview of the play concept (2-3 sentences)
+2. Key coaching points for players
+3. Potential adjustments based on defensive looks
+4. The primary read/progression if applicable
+
+Return your analysis in JSON format with these fields:
+{
+  "overview": "Play overview here",
+  "coachingPoints": ["Point 1", "Point 2", ...],
+  "adjustments": "Adjustment notes",
+  "reads": "Read progression notes"
+}`;
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+    temperature: 0.6,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No analysis content returned from GPT-4o');
+  }
+
+  return JSON.parse(content);
 }

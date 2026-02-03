@@ -21,7 +21,23 @@ interface CreatePlayerPlayRequest {
   playbookSection?: string;
   primaryClassification?: string;
   situation?: string;
-  diagramData?: any; // For PlayBuilder-created plays
+  diagramData?: any; // For legacy PlayBuilder-created plays
+
+  // NEW: Structured Play Builder fields
+  sideOfBall?: 'offense' | 'defense';
+  structuredPlayType?: string; // run/pass/rpo/screen/play_action OR coverage/pressure/run_fit/stunt/simulated_pressure
+  personnel?: string;
+  formationId?: string;
+  primaryFolder?: string;
+  defensiveLook?: string;
+  offensiveLook?: string;
+  installPhase?: string;
+  situationalTags?: string[]; // array of tag IDs
+  conceptTags?: string[]; // array of tag IDs
+  playerAssignments?: Record<string, any>;
+  playerResponsibilities?: Record<string, any>;
+  visualData?: any;
+  isFinalized?: boolean;
 }
 
 const handler: Handler = withOrgAuth('player')(async (event, context) => {
@@ -90,6 +106,21 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         primary_classification: body.primaryClassification || metadata?.primary_classification || null,
         situation: body.situation || metadata?.situation || null,
         is_private: true, // All player plays are private by default
+
+        // NEW: Structured Play Builder fields
+        side_of_ball: body.sideOfBall || null,
+        structured_play_type: body.structuredPlayType || null,
+        personnel: body.personnel || null,
+        formation_id: body.formationId || null,
+        primary_folder: body.primaryFolder || null,
+        defensive_look: body.defensiveLook || null,
+        offensive_look: body.offensiveLook || null,
+        install_phase: body.installPhase || null,
+        player_assignments: body.playerAssignments || {},
+        player_responsibilities: body.playerResponsibilities || {},
+        visual_data: body.visualData || {},
+        is_finalized: body.isFinalized || false,
+        completion_warnings: [],
       })
       .select()
       .single();
@@ -99,6 +130,40 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     }
 
     console.log(`✅ Player play created: ${play.id} by user ${user.userId}`);
+
+    // Insert situational tags if provided
+    if (body.situationalTags && body.situationalTags.length > 0) {
+      const tagInserts = body.situationalTags.map(tagId => ({
+        player_play_id: play.id,
+        tag_id: tagId,
+      }));
+
+      const { error: tagError } = await supabase
+        .from('player_play_situational_tags')
+        .insert(tagInserts);
+
+      if (tagError) {
+        console.error('Failed to insert situational tags:', tagError);
+        // Don't throw - play was created successfully
+      }
+    }
+
+    // Insert concept tags if provided
+    if (body.conceptTags && body.conceptTags.length > 0) {
+      const conceptInserts = body.conceptTags.map(tagId => ({
+        player_play_id: play.id,
+        tag_id: tagId,
+      }));
+
+      const { error: conceptError } = await supabase
+        .from('player_play_concept_tags')
+        .insert(conceptInserts);
+
+      if (conceptError) {
+        console.error('Failed to insert concept tags:', conceptError);
+        // Don't throw - play was created successfully
+      }
+    }
 
     // If triggerProcessing is true, trigger background processing
     if (body.triggerProcessing && metadata) {

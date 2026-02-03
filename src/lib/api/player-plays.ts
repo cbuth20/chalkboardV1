@@ -13,7 +13,23 @@ export interface CreatePlayerPlayRequest {
   playbookSection?: string;
   primaryClassification?: string;
   situation?: string;
-  diagramData?: any; // For PlayBuilder-created plays
+  diagramData?: any; // For legacy PlayBuilder-created plays
+
+  // NEW: Structured Play Builder fields
+  sideOfBall?: 'offense' | 'defense';
+  structuredPlayType?: string;
+  personnel?: string;
+  formationId?: string;
+  primaryFolder?: string;
+  defensiveLook?: string;
+  offensiveLook?: string;
+  installPhase?: string;
+  situationalTags?: string[];
+  conceptTags?: string[];
+  playerAssignments?: Record<string, any>;
+  playerResponsibilities?: Record<string, any>;
+  visualData?: any;
+  isFinalized?: boolean;
 }
 
 export type Unit = 'O' | 'D' | 'ST';
@@ -209,6 +225,38 @@ class PlayerPlaysAPI {
     return this.request(`player-plays-delete/${playId}?orgId=${orgId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  // NEW: Structured Play Builder methods
+
+  async validatePlay(
+    playId: string,
+    token: string
+  ): Promise<{
+    success: boolean;
+    isValid: boolean;
+    warnings: Array<{ type: 'error' | 'warning'; message: string; playerId?: string }>;
+    playerCount: number;
+    playersWithAssignments: number;
+    playersWithResponsibilities: number;
+  }> {
+    return this.request(`player-plays-validate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ playId }),
+    });
+  }
+
+  async finalizePlay(
+    playId: string,
+    token: string,
+    triggerProcessing?: boolean
+  ): Promise<{ success: boolean; message: string; playId: string }> {
+    return this.request(`player-plays-finalize`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ playId, triggerProcessing }),
     });
   }
 }

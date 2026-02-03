@@ -23,6 +23,7 @@
         "npm:eslint-config-next@16.0.5",
         "npm:eslint@9",
         "npm:heic-convert@^2.1.0",
+        "npm:html-to-image@^1.11.13",
         "npm:lucide-react@0.562",
         "npm:next@^16.1.1",
         "npm:openai@^6.16.0",

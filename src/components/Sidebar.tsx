@@ -28,7 +28,7 @@ export default function Sidebar() {
 
   // Player navigation items - Learning Center (player-created)
   const learningCenterNavItems: NavItem[] = [
-    { name: "MY LIBRARY", href: "/learning-center", icon: LibraryIcon },
+    { name: "My Plays", href: "/learning-center", icon: LibraryIcon },
   ];
 
   // Coach navigation items (7 items)
@@ -70,6 +70,11 @@ export default function Sidebar() {
       {/* Navigation items */}
       <nav className="flex-1 overflow-y-auto px-4 py-2">
         {/* Team Content Section (for players) or Main Nav (for coaches) */}
+        <div className="px-4 mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Team Learning Center
+          </span>
+        </div>
         <div className="space-y-1">
           {navItems.map((item) => {
             const isActive =
@@ -124,7 +129,7 @@ export default function Sidebar() {
             <div className="mt-6 pt-4 border-t border-[#1B1E20]/80">
               <div className="px-4 mb-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Learning Center
+                  Personal Learning Center
                 </span>
               </div>
               <div className="space-y-1">

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,6 +17,9 @@ import { PlayerPlay, Unit, UpdatePlayerPlayRequest } from '@/lib/api/player-play
 import { FileUploadScreen } from '@/components/play-recognition/FileUploadScreen';
 import { PlayBuilder, BuiltPlayData } from '@/components/play-recognition/PlayBuilder';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
+import { situationalTagsAPI, type SituationalTag } from '@/lib/api/situational-tags';
+import { conceptTagsAPI, type ConceptTag } from '@/lib/api/concept-tags';
+import { formationsAPI, type Formation } from '@/lib/api/formations';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
 
 type ViewState = 'list' | 'upload' | 'create' | 'view';
@@ -160,12 +163,59 @@ export default function LearningCenterPage() {
   });
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
+  // Structured play builder data
+  const [situationalTags, setSituationalTags] = useState<SituationalTag[]>([]);
+  const [conceptTags, setConceptTags] = useState<ConceptTag[]>([]);
+  const [formations, setFormations] = useState<Formation[]>([]);
+  const [loadingStructuredData, setLoadingStructuredData] = useState(false);
+
   // Mark initial load as complete once we have data
   React.useEffect(() => {
     if (!loading && isInitialLoad) {
       setIsInitialLoad(false);
     }
   }, [loading, isInitialLoad]);
+
+  // Load structured data when entering create mode
+  useEffect(() => {
+    const loadStructuredData = async () => {
+      if (currentView !== 'create' || !session?.access_token) {
+        return;
+      }
+
+      if (situationalTags.length > 0 && conceptTags.length > 0 && formations.length > 0) {
+        // Already loaded
+        return;
+      }
+
+      try {
+        setLoadingStructuredData(true);
+
+        console.log('Loading structured data for PlayBuilder...');
+
+        const [situationalTagsRes, conceptTagsRes, formationsRes] = await Promise.all([
+          situationalTagsAPI.list(session.access_token),
+          conceptTagsAPI.list(session.access_token),
+          formationsAPI.list(session.access_token),
+        ]);
+
+        console.log('Loaded formations:', formationsRes.formations);
+        console.log('Loaded situational tags:', situationalTagsRes.tags);
+        console.log('Loaded concept tags:', conceptTagsRes.tags);
+
+        setSituationalTags(situationalTagsRes.tags);
+        setConceptTags(conceptTagsRes.tags);
+        setFormations(formationsRes.formations);
+      } catch (err) {
+        console.error('Error loading structured data:', err);
+        alert(`Failed to load play builder data: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      } finally {
+        setLoadingStructuredData(false);
+      }
+    };
+
+    loadStructuredData();
+  }, [currentView, session?.access_token]);
 
   // Poll for plays that are generating
   React.useEffect(() => {
@@ -381,27 +431,33 @@ export default function LearningCenterPage() {
 
   // Play builder view
   if (currentView === 'create') {
+    if (loadingStructuredData) {
+      return (
+        <SidebarLayout>
+          <div className="flex items-center justify-center h-screen bg-[#0A0A0A]">
+            <div className="text-center">
+              <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00F6E5]/20 border-t-[#00F6E5]" />
+              <p className="text-slate-400">Loading Play Builder...</p>
+            </div>
+          </div>
+        </SidebarLayout>
+      );
+    }
+
     return (
       <SidebarLayout>
         <PlayBuilder
           onBack={() => setCurrentView('list')}
-          orgId={orgId}
-          mode="player"
-          onSave={async (playData: BuiltPlayData, metadata: PlaybookMetadataInput) => {
-            if (!orgId) {
-              alert('Organization ID not found');
-              return;
-            }
-
+          onSave={async (playData, metadata) => {
             try {
-              setIsUpdating(true);
-
-              // Create the play with diagram data
-              const result = await createPlay({
+              // Create the play using the existing API
+              await createPlay({
                 name: playData.metadata.name,
-                playType: playData.metadata.playType as 'PASS' | 'RUN' | 'RPO' | 'SCREEN',
-                formationName: playData.metadata.formation,
+                unit: metadata?.unit || 'O',
+                sectionName: metadata?.formation_name || '',
+                playType: playData.metadata.playType,
                 concept: playData.metadata.concept,
+                formationName: playData.metadata.formation,
                 diagramData: {
                   mode: playData.mode,
                   offensePlayers: playData.offensePlayers,
@@ -410,22 +466,42 @@ export default function LearningCenterPage() {
                   blocking: playData.blocking,
                   ballCarrierPath: playData.ballCarrierPath,
                 },
-                unit: 'O',
-                triggerProcessing: false, // Don't auto-process diagram-built plays
+                // Add structured metadata if available
+                ...(metadata?.sideOfBall && {
+                  sideOfBall: metadata.sideOfBall,
+                  structuredPlayType: metadata.structuredPlayType,
+                  situationalTags: metadata.situationalTags,
+                  conceptTags: metadata.conceptTags,
+                  formationId: metadata.formationId,
+                  installPhase: metadata.installPhase,
+                  defensiveLook: metadata.defensiveLook,
+                  offensiveLook: metadata.offensiveLook,
+                }),
               });
 
-              if (result.success) {
-                alert(`Play "${playData.metadata.name}" created successfully!`);
-                await refetch();
-                setCurrentView('list');
-              }
+              await refetch();
+              setCurrentView('list');
             } catch (error) {
               console.error('Error creating play:', error);
               alert('Failed to create play. Please try again.');
-            } finally {
-              setIsUpdating(false);
             }
           }}
+          orgId={orgId}
+          mode="player"
+          situationalTags={situationalTags.map(tag => ({
+            id: tag.id,
+            name: tag.name,
+            category: tag.category,
+          }))}
+          conceptTags={conceptTags.map(tag => ({
+            id: tag.id,
+            name: tag.name,
+          }))}
+          formations={formations.map(f => ({
+            id: f.id,
+            name: f.name,
+            sideOfBall: f.sideOfBall,
+          }))}
         />
       </SidebarLayout>
     );

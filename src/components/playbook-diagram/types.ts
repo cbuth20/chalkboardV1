@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import type { FieldPoint, ViewBox, HashStandard } from '@/lib/field';
+import type { PlayerAssignment, PlayerResponsibility } from '@/types/play-assignments';
 
 // Re-export types from field spec for convenience
 export type { FieldPoint, ViewBox, HashStandard };
@@ -72,6 +73,14 @@ export type DiagramPlayer = {
   color?: string;
   /** Optional position group (for styling) */
   group?: 'line' | 'skill' | 'backfield' | 'secondary' | 'linebacker';
+
+  // NEW: Structured Play Builder fields
+  /** Structured assignment (route, block, coverage, etc.) */
+  assignment?: PlayerAssignment;
+  /** Full responsibility with coaching notes and AI inclusion */
+  responsibility?: PlayerResponsibility;
+  /** Position name (WR, QB, LB, etc.) */
+  position?: string;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
