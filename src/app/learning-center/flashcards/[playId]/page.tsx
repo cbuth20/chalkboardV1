@@ -245,8 +245,23 @@ export default function FlashcardsPage() {
                   Select Your Answer
                 </label>
 
-                {/* True/False Questions */}
-                {currentCard.hints?.questionType === 'true_false' && (
+                {/* Multiple Choice Questions */}
+                {currentCard.hints?.questionType === 'multiple_choice' && currentCard.hints?.options && currentCard.hints.options.length > 0 ? (
+                  <div className="space-y-3">
+                    {currentCard.hints.options.map((option, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleSubmitAnswer(option)}
+                        className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-700 border-2 border-slate-700 hover:border-[#00F6E5] rounded-lg text-white font-medium transition-all text-left flex items-start gap-3"
+                      >
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">
+                          {String.fromCharCode(65 + index)}
+                        </span>
+                        <span className="flex-1">{option}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : currentCard.hints?.questionType === 'true_false' ? (
                   <div className="grid grid-cols-2 gap-4">
                     <button
                       onClick={() => handleSubmitAnswer('true')}
@@ -261,23 +276,26 @@ export default function FlashcardsPage() {
                       ✗ False
                     </button>
                   </div>
-                )}
-
-                {/* Multiple Choice Questions */}
-                {currentCard.hints?.questionType === 'multiple_choice' && currentCard.hints?.options && (
-                  <div className="space-y-3">
-                    {currentCard.hints.options.map((option, index) => (
+                ) : (
+                  // Fallback: Default to True/False if questionType is missing or not recognized
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500 mb-3">
+                      (Question type: {currentCard.hints?.questionType || 'not specified'} - defaulting to True/False)
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
                       <button
-                        key={index}
-                        onClick={() => handleSubmitAnswer(option)}
-                        className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-700 border-2 border-slate-700 hover:border-[#00F6E5] rounded-lg text-white font-medium transition-all text-left flex items-start gap-3"
+                        onClick={() => handleSubmitAnswer('true')}
+                        className="py-4 px-6 bg-slate-800 hover:bg-slate-700 border-2 border-slate-700 hover:border-[#00F6E5] rounded-lg text-white font-semibold transition-all text-lg"
                       >
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">
-                          {String.fromCharCode(65 + index)}
-                        </span>
-                        <span className="flex-1">{option}</span>
+                        ✓ True
                       </button>
-                    ))}
+                      <button
+                        onClick={() => handleSubmitAnswer('false')}
+                        className="py-4 px-6 bg-slate-800 hover:bg-slate-700 border-2 border-slate-700 hover:border-[#00F6E5] rounded-lg text-white font-semibold transition-all text-lg"
+                      >
+                        ✗ False
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -583,6 +583,138 @@ export interface DbPlayerFlashcardProgress {
   updated_at: string;
 }
 
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// PLAYER LIBRARY TYPES (Added in migration 018)
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+export type QuestionType = 'multiple_choice' | 'true_false' | 'fill_blank' | 'scenario' | 'identification';
+
+export type QuestionTopic =
+  | 'formation_identification'
+  | 'alignment_rules'
+  | 'personnel_groupings'
+  | 'route_running'
+  | 'blocking_assignments'
+  | 'pass_protection'
+  | 'run_fits'
+  | 'pre_snap_reads'
+  | 'post_snap_reads'
+  | 'coverage_recognition'
+  | 'hot_routes'
+  | 'coverage_adjustments'
+  | 'formation_checks'
+  | 'audibles'
+  | 'motion_adjustments'
+  | 'play_concepts'
+  | 'coverage_concepts'
+  | 'situational_football'
+  | 'game_planning'
+  | 'terminology'
+  | 'rules'
+  | 'techniques';
+
+export interface PlayerFlashcardTemplate {
+  id: string;
+  player_play_id: string;
+  player_assignment_id: string | null;
+  org_id: string;
+  position: SkillPosition;
+  category: FlashcardCategory;
+
+  // Question content
+  question_prompt: string;
+  correct_answer: string;
+  hints: Record<string, unknown>;
+  explanation: string | null;
+
+  // Enhanced fields (migration 020)
+  question_type: QuestionType | null;
+  topic: QuestionTopic | null;
+  options: string[] | null; // For multiple choice
+  scenario_context: string | null;
+  learning_objective: string | null;
+  tags: string[];
+  ai_generation_metadata: Record<string, unknown>;
+
+  // Metadata
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  is_auto_generated: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// PLAYER GAMES TYPES (Added in migration 020)
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+export type GameCategory = 'coverage_blitz' | 'routes_concepts' | 'situational' | 'assignments';
+export type SelectionStrategy = 'random' | 'difficulty_progression' | 'spaced_repetition';
+
+export interface GameFilters {
+  positions?: SkillPosition[];
+  topics?: QuestionTopic[];
+  difficulty?: ('beginner' | 'intermediate' | 'advanced')[];
+  playIds?: string[];
+  tags?: string[];
+}
+
+export interface PlayerGame {
+  id: string;
+  user_id: string;
+  org_id: string;
+
+  // Game identity
+  name: string;
+  description: string | null;
+  category: GameCategory;
+
+  // Configuration
+  filters: GameFilters;
+  question_count: number;
+  time_limit_seconds: number | null;
+  passing_score: number;
+  selection_strategy: SelectionStrategy;
+
+  // Status & Stats
+  is_active: boolean;
+  total_attempts: number;
+  best_score: number | null;
+  last_played_at: string | null;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlayerGameAttempt {
+  id: string;
+  user_id: string;
+  org_id: string;
+  game_id: string | null; // Null for ad-hoc games
+
+  // Session timing
+  started_at: string;
+  completed_at: string | null;
+
+  // Scoring
+  questions_asked: number;
+  questions_correct: number;
+  score_percentage: number;
+
+  // Question data
+  question_ids: string[];
+  responses: Array<{
+    questionId: string;
+    answer: string;
+    correct: boolean;
+    timeSpent: number;
+  }>;
+
+  // Metadata
+  created_at: string;
+}
+
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
 // AI INSIGHT TYPES
@@ -938,6 +1070,13 @@ export interface Database {
       coverage_definitions: { Row: DbCoverageDefinition; Insert: Partial<DbCoverageDefinition>; Update: Partial<DbCoverageDefinition> };
       reference_content: { Row: DbReferenceContent; Insert: Partial<DbReferenceContent>; Update: Partial<DbReferenceContent> };
       gpt_analysis_cache: { Row: DbGptAnalysisCache; Insert: Partial<DbGptAnalysisCache>; Update: Partial<DbGptAnalysisCache> };
+
+      // Player Library (Added in migration 018)
+      player_flashcard_templates: { Row: PlayerFlashcardTemplate; Insert: Partial<PlayerFlashcardTemplate>; Update: Partial<PlayerFlashcardTemplate> };
+
+      // Player Games (Added in migration 020)
+      player_games: { Row: PlayerGame; Insert: Partial<PlayerGame>; Update: Partial<PlayerGame> };
+      player_game_attempts: { Row: PlayerGameAttempt; Insert: Partial<PlayerGameAttempt>; Update: Partial<PlayerGameAttempt> };
     };
     Views: {
       install_plays_detail_view: { Row: InstallPlayDetail };

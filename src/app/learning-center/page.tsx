@@ -14,6 +14,7 @@ import {
   usePlayerPlay,
 } from '@/hooks/usePlayerPlaysAPI';
 import { PlayerPlay, Unit, UpdatePlayerPlayRequest } from '@/lib/api/player-plays';
+import { playerGamesAPI } from '@/lib/api/player-games';
 import { FileUploadScreen } from '@/components/play-recognition/FileUploadScreen';
 import { PlayBuilder, BuiltPlayData } from '@/components/play-recognition/PlayBuilder';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
@@ -163,6 +164,10 @@ export default function LearningCenterPage() {
   });
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
+  // Batch processing
+  const [selectedPlayIds, setSelectedPlayIds] = useState<Set<string>>(new Set());
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+
   // Structured play builder data
   const [situationalTags, setSituationalTags] = useState<SituationalTag[]>([]);
   const [conceptTags, setConceptTags] = useState<ConceptTag[]>([]);
@@ -294,6 +299,7 @@ export default function LearningCenterPage() {
       draft: plays.filter(p => p.contentStatus === 'draft').length,
       approved: plays.filter(p => p.contentStatus === 'approved').length,
       generating: plays.filter(p => p.contentStatus === 'generating').length,
+      failed: plays.filter(p => p.contentStatus === 'rejected').length,
     };
   }, [plays]);
 
@@ -328,6 +334,133 @@ export default function LearningCenterPage() {
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const quickPractice = async (playId: string) => {
+    if (!orgId) {
+      alert('Organization ID not found. Please try refreshing the page.');
+      return;
+    }
+
+    try {
+      // Start an ad-hoc game with just this play
+      const result = await playerGamesAPI.startGame({
+        adHocFilters: {
+          playIds: [playId],
+          difficulty: ['beginner', 'intermediate', 'advanced'],
+        },
+        questionCount: 10,
+      }, orgId);
+
+      // Store questions in sessionStorage
+      sessionStorage.setItem(`game_${result.attemptId}`, JSON.stringify(result.questions));
+
+      router.push(`/games-center/play/${result.attemptId}`);
+    } catch (error) {
+      console.error('Failed to start practice:', error);
+
+      // Show more helpful error message
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('No questions')) {
+        alert('This play has no questions yet. Try processing it again or check if the questions were generated successfully.');
+      } else {
+        alert(`Failed to start practice: ${errorMessage}`);
+      }
+    }
+  };
+
+  const togglePlaySelection = (playId: string) => {
+    setSelectedPlayIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(playId)) {
+        newSet.delete(playId);
+      } else {
+        newSet.add(playId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedPlayIds.size === filteredPlays.length) {
+      setSelectedPlayIds(new Set());
+    } else {
+      setSelectedPlayIds(new Set(filteredPlays.map(p => p.id)));
+    }
+  };
+
+  const handleBatchProcess = async () => {
+    if (!session || !orgId) {
+      alert('Please log in to process plays');
+      return;
+    }
+
+    if (selectedPlayIds.size === 0) {
+      alert('Please select at least one play to process');
+      return;
+    }
+
+    if (selectedPlayIds.size > 10) {
+      alert('Maximum 10 plays can be processed at once');
+      return;
+    }
+
+    const confirmMessage = `Process ${selectedPlayIds.size} selected play(s)?\n\nThis will generate:\n• Insights\n• Assignments\n• Knowledge cards`;
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    setIsBatchProcessing(true);
+
+    try {
+      const playIdsArray = Array.from(selectedPlayIds);
+
+      // Call batch process API directly
+      const baseURL = window.location.hostname === 'localhost'
+        ? 'http://localhost:8888/.netlify/functions'
+        : '/.netlify/functions';
+
+      const response = await fetch(`${baseURL}/player-plays-batch-process?orgId=${orgId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playIds: playIdsArray,
+          generateInsights: true,
+          generateAssignments: true,
+          generateKnowledge: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to batch process');
+      }
+
+      const result = await response.json();
+
+      alert(`Successfully started processing ${result.processingCount} play(s)!\n\nProcessing in background. Check back in a minute to see results.\n\nTip: Failed plays will show a "🔄 Retry" button.`);
+      setSelectedPlayIds(new Set());
+
+      // Refetch to update statuses - poll multiple times to catch updates
+      setTimeout(() => refetch(), 1000);
+      setTimeout(() => refetch(), 5000);
+      setTimeout(() => refetch(), 10000);
+    } catch (error) {
+      console.error('Failed to batch process:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to start batch processing: ${errorMessage}`);
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
+
+  const addToGames = (playId: string) => {
+    // Navigate to games-center with play pre-selected (query param)
+    router.push(`/games-center?play=${playId}`);
   };
 
   const handleDeletePlay = async (playId: string, playName: string, e: React.MouseEvent) => {
@@ -602,7 +735,52 @@ export default function LearningCenterPage() {
               <div className="text-2xl font-black text-yellow-400">{stats.generating}</div>
               <div className="text-xs text-slate-400 uppercase tracking-wider">Generating</div>
             </div>
+            {stats.failed > 0 && (
+              <div className="glass-card p-4 border-red-500/30">
+                <div className="text-2xl font-black text-red-400">{stats.failed}</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider">Failed</div>
+              </div>
+            )}
           </div>
+
+          {/* Batch Processing Controls */}
+          {filteredPlays.length > 0 && (
+            <div className="flex items-center justify-between p-4 bg-[#1B1E20] rounded-lg border border-[#2A2F33]">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedPlayIds.size === filteredPlays.length && filteredPlays.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-[#2A2F33] bg-[#0A0A0A] text-[#00F6E5] focus:ring-[#00F6E5]"
+                  />
+                  <span className="text-sm text-slate-300">
+                    Select All ({selectedPlayIds.size} of {filteredPlays.length} selected)
+                  </span>
+                </label>
+              </div>
+
+              <button
+                onClick={handleBatchProcess}
+                disabled={selectedPlayIds.size === 0 || isBatchProcessing}
+                className="px-4 py-2 bg-[#00F6E5] text-black font-semibold rounded-lg hover:bg-[#00D4C7] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isBatchProcessing ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                    </svg>
+                    Process Selected ({selectedPlayIds.size})
+                  </>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* Filters */}
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
@@ -649,6 +827,7 @@ export default function LearningCenterPage() {
               <option value="draft">Draft</option>
               <option value="approved">Ready</option>
               <option value="generating">Generating</option>
+              <option value="rejected">Failed</option>
             </select>
           </div>
         </header>
@@ -703,8 +882,19 @@ export default function LearningCenterPage() {
                           onClick={() => handleViewPlay(play.id)}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <h3 className="text-white font-semibold mb-1">{play.name}</h3>
+                            <div className="flex items-center gap-3 flex-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedPlayIds.has(play.id)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  togglePlaySelection(play.id);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-4 h-4 rounded border-[#2A2F33] bg-[#0A0A0A] text-[#00F6E5] focus:ring-[#00F6E5] cursor-pointer"
+                              />
+                              <div className="flex-1">
+                                <h3 className="text-white font-semibold mb-1">{play.name}</h3>
                               <div className="flex items-center gap-3 text-sm text-slate-400">
                                 {play.concept && <span>{play.concept}</span>}
                                 {play.playbookSection && <span>• {play.playbookSection}</span>}
@@ -714,15 +904,28 @@ export default function LearningCenterPage() {
                                       ? 'bg-green-900/30 text-green-400'
                                       : play.contentStatus === 'generating'
                                       ? 'bg-yellow-900/30 text-yellow-400'
+                                      : play.contentStatus === 'rejected'
+                                      ? 'bg-red-900/30 text-red-400'
                                       : 'bg-slate-800 text-slate-400'
                                   }`}
                                 >
-                                  {play.contentStatus}
+                                  {play.contentStatus === 'rejected' ? '❌ Failed' : play.contentStatus}
                                 </span>
+                              </div>
                               </div>
                             </div>
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              {play.contentStatus !== 'approved' && play.contentStatus !== 'generating' && (
+                              {play.contentStatus === 'rejected' && (
+                                <button
+                                  onClick={(e) => handleProcessPlay(play.id, play.name, e)}
+                                  disabled={isUpdating}
+                                  className="px-3 py-1.5 text-sm font-semibold bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                  title={play.aiInsights ? play.aiInsights.substring(0, 200) : 'Processing failed - click to retry'}
+                                >
+                                  🔄 Retry
+                                </button>
+                              )}
+                              {play.contentStatus !== 'approved' && play.contentStatus !== 'generating' && play.contentStatus !== 'rejected' && (
                                 <button
                                   onClick={(e) => handleProcessPlay(play.id, play.name, e)}
                                   disabled={isUpdating}
@@ -738,16 +941,27 @@ export default function LearningCenterPage() {
                                 </span>
                               )}
                               {play.contentStatus === 'approved' && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/learning-center/flashcards/${play.id}`);
-                                  }}
-                                  className="px-3 py-1.5 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors flex items-center gap-1.5"
-                                >
-                                  <SparklesIconSmall className="h-4 w-4" />
-                                  Practice
-                                </button>
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      router.push(`/learning-center/flashcards/${play.id}`);
+                                    }}
+                                    className="px-3 py-1.5 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors flex items-center gap-1.5"
+                                  >
+                                    <SparklesIconSmall className="h-4 w-4" />
+                                    Study
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      quickPractice(play.id);
+                                    }}
+                                    className="px-3 py-1.5 text-sm font-semibold bg-[#00F6E5] text-black rounded-lg hover:bg-[#00D4C7] transition-colors flex items-center gap-1.5"
+                                  >
+                                    🎮 Practice Game
+                                  </button>
+                                </>
                               )}
                               <button
                                 onClick={(e) => handleDeletePlay(play.id, play.name, e)}

@@ -14,15 +14,15 @@ SELECT
     ELSE '✗ DELETE'
   END as action
 FROM organizations
-WHERE owner_id = '5568feb7-1ba5-4d11-8d24-e3b082388dd0'
+WHERE owner_id = '82844ede-4ad2-44be-9307-bf7798926a1e'
 ORDER BY created_at DESC;
 
 -- If the above looks good, uncomment and run this to delete:
 /*
 DELETE FROM organizations
-WHERE owner_id = '5568feb7-1ba5-4d11-8d24-e3b082388dd0'
+WHERE owner_id = '82844ede-4ad2-44be-9307-bf7798926a1e'
   AND id != '986d0f15-e926-4f76-89e1-bf7c7f731923';  -- Keep the active one
 */
 
 -- Verify what's left:
--- SELECT * FROM organizations WHERE owner_id = '5568feb7-1ba5-4d11-8d24-e3b082388dd0';
+-- SELECT * FROM organizations WHERE owner_id = '82844ede-4ad2-44be-9307-bf7798926a1e';

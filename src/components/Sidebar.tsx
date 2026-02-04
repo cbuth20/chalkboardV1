@@ -29,6 +29,7 @@ export default function Sidebar() {
   // Player navigation items - Learning Center (player-created)
   const learningCenterNavItems: NavItem[] = [
     { name: "My Plays", href: "/learning-center", icon: LibraryIcon },
+    { name: "My Games", href: "/games-center", icon: GamesIcon },
   ];
 
   // Coach navigation items (7 items)
@@ -134,7 +135,7 @@ export default function Sidebar() {
               </div>
               <div className="space-y-1">
                 {learningCenterNavItems.map((item) => {
-                  const isActive = pathname === item.href;
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
 
                   return (
                     <Link

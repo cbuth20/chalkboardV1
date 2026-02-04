@@ -217,6 +217,24 @@ class PlayerPlaysAPI {
     });
   }
 
+  async batchProcessPlays(
+    playIds: string[],
+    data: ProcessPlayerPlayRequest,
+    token: string,
+    orgId: string
+  ): Promise<{ success: boolean; message: string; playIds: string[]; processingCount: number }> {
+    return this.request(`player-plays-batch-process?orgId=${orgId}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        playIds,
+        generateInsights: data.generateInsights,
+        generateAssignments: data.generateAssignments,
+        generateKnowledge: data.generateKnowledge,
+      }),
+    });
+  }
+
   async deletePlay(
     playId: string,
     token: string,

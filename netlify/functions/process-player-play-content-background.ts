@@ -257,6 +257,16 @@ export const handler: Handler = async (event, context) => {
         .filter(Boolean);
 
       if (assignmentRecords.length > 0) {
+        // Delete existing assignments first to avoid duplicates (for re-processing)
+        const { error: deleteError } = await supabase
+          .from('player_play_assignments')
+          .delete()
+          .eq('player_play_id', playId);
+
+        if (deleteError) {
+          console.error('Warning: Failed to delete existing assignments:', deleteError);
+        }
+
         const { data: assignments, error: assignmentError } = await supabase
           .from('player_play_assignments')
           .insert(assignmentRecords)
@@ -264,6 +274,7 @@ export const handler: Handler = async (event, context) => {
 
         if (assignmentError) {
           console.error('Failed to insert assignments:', assignmentError);
+          throw new Error(`Failed to insert assignments: ${assignmentError.message}`);
         } else {
           console.log(`✅ Inserted ${assignments?.length || 0} assignments`);
         }
@@ -272,30 +283,71 @@ export const handler: Handler = async (event, context) => {
 
     // Insert flashcards
     if (knowledgeCards.length > 0 && generateKnowledge) {
-      const flashcardRecords = knowledgeCards.map((card: any) => {
-        // Store question type and options in hints field as metadata
-        const hintsData: any = {
-          questionType: card.questionType || 'multiple_choice',
-        };
+      // Fetch play tags for inheritance
+      const { data: situationalTags } = await supabase
+        .from('player_play_situational_tags')
+        .select('situational_tags(name)')
+        .eq('player_play_id', playId);
 
-        // For multiple choice, store the options
-        if (card.questionType === 'multiple_choice' && card.options) {
-          hintsData.options = card.options;
-        }
+      const { data: conceptTags } = await supabase
+        .from('player_play_concept_tags')
+        .select('concept_tags(name)')
+        .eq('player_play_id', playId);
+
+      const inheritedTags = [
+        ...(situationalTags?.map((st: any) => st.situational_tags?.name).filter(Boolean) || []),
+        ...(conceptTags?.map((ct: any) => ct.concept_tags?.name).filter(Boolean) || [])
+      ];
+
+      console.log(`📌 Inherited ${inheritedTags.length} tags from play:`, inheritedTags);
+
+      const flashcardRecords = knowledgeCards.map((card: any) => {
+        // Combine inherited tags with AI-generated tags
+        const allTags = [
+          ...inheritedTags,
+          ...(card.tags || [])
+        ];
 
         return {
           player_play_id: playId,
+          org_id: play.org_id,
           position: normalizePosition(card.position) || 'QB',
           category: mapToValidCategory(card.category),
+
+          // NEW FIELDS
+          question_type: card.questionType || 'multiple_choice',
+          topic: card.topic || null,
+          options: card.options || null,
+          scenario_context: card.scenarioContext || null,
+          learning_objective: card.learningObjective || '',
+          tags: allTags,
+          ai_generation_metadata: {
+            generated_at: new Date().toISOString(),
+            model: 'gpt-4o',
+            play_concept: play.concept,
+            play_name: play.name,
+          },
+
+          // EXISTING FIELDS
           question_prompt: card.question,
           correct_answer: card.correctAnswer || card.answer,
-          hints: hintsData,
+          hints: card.hints || [],
           explanation: card.explanation || null,
           difficulty: card.difficulty || 'intermediate',
           is_auto_generated: true,
           is_active: true,
         };
       });
+
+      // Delete existing flashcards first to avoid duplicates (for re-processing)
+      const { error: deleteFlashcardsError } = await supabase
+        .from('player_flashcard_templates')
+        .delete()
+        .eq('player_play_id', playId);
+
+      if (deleteFlashcardsError) {
+        console.error('Warning: Failed to delete existing flashcards:', deleteFlashcardsError);
+      }
 
       const { data: flashcards, error: flashcardError } = await supabase
         .from('player_flashcard_templates')
@@ -304,8 +356,9 @@ export const handler: Handler = async (event, context) => {
 
       if (flashcardError) {
         console.error('Failed to insert flashcards:', flashcardError);
+        throw new Error(`Failed to insert flashcards: ${flashcardError.message}`);
       } else {
-        console.log(`✅ Inserted ${flashcards?.length || 0} flashcards`);
+        console.log(`✅ Inserted ${flashcards?.length || 0} flashcards with enhanced metadata`);
       }
     }
 
@@ -326,10 +379,17 @@ export const handler: Handler = async (event, context) => {
   } catch (error: any) {
     console.error('❌ Processing failed:', error);
 
+    // Store error message for UI to display
+    const errorMessage = error.message || 'Unknown processing error';
+    const errorDetails = `Processing Error: ${errorMessage}\n\nTimestamp: ${new Date().toISOString()}\n\nYou can retry processing this play.`;
+
     if (playId) {
       await supabase
         .from('player_plays')
-        .update({ content_status: 'rejected' })
+        .update({
+          content_status: 'rejected',
+          ai_insights: errorDetails, // Store error in ai_insights field for now
+        })
         .eq('id', playId);
     }
 
@@ -338,7 +398,7 @@ export const handler: Handler = async (event, context) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: 'Failed to process player play',
-        message: error.message,
+        message: errorMessage,
         playId,
       }),
     };
@@ -529,50 +589,50 @@ async function generateKnowledgeCards(
   playAnalysis: any,
   metadata: any
 ): Promise<any[]> {
-  const prompt = `Generate 8-10 study flashcards for this football play:
+  const prompt = `Generate 8-12 high-quality study flashcards for this football play:
 
 Play: ${playAnalysis.name}
 Type: ${playAnalysis.playType}
 Concept: ${playAnalysis.concept}
 
-Create a mix of TRUE/FALSE and MULTIPLE CHOICE questions covering different aspects of the play.
+Create diverse questions covering different aspects. For each question, provide:
 
-For TRUE/FALSE questions:
 {
   "position": "QB|RB|X|Z|H|Y|TE|LT|LG|C|RG|RT",
   "category": "alignment|assignment|coverage|motion|read|progression|terminology|blocking",
-  "questionType": "true_false",
-  "question": "statement to evaluate as true or false",
-  "correctAnswer": "true" or "false",
-  "explanation": "why this answer is correct",
-  "difficulty": "beginner|intermediate|advanced"
-}
-
-For MULTIPLE CHOICE questions (provide 4 options):
-{
-  "position": "QB|RB|X|Z|H|Y|TE|LT|LG|C|RG|RT",
-  "category": "alignment|assignment|coverage|motion|read|progression|terminology|blocking",
-  "questionType": "multiple_choice",
+  "questionType": "multiple_choice|true_false|scenario",
+  "topic": "coverage_recognition|route_running|blocking_assignments|pre_snap_reads|post_snap_reads|alignment_rules|play_concepts|situational_football",
   "question": "question text",
-  "options": ["option A", "option B", "option C", "option D"],
-  "correctAnswer": "option A" (must exactly match one of the options),
-  "explanation": "why this answer is correct and others are wrong",
+  "options": ["A", "B", "C", "D"],  // For multiple_choice only
+  "correctAnswer": "exact match to one option or 'true'/'false'",
+  "explanation": "detailed explanation of correct answer",
+  "learningObjective": "what this question teaches",
+  "scenarioContext": "game situation if applicable (e.g., '3rd & 6, red zone, vs Cover 2')",
+  "tags": ["relevant", "tags"],  // e.g., ["3rd_down", "red_zone"]
   "difficulty": "beginner|intermediate|advanced"
 }
 
-CATEGORY VALUES (use ONLY these):
-- "alignment" - stance, splits, position on field
-- "assignment" - route concepts, play execution, responsibilities
-- "coverage" - coverage recognition and adjustments
-- "motion" - pre-snap movement
-- "read" - single read/key
-- "progression" - multi-step read progressions
-- "terminology" - play calling and terminology
-- "blocking" - blocking schemes
+TOPICS (use one of these exact values):
+- formation_identification, alignment_rules, personnel_groupings
+- route_running, blocking_assignments, pass_protection, run_fits
+- pre_snap_reads, post_snap_reads, coverage_recognition, hot_routes
+- coverage_adjustments, formation_checks, audibles, motion_adjustments
+- play_concepts, coverage_concepts, situational_football, game_planning
+- terminology, rules, techniques
 
-Create a good mix: about 40% true/false and 60% multiple choice questions.
+CATEGORIES:
+- alignment: stance, splits, position
+- assignment: routes, execution, responsibilities
+- coverage: recognition and adjustments
+- motion: pre-snap movement
+- read: single read/key
+- progression: multi-step reads
+- terminology: play calling terms
+- blocking: blocking schemes
 
-Return a JSON object with a "flashcards" array containing these flashcard objects.`;
+Generate 2-5 questions per position based on their assignments. Mix difficulty levels and question types.
+
+Return JSON: { "flashcards": [...] }`;
 
   const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {

@@ -154,29 +154,37 @@ You MUST use one of these exact position values (DO NOT use "all"):
 
 For questions that apply to multiple positions, use "QB" as the position.
 
-# Output Format
+# Required Output Format
 
-Return a JSON object with this structure:
+CRITICAL: Every question MUST include ALL of these fields:
 
 {
   "questions": [
     {
       "question_type": "multiple_choice" | "true_false" | "fill_blank" | "scenario" | "identification",
-      "topic": "MUST be one of the valid topics listed above",
-      "position": "MUST be one of the valid positions above (QB, RB, X, Z, etc.) - DO NOT USE 'all'",
+      "topic": "REQUIRED - MUST be one of the valid topics listed above (e.g., 'coverage_recognition', 'route_running')",
+      "position": "REQUIRED - MUST be one of: QB, RB, FB, X, Z, H, Y, TE, LT, LG, C, RG, RT - DO NOT USE 'all'",
       "difficulty": "beginner" | "intermediate" | "advanced" | "expert",
-      "question_prompt": "The question text",
-      "correct_answer": "The correct answer",
-      "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // Only for multiple_choice
-      "explanation": "Why this is the correct answer and what players should learn",
-      "scenario_context": "3rd and 7, red zone, facing Cover 2...", // Only for scenario questions
-      "learning_objective": "Understand coverage adjustments vs different safety rotations",
-      "tags": ["3rd_down", "red_zone", "cover_2"], // Situational tags
-      "hints": ["Hint 1", "Hint 2"], // Optional hints for learning mode
-      "related_concepts": ["Cover 2", "Safety rotation", "Route adjustments"] // Related topics
+      "question_prompt": "REQUIRED - The question text",
+      "correct_answer": "REQUIRED - The correct answer",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // REQUIRED for multiple_choice
+      "explanation": "REQUIRED - Detailed explanation of why this is correct",
+      "scenario_context": "Optional - Game situation (e.g., '3rd and 7, red zone, facing Cover 2')",
+      "learning_objective": "REQUIRED - What this question teaches (e.g., 'Understand coverage adjustments vs different safety rotations')",
+      "tags": ["3rd_down", "red_zone", "cover_2"], // REQUIRED - Array of situational/concept tags
+      "hints": ["Hint 1", "Hint 2"], // Optional progressive hints
+      "category": "alignment|assignment|coverage|motion|read|progression|terminology|blocking" // REQUIRED for database storage
     }
   ]
 }
+
+IMPORTANT REMINDERS:
+- Generate 2-5 questions per position based on their specific assignments
+- Mix difficulty levels (beginner, intermediate, advanced)
+- Vary question types (multiple_choice, true_false, scenario)
+- Include relevant tags that match the play situation
+- Make learning_objective specific and actionable
+- Provide detailed explanations that teach, not just confirm correctness
 
 Generate questions that progressively build understanding, starting with foundational concepts and building to complex game situations.`;
 
