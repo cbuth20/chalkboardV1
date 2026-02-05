@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import type { DiagramPlayer, DiagramRoute, PlayMode } from '../types';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -77,6 +77,29 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
     touchMode
   });
 
+  // Long press state for touch selection
+  const [longPressPlayer, setLongPressPlayer] = useState<{ playerId: string; side: 'offense' | 'defense'; progress: number } | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressProgressRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const LONG_PRESS_DURATION = 500; // ms
+  const MOVE_THRESHOLD = 10; // pixels - if finger moves more than this, cancel long press
+
+  // Clear long press state
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (longPressProgressRef.current) {
+      clearInterval(longPressProgressRef.current);
+      longPressProgressRef.current = null;
+    }
+    setLongPressPlayer(null);
+    touchStartPosRef.current = null;
+  }, []);
+
   // Touch event handlers that convert to mouse events
   const handlePlayerTouchStart = useCallback((e: React.TouchEvent<SVGGElement>, playerId: string, side: 'offense' | 'defense') => {
     if (e.touches.length !== 1) return; // Only handle single touch
@@ -84,7 +107,43 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
     e.stopPropagation();
 
     const touch = e.touches[0];
-    // Create a synthetic mouse event
+
+    // Store initial touch position for move detection
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+    // Start long press timer for player selection
+    setLongPressPlayer({ playerId, side, progress: 0 });
+
+    // Animate progress indicator
+    const startTime = Date.now();
+    longPressProgressRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min((elapsed / LONG_PRESS_DURATION) * 100, 100);
+      setLongPressPlayer({ playerId, side, progress });
+    }, 16); // ~60fps
+
+    // Set timer to trigger selection after long press duration
+    longPressTimerRef.current = setTimeout(() => {
+      console.log('👆 Long press detected on', playerId);
+      clearLongPress();
+
+      // Stop any drawing/dragging that might have started
+      onFieldMouseUp();
+
+      // Create a synthetic mouse event for double-click handler
+      const syntheticEvent = {
+        ...e,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        stopPropagation: () => e.stopPropagation(),
+        preventDefault: () => e.preventDefault()
+      } as unknown as React.MouseEvent<SVGGElement>;
+
+      // Trigger player selection (same as double-click)
+      onPlayerDoubleClick(syntheticEvent, playerId, side);
+    }, LONG_PRESS_DURATION);
+
+    // Also trigger normal mouse down for potential drag/draw (will be cancelled if long press completes)
     const syntheticEvent = {
       ...e,
       clientX: touch.clientX,
@@ -95,7 +154,7 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
     } as unknown as React.MouseEvent<SVGGElement>;
 
     onPlayerMouseDown(syntheticEvent, playerId, side);
-  }, [touchMode, onPlayerMouseDown]);
+  }, [touchMode, onPlayerMouseDown, onPlayerDoubleClick, onFieldMouseUp, clearLongPress, LONG_PRESS_DURATION]);
 
   const handleFieldTouchStart = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
     // Let container handle multi-touch gestures (pinch zoom, pan)
@@ -107,10 +166,24 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
 
   const handleFieldTouchMove = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
     if (e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+
+    // Check if finger moved too much during long press - if so, cancel long press
+    if (longPressPlayer && touchStartPosRef.current) {
+      const dx = touch.clientX - touchStartPosRef.current.x;
+      const dy = touch.clientY - touchStartPosRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > MOVE_THRESHOLD) {
+        console.log('👆 Long press cancelled due to movement');
+        clearLongPress();
+      }
+    }
+
     if (!isDrawingRoute && !isDraggingPlayer) return;
 
     e.preventDefault(); // Prevent scrolling while drawing/dragging
-    const touch = e.touches[0];
 
     const syntheticEvent = {
       ...e,
@@ -121,14 +194,20 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
     } as unknown as React.MouseEvent<SVGSVGElement>;
 
     onFieldMouseMove(syntheticEvent);
-  }, [isDrawingRoute, isDraggingPlayer, onFieldMouseMove]);
+  }, [isDrawingRoute, isDraggingPlayer, onFieldMouseMove, longPressPlayer, clearLongPress, MOVE_THRESHOLD]);
 
   const handleFieldTouchEnd = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
+    // Clear long press if touch ended before completion
+    if (longPressPlayer) {
+      console.log('👆 Long press cancelled - touch ended early');
+      clearLongPress();
+    }
+
     if (isDrawingRoute || isDraggingPlayer) {
       e.preventDefault();
       onFieldMouseUp();
     }
-  }, [isDrawingRoute, isDraggingPlayer, onFieldMouseUp]);
+  }, [isDrawingRoute, isDraggingPlayer, onFieldMouseUp, longPressPlayer, clearLongPress]);
 
   // Debug: Log when players change
   useEffect(() => {
@@ -297,6 +376,7 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
           console.log('🎨 RENDERING MLB at:', player.x, player.y);
         }
         const isSelected = selectedPlayer === player.id;
+        const isLongPressing = longPressPlayer?.playerId === player.id && longPressPlayer?.side === 'defense';
 
         return (
           <g
@@ -306,6 +386,21 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
             onTouchStart={(e) => handlePlayerTouchStart(e, player.id, 'defense')}
             style={{ cursor: !viewOnly ? 'move' : 'default', touchAction: 'none' }}
           >
+            {/* Long press progress indicator */}
+            {isLongPressing && (
+              <circle
+                cx={player.x}
+                cy={player.y}
+                r="2.5"
+                fill="none"
+                stroke="#00F6E5"
+                strokeWidth="0.6"
+                strokeDasharray={`${(longPressPlayer.progress / 100) * (2 * Math.PI * 2.5)} ${2 * Math.PI * 2.5}`}
+                strokeLinecap="round"
+                opacity="0.8"
+                transform={`rotate(-90 ${player.x} ${player.y})`}
+              />
+            )}
             {/* Selection indicator - outer glow ring */}
             {isSelected && (
               <>
@@ -410,6 +505,7 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
         // 🔥 PERFORMANCE OPTIMIZATION: O(1) route lookup instead of O(n)
         const hasRoute = routeByPlayerId[player.id] !== undefined;
         const isDragging = isDraggingPlayer && draggedPlayerId === player.id;
+        const isLongPressing = longPressPlayer?.playerId === player.id && longPressPlayer?.side === 'offense';
 
         return (
           <g
@@ -422,6 +518,21 @@ const FieldCanvasComponent: React.FC<FieldCanvasProps> = ({
               touchAction: 'none'
             }}
           >
+            {/* Long press progress indicator */}
+            {isLongPressing && (
+              <circle
+                cx={player.x}
+                cy={player.y}
+                r="2.5"
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth="0.6"
+                strokeDasharray={`${(longPressPlayer.progress / 100) * (2 * Math.PI * 2.5)} ${2 * Math.PI * 2.5}`}
+                strokeLinecap="round"
+                opacity="0.8"
+                transform={`rotate(-90 ${player.x} ${player.y})`}
+              />
+            )}
             {/* Selection indicator - outer glow ring */}
             {isSelected && (
               <>
