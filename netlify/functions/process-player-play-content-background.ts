@@ -149,23 +149,33 @@ export const handler: Handler = async (event, context) => {
         console.log('1️⃣  Analyzing diagram play with GPT-4o...');
         playAnalysis = await analyzeDiagramPlay(openai, diagramText, metadataContext);
       } else {
-      // For image plays, use vision AI
-      if (!imageUrl) {
-        throw new Error('Image URL is required for non-diagram plays');
-      }
+        // For image/PDF plays, use vision AI
+        if (!imageUrl) {
+          throw new Error('Image URL is required for non-diagram plays');
+        }
 
-      console.log('📷 Fetching image from:', imageUrl);
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error('Failed to fetch image from URL');
-      }
+        console.log('📷 Fetching file from:', imageUrl);
+        const fileResponse = await fetch(imageUrl);
+        if (!fileResponse.ok) {
+          throw new Error('Failed to fetch file from URL');
+        }
 
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const base64Image = Buffer.from(imageBuffer).toString('base64');
-      const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+        const fileBuffer = await fileResponse.arrayBuffer();
+        const base64File = Buffer.from(fileBuffer).toString('base64');
+        const mimeType = fileResponse.headers.get('content-type') || 'image/jpeg';
 
-      console.log('1️⃣  Analyzing play with GPT-4o Vision...');
-      playAnalysis = await analyzePlayWithVision(openai, base64Image, mimeType, metadataContext);
+        // Check if this is a PDF
+        const filePath = metadata?.file_paths?.[0] || '';
+        const fileName = filePath.split('/').pop() || '';
+        const isPDF = fileName.toLowerCase().endsWith('.pdf') || mimeType === 'application/pdf';
+
+        if (isPDF) {
+          console.log('📄 Analyzing PDF with GPT-4o...');
+          playAnalysis = await analyzePDFWithVision(openai, base64File, metadataContext);
+        } else {
+          console.log('1️⃣  Analyzing play with GPT-4o Vision...');
+          playAnalysis = await analyzePlayWithVision(openai, base64File, mimeType, metadataContext);
+        }
       }
     }
 
@@ -465,6 +475,80 @@ IMPORTANT:
   const data = await response.json();
   const content = data.choices[0]?.message?.content;
   if (!content) throw new Error('No response from AI');
+
+  return JSON.parse(content);
+}
+
+async function analyzePDFWithVision(
+  openai: OpenAI,
+  base64PDF: string,
+  metadataContext: string
+): Promise<any> {
+  const prompt = `Analyze this football playbook PDF and extract detailed information for study purposes.
+
+${metadataContext ? `Context: ${metadataContext}` : ''}
+
+Provide a JSON response with:
+{
+  "name": "descriptive name for the content (e.g., 'Red Zone Passing Concepts' or 'Cover 2 Defense')",
+  "shortName": "short version (max 50 chars)",
+  "playType": "PASS|RUN|RPO|SCREEN",
+  "concept": "main concept or scheme",
+  "formation": "formation name if visible",
+  "positions": {
+    "QB": { "alignment": "", "landmark": "", "assignment": "", "read": "", "adjustments": { "vsMan": "", "vsZone": "", "vsBlitz": "" } },
+    "RB": { "alignment": "", "landmark": "", "assignment": "", "read": "", "adjustments": { ... } }
+    // Include all positions with responsibilities mentioned
+  }
+}
+
+Extract key information about:
+- Play concepts and schemes
+- Position responsibilities and assignments
+- Formations and alignments
+- Reads and progressions
+- Adjustments vs different defenses
+- Coaching points
+
+Focus on information that would be useful for generating study flashcards.`;
+
+  const apiKey = openaiApiKey;
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:application/pdf;base64,${base64PDF}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI API error:', response.status, errorText);
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from Vision API');
 
   return JSON.parse(content);
 }

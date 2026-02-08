@@ -12,6 +12,10 @@ import {
   SUGGESTED_SECTIONS,
   SUGGESTED_SITUATIONS,
   getPrimaryClassificationsForUnit,
+  NOTE_TYPE_LABELS,
+  NoteType,
+  FileCategory,
+  FILE_CATEGORY_LABELS,
 } from '@/types/playbook-metadata';
 import { ALL_POSITIONS } from '@/lib/positions';
 
@@ -24,11 +28,12 @@ interface UploadedFile {
 }
 
 interface FileUploadScreenProps {
+  mode?: 'plays' | 'notes'; // NEW: mode to differentiate between plays and notes
   onUploadComplete: (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => void;
   onBack: () => void;
 }
 
-export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComplete, onBack }) => {
+export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'plays', onUploadComplete, onBack }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
@@ -58,7 +63,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
               metadata: {
                 position_relevance: ['all'],
                 tags: [],
-                content_type: 'play', // Default content type (database enum value)
+                content_type: mode === 'notes' ? 'reference' : 'play', // Set content type based on mode
               },
             });
           };
@@ -101,6 +106,18 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
   };
 
   const handleUploadAll = () => {
+    // Warn if uploading a large number of files
+    if (uploadedFiles.length > 100) {
+      if (!confirm(
+        `You're about to upload ${uploadedFiles.length} files.\n\n` +
+        `This may take several minutes and will be processed in batches to avoid server overload.\n\n` +
+        `For best performance, consider uploading in smaller batches (50-100 files at a time).\n\n` +
+        `Continue with upload?`
+      )) {
+        return;
+      }
+    }
+
     setIsUploadingAll(true);
     const filesToUpload = uploadedFiles.map(file => ({
       fileData: file.data,
@@ -406,21 +423,58 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                       </p>
                     </div>
 
-                    {/* Formation Name */}
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-300 mb-2">Formation Name</label>
-                      <input
-                        type="text"
-                        value={currentFile.metadata.formation_name || ''}
-                        onChange={(e) => handleUpdateMetadata({ formation_name: e.target.value })}
-                        placeholder="e.g., Trips, Shotgun, I-Formation"
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
-                      />
-                    </div>
+                    {/* Note Type (only for notes mode) */}
+                    {mode === 'notes' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">Note Type</label>
+                        <select
+                          value={currentFile.metadata.note_type || ''}
+                          onChange={(e) => handleUpdateMetadata({ note_type: e.target.value as NoteType })}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        >
+                          <option value="">Select Note Type...</option>
+                          {(Object.entries(NOTE_TYPE_LABELS) as [NoteType, string][]).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
-                    {/* Classification Section */}
-                    <div className="border-t border-white/10 pt-5">
-                      <h4 className="text-base font-bold text-white mb-4">Play Classification</h4>
+                    {/* File Category (only for notes mode) */}
+                    {mode === 'notes' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">Category</label>
+                        <select
+                          value={currentFile.metadata.file_category || ''}
+                          onChange={(e) => handleUpdateMetadata({ file_category: e.target.value as FileCategory })}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        >
+                          <option value="">Select Category...</option>
+                          {(Object.entries(FILE_CATEGORY_LABELS) as [FileCategory, string][]).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Formation Name (only for plays mode) */}
+                    {mode === 'plays' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">Formation Name</label>
+                        <input
+                          type="text"
+                          value={currentFile.metadata.formation_name || ''}
+                          onChange={(e) => handleUpdateMetadata({ formation_name: e.target.value })}
+                          placeholder="e.g., Trips, Shotgun, I-Formation"
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                        />
+                      </div>
+                    )}
+
+                    {/* Classification Section (only for plays mode) */}
+                    {mode === 'plays' && (
+                      <div className="border-t border-white/10 pt-5">
+                        <h4 className="text-base font-bold text-white mb-4">Play Classification</h4>
 
                       {/* Unit & Play Type */}
                       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -520,15 +574,17 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                         </datalist>
                       </div>
                     </div>
+                    )}
 
-                    {/* Position Relevance */}
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-300 mb-2">
-                        Position Relevance
-                        {!currentFile.metadata.unit && (
-                          <span className="ml-2 text-xs text-amber-400">Select "Unit" first</span>
-                        )}
-                      </label>
+                    {/* Position Relevance (only for plays mode) */}
+                    {mode === 'plays' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-300 mb-2">
+                          Position Relevance
+                          {!currentFile.metadata.unit && (
+                            <span className="ml-2 text-xs text-amber-400">Select "Unit" first</span>
+                          )}
+                        </label>
                       {currentFile.metadata.unit && currentFile.metadata.side_of_ball ? (
                         <div className="grid grid-cols-5 gap-2">
                           {/* "All" button */}
@@ -572,7 +628,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ onUploadComp
                           Please select a "Unit" to choose position relevance
                         </div>
                       )}
-                    </div>
+                      </div>
+                    )}
 
                     {/* Additional Information */}
                     <div>

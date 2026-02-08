@@ -40,6 +40,32 @@ export type PlaybookTag =
   | 'Hot Routes'
   | 'Checks';
 
+// Note types for My Notes feature
+export type NoteType =
+  | 'playbook_pdf'
+  | 'defensive_scheme'
+  | 'route_tree'
+  | 'study_guide'
+  | 'reference'
+  | 'other';
+
+export type FileCategory = 'notes' | 'reference' | 'playbook_pdf';
+
+export const NOTE_TYPE_LABELS: Record<NoteType, string> = {
+  playbook_pdf: 'Playbook PDF',
+  defensive_scheme: 'Defensive Scheme',
+  route_tree: 'Route Tree',
+  study_guide: 'Study Guide',
+  reference: 'Reference Material',
+  other: 'Other',
+};
+
+export const FILE_CATEGORY_LABELS: Record<FileCategory, string> = {
+  notes: 'Notes',
+  reference: 'Reference',
+  playbook_pdf: 'Playbook PDF',
+};
+
 export interface PlaybookMetadata {
   id: string;
   created_at: string;
@@ -84,6 +110,10 @@ export interface PlaybookMetadataInput {
   primary_classification?: string;
   situation?: string;
   play_type?: 'PASS' | 'RUN' | 'RPO' | 'SCREEN';
+  // My Notes fields
+  note_type?: NoteType;
+  file_category?: FileCategory;
+  page_count?: number;
 }
 
 // UI labels for display

@@ -83,6 +83,56 @@
   status = 200
 
 [[redirects]]
+  from = "/api/player-formations-analyze"
+  to = "/.netlify/functions/player-formations-analyze"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formations"
+  to = "/.netlify/functions/player-formations"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formation-quiz/start"
+  to = "/.netlify/functions/player-formation-quiz-start"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formation-quiz/submit"
+  to = "/.netlify/functions/player-formation-quiz-submit"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formation-quiz/complete"
+  to = "/.netlify/functions/player-formation-quiz-complete"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formation-analytics"
+  to = "/.netlify/functions/player-formation-analytics"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-formations-analysis-reset"
+  to = "/.netlify/functions/player-formations-analysis-reset"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-block-coverage-quiz/start"
+  to = "/.netlify/functions/player-block-coverage-quiz-start"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-block-coverage-quiz/submit"
+  to = "/.netlify/functions/player-block-coverage-quiz-submit"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-block-coverage-quiz/complete"
+  to = "/.netlify/functions/player-block-coverage-quiz-complete"
+  status = 200
+
+[[redirects]]
   from = "/auth/callback"
   to = "/.netlify/functions/auth-callback"
   status = 200

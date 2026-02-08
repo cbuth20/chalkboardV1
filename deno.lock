@@ -11,6 +11,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@anthropic-ai/sdk@0.73",
         "npm:@supabase/auth-ui-react@~0.4.7",
         "npm:@supabase/auth-ui-shared@~0.1.8",
         "npm:@supabase/supabase-js@^2.90.1",
