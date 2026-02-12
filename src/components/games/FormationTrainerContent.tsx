@@ -1,11 +1,16 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
+
+interface AlignmentInfo {
+  spot: string;
+  detail: string;
+}
 
 interface Formation {
   id: string;
@@ -15,6 +20,7 @@ interface Formation {
   module: string;
   positions: Record<string, { x: number; y: number }>;
   coaching_notes: Record<string, string>;
+  alignments: Record<string, AlignmentInfo>;
   source_pdf_ids: string[];
 }
 
@@ -25,50 +31,261 @@ interface AnalysisStatus {
   estimated_tokens: number;
   processing_time_seconds: number;
   completed_at: string;
+  started_at?: string;
 }
 
 interface QuizQuestion {
-  formation_id: string;
-  question_type: 'identify' | 'position';
-  question_text: string;
-  correct_answer: string;
+  type: 'alignment' | 'comparison';
+  formation: string;
+  player: string;
+  question: string;
+  correct: string;
   options: string[];
-  target_position?: string;
-  formation_data: {
-    positions: Record<string, { x: number; y: number }>;
-    personnel?: string;
-    formation_name?: string;
+}
+
+type View = 'home' | 'learn' | 'quiz' | 'results';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PLAYER_COLORS: Record<string, string> = {
+  T: '#00d4aa',
+  X: '#ef4444',
+  Y: '#fbbf24',
+  Z: '#8b5cf6',
+  R: '#ec4899',
+  H: '#fbbf24',
+};
+
+const PLAYER_LABELS: Record<string, string> = {
+  X: 'X (boundary WR)',
+  Y: 'Y (TE)',
+  Z: 'Z (field WR)',
+  R: 'R (slot)',
+  T: 'T (you - TB)',
+};
+
+const getPlayerColor = (player: string): string => PLAYER_COLORS[player] || '#7a8a88';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUESTION GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+function generateQuizQuestions(formations: Formation[]): QuizQuestion[] {
+  const questions: QuizQuestion[] = [];
+  const formationsWithAlignments = formations.filter(
+    f => f.alignments && Object.keys(f.alignments).length > 0
+  );
+
+  if (formationsWithAlignments.length === 0) return [];
+
+  // Collect all unique spots for generating wrong answers
+  const allSpots: string[] = [];
+  formationsWithAlignments.forEach(f => {
+    Object.values(f.alignments).forEach(a => {
+      if (a.spot && !allSpots.includes(a.spot)) allSpots.push(a.spot);
+    });
+  });
+
+  // Generate alignment questions
+  formationsWithAlignments.forEach(f => {
+    const positions = Object.keys(f.alignments);
+    positions.forEach(pos => {
+      const alignment = f.alignments[pos];
+      if (!alignment?.spot) return;
+
+      // Get wrong options from other positions in same formation + other formations
+      const wrongOptions = allSpots.filter(s => s !== alignment.spot);
+      const shuffledWrong = shuffleArray(wrongOptions).slice(0, 3);
+
+      if (shuffledWrong.length < 3) return; // Need at least 3 wrong answers
+
+      questions.push({
+        type: 'alignment',
+        formation: f.formation_name,
+        player: pos,
+        question: `In ${f.formation_name.toUpperCase()}, where does the ${pos} line up?`,
+        correct: alignment.spot,
+        options: shuffleArray([alignment.spot, ...shuffledWrong]),
+      });
+    });
+  });
+
+  // Generate comparison questions (which formation has position X at spot Y?)
+  if (formationsWithAlignments.length >= 2) {
+    const tbFormations = formationsWithAlignments.filter(f => f.alignments.T?.spot);
+    if (tbFormations.length >= 2) {
+      tbFormations.forEach(f => {
+        const otherNames = tbFormations
+          .filter(o => o.id !== f.id)
+          .map(o => o.formation_name);
+        const wrongNames = shuffleArray(otherNames).slice(0, 3);
+
+        if (wrongNames.length < 3) return;
+
+        questions.push({
+          type: 'comparison',
+          formation: f.formation_name,
+          player: 'T',
+          question: `Which formation has the TB at "${f.alignments.T.spot}"?`,
+          correct: f.formation_name,
+          options: shuffleArray([f.formation_name, ...wrongNames]),
+        });
+      });
+    }
+  }
+
+  // Shuffle all questions and limit to 15
+  return shuffleArray(questions).slice(0, 15);
+}
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SVG FIELD COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface FieldProps {
+  formation: Formation;
+  highlightPlayer?: string | null;
+}
+
+function Field({ formation, highlightPlayer = null }: FieldProps) {
+  // Data-driven Y normalization: works regardless of what coordinate system
+  // Claude chose (y: 0-10, 0-50, 60-85, etc.)
+  //
+  // Strategy: receivers (X, Y, Z, R) cluster at the LOS, while QB/TB are
+  // further back. We detect which end has more players and map accordingly.
+  // SVG layout: LOS at y=28, backfield extends down to y=40.
+  const yValues = Object.values(formation.positions).map(p => p.y);
+  const minY = Math.min(...yValues);
+  const maxY = Math.max(...yValues);
+  const yRange = maxY - minY || 1;
+
+  // Count positions near each extreme — the end with more is the LOS
+  const threshold = yRange * 0.3;
+  const nearMin = yValues.filter(y => y - minY < threshold).length;
+  const nearMax = yValues.filter(y => maxY - y < threshold).length;
+  const losIsMax = nearMax >= nearMin;
+
+  const SVG_LOS = 28;  // where LOS renders in the SVG
+  const SVG_BACK = 40;  // deepest backfield position
+
+  const transformY = (y: number): number => {
+    const norm = (y - minY) / yRange; // 0..1
+    if (losIsMax) {
+      // Higher data-y = LOS (SVG 28), lower data-y = backfield (SVG 40)
+      return SVG_LOS + (1 - norm) * (SVG_BACK - SVG_LOS);
+    }
+    // Lower data-y = LOS (SVG 28), higher data-y = backfield (SVG 40)
+    return SVG_LOS + norm * (SVG_BACK - SVG_LOS);
   };
-}
 
-interface QuizState {
-  quiz_id: string;
-  questions: QuizQuestion[];
-  current_index: number;
-  answers: Array<{ is_correct: boolean; user_answer: string }>;
-  start_time: number;
+  return (
+    <svg className="w-full max-w-[500px] mx-auto block" viewBox="0 0 100 45" preserveAspectRatio="xMidYMid meet">
+      <rect x="0" y="0" width="100" height="45" fill="#0d1a14" />
+      <line x1="30" y1="0" x2="30" y2="45" stroke="#1a2f24" strokeWidth="0.3" strokeDasharray="2,2" />
+      <line x1="70" y1="0" x2="70" y2="45" stroke="#1a2f24" strokeWidth="0.3" strokeDasharray="2,2" />
+      <line x1="0" y1="30" x2="100" y2="30" stroke="#2a4035" strokeWidth="0.5" />
+      <rect x="38" y="28" width="24" height="4" rx="1" fill="#1a2f24" stroke="#2a4035" strokeWidth="0.5" />
+      <text x="50" y="31" textAnchor="middle" fill="#3a5045" fontSize="3" fontFamily="sans-serif">OL</text>
+
+      {Object.entries(formation.positions)
+        .filter(([p]) => p !== 'OL' && p !== 'Q')
+        .map(([player, pos]) => {
+          const color = getPlayerColor(player);
+          const yPos = transformY(pos.y);
+          const isHighlighted = highlightPlayer === player;
+
+          return (
+            <g key={player}>
+              {isHighlighted && (
+                <circle cx={pos.x} cy={yPos} r="5" fill={color} fillOpacity="0.15">
+                  <animate attributeName="r" values="4;6;4" dur="1.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.3;0.1;0.3" dur="1.5s" repeatCount="indefinite" />
+                </circle>
+              )}
+              <circle
+                cx={pos.x}
+                cy={yPos}
+                r={player === 'T' ? 3.5 : 3}
+                fill={color}
+                fillOpacity={isHighlighted ? 0.5 : 0.3}
+                stroke={color}
+                strokeWidth={isHighlighted ? 2 : 1.5}
+              />
+              <text
+                x={pos.x}
+                y={yPos + 1}
+                textAnchor="middle"
+                fontSize="3"
+                fill={color}
+                fontWeight="600"
+                fontFamily="sans-serif"
+              >
+                {player}
+              </text>
+            </g>
+          );
+        })}
+
+      {/* QB */}
+      {formation.positions.Q && (() => {
+        const qbY = transformY(formation.positions.Q.y);
+        return (
+          <>
+            <circle
+              cx={formation.positions.Q.x}
+              cy={qbY}
+              r="2.5"
+              fill="#666"
+              fillOpacity="0.3"
+              stroke="#666"
+              strokeWidth="1"
+            />
+            <text
+              x={formation.positions.Q.x}
+              y={qbY + 1}
+              textAnchor="middle"
+              fontSize="2.5"
+              fill="#666"
+              fontWeight="600"
+              fontFamily="sans-serif"
+            >
+              Q
+            </text>
+          </>
+        );
+      })()}
+    </svg>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MODULES CONFIGURATION
+// PLAYER LEGEND
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MODULES = [
-  { id: 'posse_2x2', name: '2x2', icon: '📐', description: '2 receivers on each side' },
-  { id: 'posse_trips', name: 'Trips', icon: '🎯', description: '3 receivers on one side' },
-  { id: 'quads', name: 'Quads', icon: '🔷', description: '4 receivers on one side' },
-  { id: 'ranger', name: 'Ranger', icon: '🎪', description: 'Spread with running back' },
-  { id: 'zombie', name: 'Zombie', icon: '👻', description: 'Empty backfield variations' },
-  { id: 'empty', name: 'Empty', icon: '🌟', description: 'No running back' },
-  { id: 'special', name: 'Special', icon: '⚡', description: 'Goal line, short yardage' },
-];
-
-const POSITIONS = [
-  { id: 'QB', name: 'Quarterback', icon: '🎯' },
-  { id: 'RB', name: 'Running Back', icon: '🏃' },
-  { id: 'WR', name: 'Wide Receiver', icon: '🏈' },
-  { id: 'OT', name: 'Offensive Tackle', icon: '🛡️' },
-];
+function PlayerLegend({ compact = false }: { compact?: boolean }) {
+  const entries = Object.entries(PLAYER_LABELS);
+  return (
+    <div className={`flex justify-center gap-4 flex-wrap ${compact ? 'p-3 bg-gray-900 rounded-lg' : 'p-4 bg-gray-800/50 rounded-lg'}`}>
+      {entries.map(([key, label]) => (
+        <div key={key} className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-sm'}`}>
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getPlayerColor(key) }} />
+          <span>{compact ? key + (key === 'T' ? ' (you)' : '') : label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -77,25 +294,43 @@ const POSITIONS = [
 export function FormationTrainerContent() {
   const { session, orgId, loading: authLoading } = useAuth();
 
-  const [view, setView] = useState<'home' | 'quiz' | 'results'>('home');
+  const [view, setView] = useState<View>('home');
   const [formations, setFormations] = useState<Formation[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
-  const [quizState, setQuizState] = useState<QuizState | null>(null);
-  const [selectedModule, setSelectedModule] = useState<string>('mixed');
-  const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
+
+  // Learn state
+  const [learnIndex, setLearnIndex] = useState(0);
+
+  // Quiz state
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [answers, setAnswers] = useState<Array<{ question: QuizQuestion; answer: string; isCorrect: boolean }>>([]);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [streak, setStreak] = useState(0);
 
-  // Load data on mount
+  // Stats from localStorage
+  const [stats, setStats] = useState({ attempts: 0, correct: 0 });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('formationAlignmentStats');
+      if (saved) setStats(JSON.parse(saved));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const saveStats = (newStats: { attempts: number; correct: number }) => {
+    setStats(newStats);
+    localStorage.setItem('formationAlignmentStats', JSON.stringify(newStats));
+  };
+
+  // Load formations on mount
   useEffect(() => {
     if (!authLoading && session && orgId) {
-      const timer = setTimeout(() => {
-        loadData();
-      }, 300);
+      const timer = setTimeout(() => loadData(), 300);
       return () => clearTimeout(timer);
     } else if (!authLoading && !session) {
       setLoading(false);
@@ -111,14 +346,10 @@ export function FormationTrainerContent() {
     setLoading(true);
     try {
       const response = await fetch(`/api/player-formations?orgId=${orgId}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch formations');
-      }
+      if (!response.ok) throw new Error('Failed to fetch formations');
 
       const data = await response.json();
       setFormations(data.formations || []);
@@ -127,21 +358,12 @@ export function FormationTrainerContent() {
       // Check if analysis is stuck
       if (data.latestAnalysis?.status === 'processing') {
         const startedAt = new Date(data.latestAnalysis.started_at).getTime();
-        const now = Date.now();
-        const minutesElapsed = (now - startedAt) / 1000 / 60;
-
+        const minutesElapsed = (Date.now() - startedAt) / 1000 / 60;
         if (minutesElapsed > 15) {
-          console.warn('⚠️  Analysis appears stuck, older than 15 minutes');
-          const confirmed = confirm(
-            'Your previous analysis appears to be stuck. Would you like to reset it so you can start a new analysis?'
-          );
-          if (confirmed) {
-            await clearStuckAnalysis(data.latestAnalysis.id);
-          }
+          const confirmed = confirm('Your previous analysis appears to be stuck. Would you like to reset it?');
+          if (confirmed) await clearStuckAnalysis(data.latestAnalysis.id);
         }
       }
-
-      console.log(`✅ Loaded ${data.formations?.length || 0} formations`);
     } catch (error) {
       console.error('Error loading formations:', error);
     } finally {
@@ -151,217 +373,99 @@ export function FormationTrainerContent() {
 
   const clearStuckAnalysis = async (analysisId: string) => {
     if (!session?.access_token || !orgId) return;
-
     try {
-      console.log(`Clearing stuck analysis ${analysisId}`);
-
       const response = await fetch(`/api/player-formations-analysis-reset?orgId=${orgId}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysisId }),
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to reset analysis');
-      }
-
-      alert('✅ Analysis reset successfully! You can now start a new analysis.');
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed to reset');
+      alert('Analysis reset successfully! You can now start a new analysis.');
       await loadData();
     } catch (error) {
-      console.error('Error clearing stuck analysis:', error);
-      alert(`❌ ${error instanceof Error ? error.message : 'Failed to reset analysis'}`);
+      alert(`Failed to reset: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
   const startAnalysis = async () => {
-    if (
-      !confirm(
-        '⚠️ WARNING: This will analyze all your uploaded PDFs using AI. This is an expensive operation that may take several minutes. Continue?'
-      )
-    ) {
-      return;
-    }
-
-    if (!session?.access_token || !orgId) {
-      alert('Authentication error. Please sign in.');
-      return;
-    }
+    if (!confirm('This will analyze all your uploaded PDFs using AI. This may take several minutes. Continue?')) return;
+    if (!session?.access_token || !orgId) return;
 
     setAnalyzing(true);
     try {
       const response = await fetch(`/api/player-formations-analyze?orgId=${orgId}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          positions: ['QB', 'RB', 'WR', 'OT'],
-        }),
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions: ['QB', 'RB', 'WR', 'OT'] }),
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Analysis failed');
-      }
-
+      if (!response.ok) throw new Error((await response.json()).error || 'Analysis failed');
       const data = await response.json();
-      alert(
-        `✅ Analysis started! Processing ${data.pdfCount} PDFs. Estimated time: ${data.estimatedDuration}. Refresh this page in a few minutes to see results.`
-      );
-
+      alert(`Analysis started! Processing ${data.pdfCount} PDFs. Estimated time: ${data.estimatedDuration}. Refresh in a few minutes.`);
       await loadData();
     } catch (error) {
-      console.error('Error starting analysis:', error);
-      alert(`❌ ${error instanceof Error ? error.message : 'Failed to start analysis'}`);
+      alert(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setAnalyzing(false);
     }
   };
 
-  const startQuiz = async (module: string, position: string | null) => {
-    if (!session?.access_token || !orgId) {
-      alert('Authentication error. Please sign in.');
-      return;
-    }
+  // Formations with alignment data
+  const formationsWithAlignments = formations.filter(
+    f => f.alignments && Object.keys(f.alignments).length > 0
+  );
 
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/player-formation-quiz/start?orgId=${orgId}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          module,
-          position_filter: position,
-          total_questions: 10,
-          quiz_type: 'test',
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to start quiz');
-      }
-
-      const data = await response.json();
-      setQuizState({
-        quiz_id: data.quiz_id,
-        questions: data.questions,
-        current_index: 0,
-        answers: [],
-        start_time: Date.now(),
-      });
-      setSelectedAnswer(null);
-      setShowFeedback(false);
-      setCorrectCount(0);
-      setStreak(0);
-      setView('quiz');
-    } catch (error) {
-      console.error('Error starting quiz:', error);
-      alert(`❌ ${error instanceof Error ? error.message : 'Failed to start quiz'}`);
-    } finally {
-      setLoading(false);
-    }
+  const startLearn = () => {
+    setLearnIndex(0);
+    setView('learn');
   };
 
-  const submitAnswer = async (answer: string) => {
-    if (!quizState || !session?.access_token || !orgId) return;
+  const startQuiz = () => {
+    const source = formationsWithAlignments.length > 0 ? formationsWithAlignments : formations;
+    const questions = generateQuizQuestions(source);
+    if (questions.length === 0) {
+      alert('Not enough alignment data to generate a quiz. Try analyzing your playbooks first.');
+      return;
+    }
+    setQuizQuestions(questions);
+    setQuizIndex(0);
+    setAnswers([]);
+    setSelectedAnswer(null);
+    setShowFeedback(false);
+    setView('quiz');
+  };
 
-    const question = quizState.questions[quizState.current_index];
-    const responseTime = Date.now() - quizState.start_time;
+  const handleAnswer = useCallback((answer: string) => {
+    if (showFeedback) return;
+    const q = quizQuestions[quizIndex];
+    const isCorrect = answer === q.correct;
 
     setSelectedAnswer(answer);
     setShowFeedback(true);
+    setAnswers(prev => [...prev, { question: q, answer, isCorrect }]);
+    saveStats({ attempts: stats.attempts + 1, correct: stats.correct + (isCorrect ? 1 : 0) });
 
-    try {
-      const response = await fetch(`/api/player-formation-quiz/submit?orgId=${orgId}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quiz_id: quizState.quiz_id,
-          formation_id: question.formation_id,
-          question_type: question.question_type,
-          question_text: question.question_text,
-          target_position: question.target_position,
-          user_answer: answer,
-          correct_answer: question.correct_answer,
-          response_time_ms: responseTime,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to submit answer');
+    setTimeout(() => {
+      if (quizIndex + 1 < quizQuestions.length) {
+        setQuizIndex(prev => prev + 1);
+        setSelectedAnswer(null);
+        setShowFeedback(false);
+      } else {
+        setView('results');
       }
-
-      const data = await response.json();
-
-      const isCorrect = data.is_correct;
-      setCorrectCount(prev => (isCorrect ? prev + 1 : prev));
-      setStreak(prev => (isCorrect ? prev + 1 : 0));
-
-      const newAnswers = [...quizState.answers, { is_correct: data.is_correct, user_answer: answer }];
-
-      setTimeout(() => {
-        if (quizState.current_index < quizState.questions.length - 1) {
-          setQuizState({
-            ...quizState,
-            current_index: quizState.current_index + 1,
-            answers: newAnswers,
-            start_time: Date.now(),
-          });
-          setSelectedAnswer(null);
-          setShowFeedback(false);
-        } else {
-          completeQuiz(quizState.quiz_id);
-          setQuizState({ ...quizState, answers: newAnswers });
-          setView('results');
-        }
-      }, 1800);
-    } catch (error) {
-      console.error('Error submitting answer:', error);
-      alert('Failed to submit answer');
-      setShowFeedback(false);
-      setSelectedAnswer(null);
-    }
-  };
-
-  const completeQuiz = async (quizId: string) => {
-    if (!session?.access_token || !orgId) return;
-
-    try {
-      await fetch(`/api/player-formation-quiz/complete?orgId=${orgId}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ quiz_id: quizId }),
-      });
-    } catch (error) {
-      console.error('Error completing quiz:', error);
-    }
-  };
+    }, 2000);
+  }, [showFeedback, quizQuestions, quizIndex, stats]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER LOGIC
+  // LOADING / AUTH STATES
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
-          <div className="text-4xl mb-4">⚡</div>
-          <p className="text-gray-400">Loading formations trainer...</p>
+          <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00d4aa]/20 border-t-[#00d4aa]" />
+          <p className="text-gray-400">Loading formation trainer...</p>
         </div>
       </div>
     );
@@ -372,7 +476,7 @@ export function FormationTrainerContent() {
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
           <div className="text-4xl mb-4">🔒</div>
-          <p className="text-gray-400">Please log in to access the formations trainer</p>
+          <p className="text-gray-400">Please log in to access the formation trainer</p>
         </div>
       </div>
     );
@@ -383,164 +487,233 @@ export function FormationTrainerContent() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (view === 'home') {
-    const formationsByModule = formations.reduce((acc, f) => {
-      acc[f.module] = (acc[f.module] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const positionCount = new Set(
+      formationsWithAlignments.flatMap(f => Object.keys(f.alignments))
+    ).size;
 
     return (
       <div>
-        {/* Header */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-white mb-2">Formation Trainer</h2>
-          <p className="text-gray-400">Master your team's formations with AI-powered position quizzes</p>
+        {/* Module Tag */}
+        <div className="inline-block bg-[#00d4aa]/10 text-[#00d4aa] px-3 py-1 rounded-md text-xs font-semibold uppercase tracking-wide mb-4">
+          YOUR PLAYBOOK
         </div>
 
-        {/* Stats Card */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-8">
-          <div className="grid grid-cols-3 gap-6">
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Total Formations</div>
-              <div className="text-2xl font-bold text-white">{formations.length}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Analysis Status</div>
-              <div className="text-2xl font-bold text-white">
-                {analysisStatus ? (
-                  <span
-                    className={`text-sm ${
-                      analysisStatus.status === 'completed'
-                        ? 'text-green-400'
-                        : analysisStatus.status === 'processing'
-                        ? 'text-yellow-400'
-                        : 'text-red-400'
-                    }`}
-                  >
-                    {analysisStatus.status === 'completed' && '✅ Complete'}
-                    {analysisStatus.status === 'processing' && '⏳ Processing...'}
-                    {analysisStatus.status === 'failed' && '❌ Failed'}
-                  </span>
-                ) : (
-                  <span className="text-sm text-gray-400">Not started</span>
-                )}
+        {/* Title */}
+        <h2 className="text-4xl font-bold text-white mb-2">
+          Your <span className="text-[#00d4aa]">Alignment</span>
+        </h2>
+        <p className="text-gray-400 mb-6">Know where YOU and every receiver lines up in each formation</p>
+
+        {/* Player Legend */}
+        <div className="mb-6">
+          <PlayerLegend />
+        </div>
+
+        {/* Mode Cards */}
+        {formationsWithAlignments.length > 0 ? (
+          <>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div
+                onClick={startLearn}
+                className="bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-[#00d4aa] rounded-xl p-8 cursor-pointer transition text-center"
+              >
+                <div className="text-4xl mb-4">📍</div>
+                <div className="text-xl font-bold mb-2">Learn</div>
+                <div className="text-sm text-gray-400">
+                  Study every player's spot in {formationsWithAlignments.length} formations
+                </div>
+              </div>
+              <div
+                onClick={startQuiz}
+                className="bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-[#00d4aa] rounded-xl p-8 cursor-pointer transition text-center"
+              >
+                <div className="text-4xl mb-4">🎯</div>
+                <div className="text-xl font-bold mb-2">Test</div>
+                <div className="text-sm text-gray-400">15 questions on alignment spots</div>
               </div>
             </div>
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Modules Covered</div>
-              <div className="text-2xl font-bold text-white">{Object.keys(formationsByModule).length}/7</div>
-            </div>
-          </div>
-        </div>
 
-        {/* Analysis Button */}
-        {formations.length === 0 && (
+            {/* Stats Row */}
+            <div className="grid grid-cols-3 gap-3 mb-8">
+              <div className="bg-gray-800 rounded-lg p-5 text-center">
+                <div className="text-3xl font-bold text-[#00d4aa]">{stats.attempts}</div>
+                <div className="text-xs text-gray-400 uppercase tracking-wide mt-1">Answered</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-5 text-center">
+                <div className="text-3xl font-bold text-[#00d4aa]">
+                  {stats.attempts > 0 ? Math.round((stats.correct / stats.attempts) * 100) : 0}%
+                </div>
+                <div className="text-xs text-gray-400 uppercase tracking-wide mt-1">Accuracy</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-5 text-center">
+                <div className="text-3xl font-bold text-[#00d4aa]">{positionCount}</div>
+                <div className="text-xs text-gray-400 uppercase tracking-wide mt-1">Positions</div>
+              </div>
+            </div>
+          </>
+        ) : formations.length > 0 ? (
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-semibold text-yellow-400 mb-2">📚 No Formations Found</h3>
+            <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Alignment Data Yet</h3>
+            <p className="text-gray-300 mb-4">
+              Your formations have been loaded but don't have alignment data yet.
+              Re-analyze your playbooks to extract alignment information.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
+            <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Formations Found</h3>
             <p className="text-gray-300 mb-4">
               Upload your playbook PDFs in the <strong>My Notes</strong> section, then come back here to analyze them.
             </p>
-            <button
-              onClick={startAnalysis}
-              disabled={analyzing || analysisStatus?.status === 'processing'}
-              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
-            >
-              {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
-            </button>
           </div>
         )}
 
-        {formations.length > 0 && (
-          <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-semibold text-blue-400 mb-2">🔄 Re-analyze Playbooks</h3>
-            <p className="text-gray-300 mb-4">
-              If you've added new PDFs or want to refresh your formations, run the analysis again.
-            </p>
-            <button
-              onClick={startAnalysis}
-              disabled={analyzing || analysisStatus?.status === 'processing'}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
-            >
-              {analyzing
-                ? 'Starting Analysis...'
-                : analysisStatus?.status === 'processing'
-                ? 'Analysis In Progress...'
-                : 'Re-analyze Playbooks'}
-            </button>
-          </div>
-        )}
-
-        {/* Modules Grid */}
-        {formations.length > 0 && (
-          <>
-            <h2 className="text-xl font-bold text-white mb-4">Select Module</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {MODULES.map(module => {
-                const count = formationsByModule[module.id] || 0;
-                return (
-                  <button
-                    key={module.id}
-                    onClick={() => {
-                      setSelectedModule(module.id);
-                      setSelectedPosition(null);
-                    }}
-                    disabled={count === 0}
-                    className={`p-4 rounded-lg border-2 transition-all ${
-                      selectedModule === module.id
-                        ? 'bg-blue-600 border-blue-500'
-                        : count === 0
-                        ? 'bg-gray-800/50 border-gray-700 opacity-50 cursor-not-allowed'
-                        : 'bg-gray-800 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="text-3xl mb-2">{module.icon}</div>
-                    <div className="font-semibold text-white">{module.name}</div>
-                    <div className="text-xs text-gray-400">{count} formations</div>
-                  </button>
-                );
-              })}
+        {/* Analyze Playbooks Button */}
+        <div className="bg-[#1B1E20] border border-[#2A2F33] rounded-lg p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white mb-1">
+                {formations.length > 0 ? 'Re-analyze Playbooks' : 'Analyze Playbooks'}
+              </h3>
+              <p className="text-sm text-gray-400">
+                {formations.length > 0
+                  ? 'Added new PDFs? Run analysis again to update formations.'
+                  : 'Upload playbook PDFs first, then analyze to extract formations.'}
+              </p>
+              {analysisStatus?.status === 'processing' && (
+                <p className="text-sm text-yellow-400 mt-1">Analysis in progress...</p>
+              )}
             </div>
+            <button
+              onClick={startAnalysis}
+              disabled={analyzing || analysisStatus?.status === 'processing'}
+              className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition whitespace-nowrap"
+            >
+              {analyzing ? 'Starting...' : analysisStatus?.status === 'processing' ? 'In Progress...' : 'Analyze Playbooks'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-            {/* Positions */}
-            <h2 className="text-xl font-bold text-white mb-4">Select Position (Optional)</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {POSITIONS.map(position => (
-                <button
-                  key={position.id}
-                  onClick={() => setSelectedPosition(position.id)}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    selectedPosition === position.id
-                      ? 'bg-green-600 border-green-500'
-                      : 'bg-gray-800 border-gray-700 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="text-3xl mb-2">{position.icon}</div>
-                  <div className="font-semibold text-white">{position.name}</div>
-                </button>
-              ))}
-              <button
-                onClick={() => setSelectedPosition(null)}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  selectedPosition === null
-                    ? 'bg-green-600 border-green-500'
-                    : 'bg-gray-800 border-gray-700 hover:border-gray-600'
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LEARN VIEW
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (view === 'learn') {
+    const source = formationsWithAlignments.length > 0 ? formationsWithAlignments : formations;
+    const currentFormation = source[learnIndex];
+
+    if (!currentFormation) {
+      setView('home');
+      return null;
+    }
+
+    const alignments = currentFormation.alignments || {};
+
+    return (
+      <div>
+        <div
+          className="text-sm text-gray-400 mb-6 cursor-pointer hover:text-[#00d4aa] transition"
+          onClick={() => setView('home')}
+        >
+          ← Back to menu
+        </div>
+
+        <div className="bg-gray-800 rounded-xl p-6 mb-4">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="w-2 h-2 bg-[#00d4aa] rounded-full" />
+              Alignment
+            </div>
+            <div className="bg-gray-900 text-[#00d4aa] px-3 py-1 rounded-md text-xs font-semibold">
+              {learnIndex + 1} of {source.length}
+            </div>
+          </div>
+
+          {/* Navigation Dots */}
+          <div className="flex justify-center gap-2 mb-6">
+            {source.map((_, i) => (
+              <div
+                key={i}
+                onClick={() => setLearnIndex(i)}
+                className={`h-2 rounded-full cursor-pointer transition-all ${
+                  i === learnIndex ? 'w-6 bg-[#00d4aa]' : 'w-2 bg-gray-700 hover:bg-gray-600'
                 }`}
-              >
-                <div className="text-3xl mb-2">🌟</div>
-                <div className="font-semibold text-white">All Positions</div>
-              </button>
-            </div>
+              />
+            ))}
+          </div>
 
-            {/* Start Quiz Button */}
-            <div className="text-center">
-              <button
-                onClick={() => startQuiz(selectedModule, selectedPosition)}
-                className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-bold text-lg transition-all transform hover:scale-105"
-              >
-                Start Quiz
-              </button>
-            </div>
-          </>
-        )}
+          {/* Formation Name */}
+          <div className="text-4xl font-bold text-[#00d4aa] text-center mb-1">
+            {currentFormation.formation_name}
+          </div>
+          <div className="text-sm text-gray-400 text-center mb-6">
+            {currentFormation.personnel || currentFormation.module}
+          </div>
+
+          {/* Field */}
+          <div className="bg-[#0d1a14] border border-gray-700 rounded-lg p-5 mb-5">
+            <Field formation={currentFormation} />
+          </div>
+
+          {/* Legend */}
+          <div className="mb-5">
+            <PlayerLegend compact />
+          </div>
+
+          {/* Alignment Cards */}
+          {Object.keys(alignments).length > 0 && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+                {Object.entries(alignments).map(([player, info]) => (
+                  <div key={player} className="bg-gray-900 rounded-lg p-4 text-center">
+                    <div className="text-xl font-bold mb-1" style={{ color: getPlayerColor(player) }}>
+                      {player}
+                    </div>
+                    <div className="text-xs text-gray-400 leading-snug">{info.spot}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* TB Highlight */}
+              {alignments.T && (
+                <div className="bg-gray-900 rounded-lg p-5">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Your spot (TB)</div>
+                  <div className="text-sm text-gray-300">
+                    <strong>{alignments.T.spot}</strong> — {alignments.T.detail}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Navigation Buttons */}
+          <div className="flex gap-3 justify-center mt-8">
+            <button
+              onClick={() => setLearnIndex(Math.max(0, learnIndex - 1))}
+              disabled={learnIndex === 0}
+              className="px-6 py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] hover:text-[#00d4aa] rounded-lg font-semibold disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={startQuiz}
+              className="px-8 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition"
+            >
+              Start Test
+            </button>
+            <button
+              onClick={() => setLearnIndex(Math.min(source.length - 1, learnIndex + 1))}
+              disabled={learnIndex === source.length - 1}
+              className="px-6 py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] hover:text-[#00d4aa] rounded-lg font-semibold disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -549,130 +722,98 @@ export function FormationTrainerContent() {
   // QUIZ VIEW
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (view === 'quiz' && quizState) {
-    const question = quizState.questions[quizState.current_index];
-    const progress = Math.round(((quizState.current_index + 1) / quizState.questions.length) * 100);
-    const totalAnswered = quizState.answers.length;
-    const accuracy = totalAnswered > 0 ? Math.round((correctCount / totalAnswered) * 100) : 0;
+  if (view === 'quiz') {
+    const currentQuestion = quizQuestions[quizIndex];
+    if (!currentQuestion) {
+      setView('results');
+      return null;
+    }
+
+    // Find formation for field display
+    const formationData = currentQuestion.type !== 'comparison'
+      ? formations.find(f => f.formation_name === currentQuestion.formation)
+      : null;
 
     return (
-      <div className="max-w-4xl mx-auto">
-        {/* Progress Bar */}
-        <div className="mb-6">
-          <div className="flex justify-between text-sm text-gray-400 mb-2">
-            <span>
-              Question {quizState.current_index + 1} of {quizState.questions.length}
-            </span>
-            <span>{progress}% Complete</span>
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2">
-            <div
-              className="bg-[#00F6E5] h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+      <div>
+        <div
+          className="text-sm text-gray-400 mb-6 cursor-pointer hover:text-[#00d4aa] transition"
+          onClick={() => setView('home')}
+        >
+          ← Exit test
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="text-center bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-[#00F6E5]">
-              {correctCount}/{totalAnswered}
+        <div className="bg-gray-800 rounded-xl p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="w-2 h-2 bg-[#00d4aa] rounded-full" />
+              Alignment
             </div>
-            <div className="text-xs text-gray-400">SCORE</div>
+            <div className="bg-gray-900 text-[#00d4aa] px-3 py-1 rounded-md text-xs font-semibold">
+              Question {quizIndex + 1}
+            </div>
           </div>
-          <div className="text-center bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-[#00F6E5]">{accuracy}%</div>
-            <div className="text-xs text-gray-400">ACCURACY</div>
+
+          {/* Progress Bar */}
+          <div className="mb-6">
+            <div className="flex justify-between text-xs text-gray-400 mb-2">
+              <span>Progress</span>
+              <span>{quizIndex + 1}/{quizQuestions.length}</span>
+            </div>
+            <div className="h-1.5 bg-gray-900 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#00d4aa] transition-all"
+                style={{ width: `${((quizIndex + 1) / quizQuestions.length) * 100}%` }}
+              />
+            </div>
           </div>
-          <div className="text-center bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-[#00F6E5]">{streak}🔥</div>
-            <div className="text-xs text-gray-400">STREAK</div>
-          </div>
-        </div>
 
-        {/* Question */}
-        <h2 className="text-2xl font-bold text-white mb-6 text-center">{question.question_text}</h2>
+          {/* Field */}
+          {formationData && (
+            <div className="bg-[#0d1a14] border border-gray-700 rounded-lg p-5 mb-6">
+              <Field formation={formationData} highlightPlayer={currentQuestion.player} />
+            </div>
+          )}
 
-        {/* Formation Field Display */}
-        <div className="bg-green-900/30 border-2 border-green-700 rounded-lg p-8 mb-6 relative" style={{ height: '400px' }}>
-          <div className="absolute inset-0 flex items-center justify-center">
-            {Object.entries(question.formation_data.positions).map(([pos, coords]) => {
-              const x = (coords.x / 100) * 100;
-              const y = (coords.y / 50) * 100;
-              const isTarget = question.question_type === 'position' && pos === question.target_position;
+          {/* Question */}
+          <div className="text-xl font-semibold text-center mb-6 leading-snug">{currentQuestion.question}</div>
 
+          {/* Options */}
+          <div className="grid grid-cols-2 gap-3">
+            {currentQuestion.options.map((opt, i) => {
+              let cls = 'bg-gray-900 border-2 border-gray-700 rounded-xl p-4 cursor-pointer transition text-center';
+              if (showFeedback) {
+                cls += ' pointer-events-none';
+                if (opt === currentQuestion.correct) {
+                  cls = 'bg-green-500/15 border-2 border-green-500 rounded-xl p-4 text-center';
+                } else if (opt === selectedAnswer) {
+                  cls = 'bg-red-500/10 border-2 border-red-500 rounded-xl p-4 text-center';
+                }
+              } else {
+                cls += ' hover:border-[#00d4aa] hover:bg-[#00d4aa]/5';
+              }
               return (
-                <div
-                  key={pos}
-                  className={`absolute font-bold rounded-full w-12 h-12 flex items-center justify-center text-sm ${
-                    isTarget
-                      ? 'bg-[#00F6E5] text-black animate-pulse shadow-lg shadow-[#00F6E5]/50'
-                      : 'bg-white text-black'
-                  }`}
-                  style={{
-                    left: `${x}%`,
-                    top: `${y}%`,
-                    transform: 'translate(-50%, -50%)',
-                  }}
-                >
-                  {pos}
+                <div key={i} className={cls} onClick={() => handleAnswer(opt)}>
+                  <div className="text-sm font-semibold">{opt}</div>
                 </div>
               );
             })}
           </div>
+
+          {/* Feedback */}
+          {showFeedback && (
+            <div
+              className={`mt-5 text-center p-4 rounded-lg font-medium ${
+                selectedAnswer === currentQuestion.correct
+                  ? 'bg-green-500/10 text-green-400'
+                  : 'bg-red-500/10 text-red-400'
+              }`}
+            >
+              {selectedAnswer === currentQuestion.correct ? '✓ Correct!' : `✗ ${currentQuestion.correct}`}
+            </div>
+          )}
         </div>
-
-        {/* Multiple Choice Options */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          {question.options?.map((option, index) => {
-            const isCorrect = showFeedback && option === question.correct_answer;
-            const isIncorrect = showFeedback && selectedAnswer === option && option !== question.correct_answer;
-
-            return (
-              <button
-                key={index}
-                onClick={() => !showFeedback && submitAnswer(option)}
-                disabled={showFeedback}
-                className={`p-4 rounded-xl border-2 transition-all font-semibold text-lg ${
-                  isCorrect
-                    ? 'bg-green-500/15 border-green-500 text-green-400'
-                    : isIncorrect
-                    ? 'bg-red-500/10 border-red-500 text-red-400'
-                    : selectedAnswer === option
-                    ? 'bg-[#00F6E5] border-[#00F6E5] text-black'
-                    : 'bg-gray-700 border-gray-600 hover:border-[#00F6E5]/50 text-white'
-                } ${showFeedback ? 'cursor-not-allowed' : 'cursor-pointer hover:scale-[1.02]'}`}
-              >
-                {option}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Immediate Feedback */}
-        {showFeedback && (
-          <div
-            className={`p-4 rounded-lg border-2 text-center transition-all ${
-              selectedAnswer === question.correct_answer
-                ? 'bg-green-500/10 border-green-500'
-                : 'bg-red-500/10 border-red-500'
-            }`}
-          >
-            <p className="text-xl font-bold mb-2">
-              {selectedAnswer === question.correct_answer
-                ? '✓ Correct!'
-                : `✗ Incorrect - Answer: ${question.correct_answer}`}
-            </p>
-            {question.formation_data.formation_name && (
-              <p className="text-sm text-gray-300 mt-2">
-                {question.question_type === 'identify'
-                  ? `This is the ${question.formation_data.formation_name} formation`
-                  : `The ${question.target_position} position is highlighted in teal`}
-              </p>
-            )}
-          </div>
-        )}
       </div>
     );
   }
@@ -681,59 +822,53 @@ export function FormationTrainerContent() {
   // RESULTS VIEW
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (view === 'results' && quizState) {
-    const correctCount = quizState.answers.filter(a => a.is_correct).length;
-    const accuracy = Math.round((correctCount / quizState.answers.length) * 100);
+  if (view === 'results') {
+    const correct = answers.filter(a => a.isCorrect).length;
+    const total = answers.length;
+    const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    let message = '';
+    if (pct >= 90) message = 'You know where everyone lines up! Elite-level alignment knowledge.';
+    else if (pct >= 70) message = 'Good progress. Review the formations where you missed spots.';
+    else message = 'Study the alignment cards again. Focus on what makes each spot unique.';
 
     return (
-      <div className="max-w-2xl mx-auto">
-        {/* Results Header */}
-        <div className="text-center mb-8">
-          <div className="text-6xl mb-4">{accuracy >= 80 ? '🎉' : accuracy >= 60 ? '👍' : '📚'}</div>
-          <h1 className="text-3xl font-bold text-white mb-2">Quiz Complete!</h1>
-          <p className="text-xl text-gray-300">
-            You scored <span className="font-bold text-blue-400">{correctCount}/{quizState.answers.length}</span>
-          </p>
-          <p className="text-3xl font-bold text-white mt-2">{accuracy}%</p>
-        </div>
+      <div>
+        <div className="bg-gray-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="w-2 h-2 bg-[#00d4aa] rounded-full" />
+              Test Complete
+            </div>
+            <div className="bg-gray-900 text-[#00d4aa] px-3 py-1 rounded-md text-xs font-semibold">Alignment</div>
+          </div>
 
-        {/* Performance Message */}
-        <div
-          className={`p-6 rounded-lg mb-8 ${
-            accuracy >= 80
-              ? 'bg-green-900/20 border border-green-700'
-              : accuracy >= 60
-              ? 'bg-yellow-900/20 border border-yellow-700'
-              : 'bg-red-900/20 border border-red-700'
-          }`}
-        >
-          <p className="text-center text-white">
-            {accuracy >= 80 && '🔥 Excellent work! You have a strong understanding of these formations.'}
-            {accuracy >= 60 && accuracy < 80 && '💪 Good job! Keep practicing to improve your recognition.'}
-            {accuracy < 60 && '📖 Keep studying! Review the coaching notes and try again.'}
-          </p>
-        </div>
+          <div className="text-center py-12">
+            <div className="text-7xl font-bold text-[#00d4aa]">{pct}%</div>
+            <div className="text-lg text-gray-400 mt-2">{correct} of {total} correct</div>
+            <div className="text-base text-white mt-6 leading-relaxed max-w-md mx-auto">{message}</div>
+          </div>
 
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-4">
-          <button
-            onClick={() => {
-              setView('home');
-              setQuizState(null);
-            }}
-            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors"
-          >
-            Back to Home
-          </button>
-          <button
-            onClick={() => {
-              setQuizState(null);
-              startQuiz(selectedModule, selectedPosition);
-            }}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
-          >
-            Try Again
-          </button>
+          <div className="flex gap-3 justify-center mt-8">
+            <button
+              onClick={startLearn}
+              className="px-6 py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] hover:text-[#00d4aa] rounded-lg font-semibold transition"
+            >
+              Review
+            </button>
+            <button
+              onClick={startQuiz}
+              className="px-8 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => setView('home')}
+              className="px-6 py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] hover:text-[#00d4aa] rounded-lg font-semibold transition"
+            >
+              Menu
+            </button>
+          </div>
         </div>
       </div>
     );

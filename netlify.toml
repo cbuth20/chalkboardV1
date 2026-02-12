@@ -118,6 +118,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/player-block-coverages"
+  to = "/.netlify/functions/player-block-coverages"
+  status = 200
+
+[[redirects]]
+  from = "/api/player-protections-analyze"
+  to = "/.netlify/functions/player-protections-analyze"
+  status = 200
+
+[[redirects]]
   from = "/api/player-block-coverage-quiz/start"
   to = "/.netlify/functions/player-block-coverage-quiz-start"
   status = 200

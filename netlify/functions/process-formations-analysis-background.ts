@@ -23,6 +23,7 @@ interface Formation {
   module: string;
   positions: Record<string, { x: number; y: number }>;
   coaching_notes: Record<string, string>;
+  alignments: Record<string, { spot: string; detail: string }>;
 }
 
 const handler: Handler = async (event) => {
@@ -32,6 +33,7 @@ const handler: Handler = async (event) => {
 
   const startTime = Date.now();
   let tokenCount = 0;
+  let allFormationsCount = 0;
 
   try {
     const request: AnalysisRequest = JSON.parse(event.body || '{}');
@@ -139,8 +141,10 @@ const handler: Handler = async (event) => {
     console.log(`🎉 Total formations extracted: ${allFormations.length}`);
 
     // Insert formations into database
+    allFormationsCount = allFormations.length;
     if (allFormations.length > 0) {
-      const formationsToInsert = allFormations.map(f => ({
+      // Try inserting with alignments column first; fall back without it if column doesn't exist yet
+      const baseFields = (f: any) => ({
         user_id: userId,
         org_id: orgId,
         formation_name: f.formation_name,
@@ -151,11 +155,26 @@ const handler: Handler = async (event) => {
         coaching_notes: f.coaching_notes,
         source_pdf_ids: [f.source_pdf_id],
         last_analyzed_at: new Date().toISOString(),
+      });
+
+      let formationsToInsert = allFormations.map(f => ({
+        ...baseFields(f),
+        alignments: f.alignments || {},
       }));
 
-      const { error: insertError } = await supabase
+      let { error: insertError } = await supabase
         .from('player_formations')
         .insert(formationsToInsert);
+
+      // If alignments column doesn't exist yet, retry without it
+      if (insertError?.message?.includes('alignments')) {
+        console.log(`⚠️  alignments column not found, inserting without it. Run migration 024 to enable alignment data.`);
+        const fallbackInsert = allFormations.map(f => baseFields(f));
+        const result = await supabase
+          .from('player_formations')
+          .insert(fallbackInsert);
+        insertError = result.error;
+      }
 
       if (insertError) {
         throw new Error(`Failed to insert formations: ${insertError.message}`);
@@ -213,7 +232,7 @@ const handler: Handler = async (event) => {
           error_message: error instanceof Error ? error.message : 'Unknown error',
           completed_at: new Date().toISOString(),
           processing_time_seconds: processingTime,
-          formations_extracted: allFormations.length, // Save any formations that were extracted before failure
+          formations_extracted: allFormationsCount, // Save any formations that were extracted before failure
         })
         .eq('id', analysisId);
 
@@ -259,6 +278,7 @@ For each formation, extract:
 4. Module classification
 5. Position coordinates on a 100x50 field (x: 0-100 horizontal, y: 0-50 vertical, center is 50,25)
 6. Coaching notes for each position (QB, RB, WR, OT)
+7. Alignment descriptions for each skill position (where each player lines up relative to the formation)
 
 Position abbreviations:
 - Q: Quarterback
@@ -266,6 +286,7 @@ Position abbreviations:
 - X, Y, Z: Wide Receivers
 - H: H-Back
 - F: Fullback
+- R: Slot receiver
 
 Return a JSON array of formations with this structure:
 {
@@ -287,6 +308,13 @@ Return a JSON array of formations with this structure:
         "RB": "Pass pro first, check for blitz",
         "WR": "Outside leverage, vertical stem",
         "OT": "Set inside, mirror rusher"
+      },
+      "alignments": {
+        "X": {"spot": "Split wide LEFT (boundary)", "detail": "Outside the numbers, alone on the weak side"},
+        "Y": {"spot": "Attached RIGHT", "detail": "On the line, tight to the right tackle"},
+        "Z": {"spot": "Split wide RIGHT (field)", "detail": "Outside the numbers on the strong side"},
+        "R": {"spot": "Slot LEFT", "detail": "Inside the numbers, between X and the ball"},
+        "T": {"spot": "Offset behind QB", "detail": "Standard depth, slightly offset for handoff timing"}
       }
     }
   ]

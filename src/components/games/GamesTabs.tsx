@@ -1,6 +1,6 @@
 "use client";
 
-export type GamesTab = 'flashcards' | 'formations' | 'alignment' | 'block-coverage';
+export type GamesTab = 'flashcards' | 'formations' | 'rb-protection';
 
 interface GamesTabsProps {
   activeTab: GamesTab;
@@ -22,16 +22,10 @@ const TABS = [
     description: 'Learn offensive formations',
   },
   {
-    id: 'alignment' as GamesTab,
-    label: 'Alignment Trainer',
-    icon: '📍',
-    description: 'Master player alignments',
-  },
-  {
-    id: 'block-coverage' as GamesTab,
-    label: 'Block Coverage',
-    icon: '🛡️',
-    description: 'Master blocking assignments',
+    id: 'rb-protection' as GamesTab,
+    label: 'RB Protection',
+    icon: '⚡',
+    description: 'Master protection assignments',
   },
 ];
 

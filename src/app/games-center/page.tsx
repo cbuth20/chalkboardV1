@@ -8,8 +8,7 @@ import { playerGamesAPI, PlayerGame, GameFilters } from '@/lib/api/player-games'
 import { GamesTabs, GamesTab } from '@/components/games/GamesTabs';
 import { FlashcardsContent } from '@/components/games/FlashcardsContent';
 import { FormationTrainerContent } from '@/components/games/FormationTrainerContent';
-import { AlignmentTrainerContent } from '@/components/games/AlignmentTrainerContent';
-import { BlockCoverageContent } from '@/components/games/BlockCoverageContent';
+import { RBProtectionContent } from '@/components/games/RBProtectionContent';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -166,9 +165,7 @@ export default function GamesCenterPage() {
 
           {activeTab === 'formations' && <FormationTrainerContent />}
 
-          {activeTab === 'alignment' && <AlignmentTrainerContent />}
-
-          {activeTab === 'block-coverage' && <BlockCoverageContent />}
+          {activeTab === 'rb-protection' && <RBProtectionContent />}
         </div>
       </div>
     </SidebarLayout>

@@ -12,6 +12,7 @@ import { formatErrorResponse, ValidationError } from './shared/errors';
 interface StartQuizRequest {
   position_filter?: 'RB'; // Default: RB
   coverage_type_filter?: 'zone' | 'man' | 'blitz' | 'all'; // Optional
+  protection_type?: string; // Optional: filter by protection type (e.g., "360", "64")
   total_questions?: number; // Default: 10
 }
 
@@ -33,10 +34,11 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     const {
       position_filter = 'RB',
       coverage_type_filter = 'all',
+      protection_type,
       total_questions = 10,
     } = body;
 
-    console.log(`🎮 Starting block coverage quiz: position=${position_filter}, coverage_type=${coverage_type_filter}`);
+    console.log(`🎮 Starting block coverage quiz: position=${position_filter}, coverage_type=${coverage_type_filter}, protection=${protection_type || 'all'}`);
 
     // Fetch coverages based on filters
     let query = supabase
@@ -46,6 +48,10 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
     if (coverage_type_filter !== 'all') {
       query = query.eq('coverage_type', coverage_type_filter);
+    }
+
+    if (protection_type) {
+      query = query.eq('protection_type', protection_type);
     }
 
     const { data: coverages, error: coveragesError } = await query;
@@ -110,8 +116,16 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
           defensive_positions: coverage.defensive_positions,
           rb_position: coverage.rb_position,
           offensive_formation: coverage.offensive_formation,
+          protection_type: coverage.protection_type,
+          call_side: coverage.call_side,
+          solid_call: coverage.solid_call,
+          free_release: coverage.free_release,
+          play_action: coverage.play_action,
+          naked: coverage.naked,
+          hoss: coverage.hoss,
+          scat_release: coverage.scat_release,
         },
-        coaching_notes: coverage.coaching_notes,
+        coaching_notes: coverage.explanation || coverage.coaching_notes,
         blocking_rules: coverage.blocking_rules,
       };
     });

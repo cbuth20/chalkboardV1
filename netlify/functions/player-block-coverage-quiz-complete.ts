@@ -74,7 +74,13 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     const totalQuestions = quiz.total_questions;
     const accuracy = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
 
-    console.log(`✅ Quiz completed: ${correctCount}/${totalQuestions} (${accuracy}%)`);
+    // Calculate average reaction time
+    const responseTimes = attempts?.map(a => a.response_time_ms).filter(Boolean) || [];
+    const avgReactionTimeMs = responseTimes.length > 0
+      ? Math.round(responseTimes.reduce((sum: number, t: number) => sum + t, 0) / responseTimes.length)
+      : null;
+
+    console.log(`✅ Quiz completed: ${correctCount}/${totalQuestions} (${accuracy}%), avg reaction: ${avgReactionTimeMs}ms`);
 
     return {
       statusCode: 200,
@@ -85,6 +91,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         correct_count: correctCount,
         total_questions: totalQuestions,
         accuracy,
+        avg_reaction_time_ms: avgReactionTimeMs,
       }),
     };
   } catch (error) {
