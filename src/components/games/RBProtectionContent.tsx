@@ -75,7 +75,12 @@ const GRADE_TIERS = [
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function RBProtectionContent() {
+interface RBProtectionContentProps {
+  demoMode?: boolean;
+  demoScenarios?: ProtectionScenario[];
+}
+
+export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProtectionContentProps = {}) {
   const { session, orgId, loading: authLoading } = useAuth();
 
   const [screen, setScreen] = useState<Screen>('menu');
@@ -129,13 +134,18 @@ export function RBProtectionContent() {
 
   // Load scenarios on mount
   useEffect(() => {
+    if (demoMode && demoScenarios) {
+      setScenarios(demoScenarios);
+      setLoading(false);
+      return;
+    }
     if (!authLoading && session && orgId) {
       const timer = setTimeout(() => loadScenarios(), 300);
       return () => clearTimeout(timer);
     } else if (!authLoading && !session) {
       setLoading(false);
     }
-  }, [authLoading, session, orgId]);
+  }, [authLoading, session, orgId, demoMode, demoScenarios]);
 
   const loadScenarios = async () => {
     if (!session?.access_token || !orgId) {
@@ -445,7 +455,7 @@ export function RBProtectionContent() {
   // LOADING / AUTH
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (authLoading || loading) {
+  if (!demoMode && (authLoading || loading)) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
@@ -456,12 +466,23 @@ export function RBProtectionContent() {
     );
   }
 
-  if (!session) {
+  if (!demoMode && !session) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
           <div className="text-4xl mb-4">🔒</div>
           <p className="text-gray-400">Please log in to access the protection trainer</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (demoMode && loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="text-center">
+          <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00d4aa]/20 border-t-[#00d4aa]" />
+          <p className="text-gray-400">Loading protection trainer...</p>
         </div>
       </div>
     );
@@ -618,15 +639,17 @@ export function RBProtectionContent() {
             </button>
 
             {/* Re-analyze */}
-            <div className="mt-6 text-center">
-              <button
-                onClick={startAnalysis}
-                disabled={analyzing}
-                className="text-sm text-gray-500 hover:text-[#00d4aa] transition"
-              >
-                {analyzing ? 'Analyzing...' : 'Re-analyze Playbooks'}
-              </button>
-            </div>
+            {!demoMode && (
+              <div className="mt-6 text-center">
+                <button
+                  onClick={startAnalysis}
+                  disabled={analyzing}
+                  className="text-sm text-gray-500 hover:text-[#00d4aa] transition"
+                >
+                  {analyzing ? 'Analyzing...' : 'Re-analyze Playbooks'}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

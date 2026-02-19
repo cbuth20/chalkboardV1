@@ -291,7 +291,12 @@ function PlayerLegend({ compact = false }: { compact?: boolean }) {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function FormationTrainerContent() {
+interface FormationTrainerContentProps {
+  demoMode?: boolean;
+  demoFormations?: Formation[];
+}
+
+export function FormationTrainerContent({ demoMode = false, demoFormations }: FormationTrainerContentProps = {}) {
   const { session, orgId, loading: authLoading } = useAuth();
 
   const [view, setView] = useState<View>('home');
@@ -329,13 +334,18 @@ export function FormationTrainerContent() {
 
   // Load formations on mount
   useEffect(() => {
+    if (demoMode && demoFormations) {
+      setFormations(demoFormations);
+      setLoading(false);
+      return;
+    }
     if (!authLoading && session && orgId) {
       const timer = setTimeout(() => loadData(), 300);
       return () => clearTimeout(timer);
     } else if (!authLoading && !session) {
       setLoading(false);
     }
-  }, [authLoading, session, orgId]);
+  }, [authLoading, session, orgId, demoMode, demoFormations]);
 
   const loadData = async () => {
     if (!session?.access_token || !orgId) {
@@ -460,7 +470,7 @@ export function FormationTrainerContent() {
   // LOADING / AUTH STATES
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (authLoading || loading) {
+  if (!demoMode && (authLoading || loading)) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
@@ -471,12 +481,23 @@ export function FormationTrainerContent() {
     );
   }
 
-  if (!session) {
+  if (!demoMode && !session) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="text-center">
           <div className="text-4xl mb-4">🔒</div>
           <p className="text-gray-400">Please log in to access the formation trainer</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (demoMode && loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="text-center">
+          <div className="h-12 w-12 mx-auto mb-4 animate-spin rounded-full border-4 border-[#00d4aa]/20 border-t-[#00d4aa]" />
+          <p className="text-gray-400">Loading formation trainer...</p>
         </div>
       </div>
     );
@@ -569,7 +590,7 @@ export function FormationTrainerContent() {
         )}
 
         {/* Analyze Playbooks Button */}
-        <div className="bg-[#1B1E20] border border-[#2A2F33] rounded-lg p-6">
+        {!demoMode && <div className="bg-[#1B1E20] border border-[#2A2F33] rounded-lg p-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-white mb-1">
@@ -592,7 +613,7 @@ export function FormationTrainerContent() {
               {analyzing ? 'Starting...' : analysisStatus?.status === 'processing' ? 'In Progress...' : 'Analyze Playbooks'}
             </button>
           </div>
-        </div>
+        </div>}
       </div>
     );
   }

@@ -60,7 +60,7 @@ export const FloatingPanelContainer: React.FC<FloatingPanelContainerProps> = ({
   return (
     <div
       ref={panelRef}
-      className="absolute top-8 right-24 z-10 w-96 max-h-[calc(100vh-200px)] rounded-lg bg-[#0A0A0A]/95 backdrop-blur-xl border border-[#00F6E5]/20 shadow-2xl overflow-hidden flex flex-col"
+      className="absolute top-2 right-12 sm:top-4 sm:right-16 md:top-8 md:right-24 z-10 w-72 sm:w-80 md:w-96 max-h-[calc(100%-1rem)] sm:max-h-[calc(100%-2rem)] md:max-h-[calc(100%-4rem)] rounded-lg bg-[#0A0A0A]/95 backdrop-blur-xl border border-[#00F6E5]/20 shadow-2xl overflow-hidden flex flex-col"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#1B1E20]">

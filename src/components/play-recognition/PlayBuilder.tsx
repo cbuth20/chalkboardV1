@@ -75,6 +75,7 @@ export interface PlayBuilderProps {
   mode?: 'coach' | 'player';
   initialPlayData?: BuiltPlayData;
   viewOnly?: boolean;
+  embedded?: boolean;
   situationalTags?: Array<{ id: string; name: string; category: string }>;
   conceptTags?: Array<{ id: string; name: string }>;
   formations?: Array<{ id: string; name: string; sideOfBall: SideOfBall }>;
@@ -91,6 +92,7 @@ export function PlayBuilder({
   mode = 'coach',
   initialPlayData,
   viewOnly = false,
+  embedded = false,
   situationalTags = [],
   conceptTags = [],
   formations = []
@@ -711,7 +713,7 @@ export function PlayBuilder({
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div ref={containerRef} className="fixed inset-0 bg-[#0A0A0A] flex flex-col overflow-hidden z-50">
+    <div ref={containerRef} className={`${embedded ? 'relative w-full h-full' : 'fixed inset-0 z-50'} bg-[#0A0A0A] flex flex-col overflow-hidden`}>
       {/* Header / Formation Bar */}
       <header className="border-b border-[#1B1E20] bg-[#0F0F0F] p-4 flex-shrink-0">
         <FormationBar

@@ -121,7 +121,7 @@ const WidgetBarComponent: React.FC<WidgetBarProps> = ({
   const playerRelatedButtons = ['assignments', 'responsibilities', 'player-actions'];
 
   return (
-    <div className="absolute top-8 right-8 z-20 flex flex-col gap-2">
+    <div className="absolute top-2 right-2 sm:top-4 sm:right-4 md:top-8 md:right-8 z-20 flex flex-col gap-1.5 sm:gap-2 max-h-[calc(100%-1rem)] sm:max-h-[calc(100%-2rem)] md:max-h-[calc(100%-4rem)] overflow-y-auto scrollbar-none">
       {widgetButtons.map((button) => {
         // Skip if condition is defined and false
         if (button.condition !== undefined && !button.condition) {
@@ -136,7 +136,7 @@ const WidgetBarComponent: React.FC<WidgetBarProps> = ({
             <button
               onClick={() => onPanelToggle(button.id)}
               data-widget-button
-              className={`p-3 rounded-lg backdrop-blur-xl border shadow-lg transition ${
+              className={`p-2 sm:p-3 rounded-lg backdrop-blur-xl border shadow-lg transition ${
                 isActive
                   ? 'bg-[#00F6E5]/20 border-[#00F6E5] text-[#00F6E5]'
                   : 'bg-[#0A0A0A]/95 border-[#00F6E5]/20 text-slate-400 hover:text-[#00F6E5]'

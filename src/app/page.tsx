@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import FootballIQFlow from "@/components/landing/FootballIQFlow";
 import Footer from "@/components/Footer";
+import EarlySignupSection from "@/components/landing/EarlySignupSection";
 import { LEGAL_BRAND_NAME } from "@/lib/brand";
 
 // UI Preview Card Component - Shows real product screenshots
@@ -211,11 +212,11 @@ export default function LandingPage() {
             <a href="#preparation" className="text-slate-400 hover:text-white transition-colors text-sm font-medium">For Players</a>
           </div>
 
-          <Link 
-            href="/playbook" 
+          <Link
+            href="/login"
             className="btn-primary text-sm text-[#0A0A0A]"
           >
-            Start Training
+            Login
           </Link>
         </div>
       </nav>
@@ -241,8 +242,8 @@ export default function LandingPage() {
 
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row items-start gap-4">
-                <Link 
-                  href="/playbook" 
+                <Link
+                  href="/login"
                   className="group inline-flex items-center gap-2 px-6 py-3.5 rounded-lg bg-gradient-to-r from-neon-teal to-ice-blue text-[#0A0A0A] font-bold text-sm uppercase tracking-wide transition-all hover:shadow-[0_0_30px_rgba(0,246,229,0.3)]"
                 >
                   Start Training
@@ -250,9 +251,16 @@ export default function LandingPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                   </svg>
                 </Link>
-                
-                <a 
-                  href="#how-it-works" 
+
+                <Link
+                  href="/demo"
+                  className="inline-flex items-center gap-2 px-6 py-3.5 rounded-lg border border-neon-teal/50 text-neon-teal font-bold text-sm uppercase tracking-wide hover:bg-neon-teal/10 transition-all"
+                >
+                  Try the Demo
+                </Link>
+
+                <a
+                  href="#how-it-works"
                   className="inline-flex items-center gap-2 px-6 py-3.5 rounded-lg border border-slate-700 text-slate-300 font-medium text-sm hover:border-slate-600 hover:text-white transition-all"
                 >
                   See How It Works
@@ -557,6 +565,9 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Early Signup Section */}
+      <EarlySignupSection />
+
       {/* Final CTA Section */}
       <section className="relative z-10 px-6 py-20">
         <div className="max-w-2xl mx-auto text-center">
@@ -568,15 +579,24 @@ export default function LandingPage() {
             The players who take preparation seriously are the ones who earn trust, reps, and opportunities.
           </p>
 
-          <Link 
-            href="/playbook" 
-            className="group inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-gradient-to-r from-neon-teal to-ice-blue text-[#0A0A0A] font-bold text-base uppercase tracking-wide transition-all hover:shadow-[0_0_40px_rgba(0,246,229,0.4)]"
-          >
-            Start Training Now
-            <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-            </svg>
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              href="/login"
+              className="group inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-gradient-to-r from-neon-teal to-ice-blue text-[#0A0A0A] font-bold text-base uppercase tracking-wide transition-all hover:shadow-[0_0_40px_rgba(0,246,229,0.4)]"
+            >
+              Sign Up Now
+              <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </Link>
+
+            <Link
+              href="/demo"
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-lg border border-neon-teal/50 text-neon-teal font-bold text-base uppercase tracking-wide hover:bg-neon-teal/10 transition-all"
+            >
+              Try Demo First
+            </Link>
+          </div>
 
           <p className="mt-6 text-sm text-slate-600">
             No credit card required · Built for serious players · Works anywhere
