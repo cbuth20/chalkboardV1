@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useConfirm } from '@/components/ConfirmModal';
 import {
   SideOfBall,
   Position,
@@ -34,6 +35,7 @@ interface FileUploadScreenProps {
 }
 
 export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'plays', onUploadComplete, onBack }) => {
+  const { confirm } = useConfirm();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
@@ -105,15 +107,16 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
     }
   };
 
-  const handleUploadAll = () => {
+  const handleUploadAll = async () => {
     // Warn if uploading a large number of files
     if (uploadedFiles.length > 100) {
-      if (!confirm(
-        `You're about to upload ${uploadedFiles.length} files.\n\n` +
+      if (!(await confirm({
+        message: `You're about to upload ${uploadedFiles.length} files.\n\n` +
         `This may take several minutes and will be processed in batches to avoid server overload.\n\n` +
         `For best performance, consider uploading in smaller batches (50-100 files at a time).\n\n` +
-        `Continue with upload?`
-      )) {
+        `Continue with upload?`,
+        confirmLabel: "Continue",
+      }))) {
         return;
       }
     }

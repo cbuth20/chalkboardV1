@@ -11,6 +11,7 @@ import { getPlaybooksApiUrl } from '@/lib/api-config';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
 
 type ViewState = 'LIBRARY' | 'UPLOAD' | 'VIEWER' | 'CREATE_PLAY';
 
@@ -22,6 +23,7 @@ interface SelectedFile {
 
 export default function PlayRecognitionPage() {
   const { orgId, teamId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
   const [currentView, setCurrentView] = useState<ViewState>('LIBRARY');
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -38,7 +40,7 @@ export default function PlayRecognitionPage() {
   const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
       if (!orgId) {
-        alert('Authentication error. Please sign in.');
+        showToast('Authentication error. Please sign in.', 'error');
         return;
       }
 
@@ -92,7 +94,7 @@ export default function PlayRecognitionPage() {
       setCurrentView('LIBRARY');
     } catch (error) {
       console.error('[Upload] Error uploading files:', error);
-      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -134,7 +136,7 @@ export default function PlayRecognitionPage() {
       setCurrentView('LIBRARY');
     } catch (error) {
       console.error('Error saving built play:', error);
-      alert('Failed to save play. Please try again.');
+      showToast('Failed to save play. Please try again.', 'error');
     }
   };
 

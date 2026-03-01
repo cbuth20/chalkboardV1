@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -55,6 +57,266 @@ interface SessionStats {
 
 type Difficulty = 'chill' | 'normal' | 'fast' | 'elite';
 type Screen = 'menu' | 'playing' | 'feedback' | 'results' | 'stats';
+type PlayPhase = 'pre_snap' | 'snapped';
+
+const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS']);
+const isSecondary = (label: string) => SECONDARY_LABELS.has(label.toUpperCase());
+const LB_LABELS = new Set(['M', 'W', 'S', 'Q']);
+const isLB = (label: string) => LB_LABELS.has(label.toUpperCase());
+
+// WR/TE positions by formation keyword — x/y percentages matching the field coordinate system
+// OL is at y:65%, so WR/TE sit at y:63-65% (on or just behind LOS)
+interface SkillPlayer { x: number; y: number; label: string }
+const DEFAULT_SKILL_POSITIONS: SkillPlayer[] = [
+  { x: 18, y: 65, label: 'X' },   // split end wide left
+  { x: 82, y: 65, label: 'Z' },   // flanker wide right
+  { x: 68, y: 65, label: 'Y' },   // TE inline right
+];
+
+const FORMATION_SKILL_MAP: Record<string, SkillPlayer[]> = {
+  '2x2': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 30, y: 66, label: 'H' },
+    { x: 70, y: 66, label: 'Y' },
+    { x: 85, y: 65, label: 'Z' },
+  ],
+  '3x1': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 70, y: 66, label: 'H' },
+    { x: 78, y: 66, label: 'Y' },
+    { x: 88, y: 65, label: 'Z' },
+  ],
+  'trips': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 70, y: 66, label: 'H' },
+    { x: 78, y: 66, label: 'Y' },
+    { x: 88, y: 65, label: 'Z' },
+  ],
+  'spread': [
+    { x: 12, y: 65, label: 'X' },
+    { x: 30, y: 66, label: 'H' },
+    { x: 70, y: 66, label: 'Y' },
+    { x: 88, y: 65, label: 'Z' },
+  ],
+  'empty': [
+    { x: 12, y: 65, label: 'X' },
+    { x: 28, y: 66, label: 'H' },
+    { x: 50, y: 66, label: 'Y' },
+    { x: 72, y: 66, label: 'F' },
+    { x: 88, y: 65, label: 'Z' },
+  ],
+  'ace': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 85, y: 65, label: 'Z' },
+    { x: 67, y: 65, label: 'Y' },
+  ],
+  'pro': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 85, y: 65, label: 'Z' },
+    { x: 67, y: 65, label: 'Y' },
+  ],
+  'shotgun': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 30, y: 66, label: 'H' },
+    { x: 70, y: 66, label: 'Y' },
+    { x: 85, y: 65, label: 'Z' },
+  ],
+  'pistol': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 30, y: 66, label: 'H' },
+    { x: 70, y: 66, label: 'Y' },
+    { x: 85, y: 65, label: 'Z' },
+  ],
+  'bunch': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 72, y: 66, label: 'H' },
+    { x: 76, y: 68, label: 'Y' },
+    { x: 80, y: 66, label: 'Z' },
+  ],
+  'twins': [
+    { x: 15, y: 65, label: 'X' },
+    { x: 67, y: 65, label: 'Y' },
+    { x: 78, y: 66, label: 'H' },
+    { x: 85, y: 65, label: 'Z' },
+  ],
+};
+
+function getSkillPositions(formation: string | undefined): SkillPlayer[] {
+  if (!formation) return DEFAULT_SKILL_POSITIONS;
+  const lower = formation.toLowerCase();
+  for (const [key, positions] of Object.entries(FORMATION_SKILL_MAP)) {
+    if (lower.includes(key)) return positions;
+  }
+  return DEFAULT_SKILL_POSITIONS;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COVERAGE ROTATION — secondary slides when someone blitzes
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * When a defender blitzes, the remaining coverage secondary rotates
+ * to fill vacated zones. Returns a map of defender id → {dx, dy} offsets.
+ *
+ * - CB blitz: nearest coverage safety (SS/FS) rotates to cover
+ * - SS/FS blitz: nearest coverage safety rotates; if none, nearest CB
+ * - LB blitz: no LB movement, only collision avoidance
+ * - No two coverage players rotate to the same spot (assigned set)
+ */
+function computeCoverageRotation(defenders: Defender[]): Record<string, { dx: number; dy: number }> {
+  const offsets: Record<string, { dx: number; dy: number }> = {};
+
+  const blitzingSecondary = defenders.filter(d => isSecondary(d.label) && d.blitz);
+  const blitzingLBs = defenders.filter(d => !isSecondary(d.label) && d.blitz);
+
+  if (blitzingSecondary.length === 0 && blitzingLBs.length === 0) return offsets;
+
+  const assigned = new Set<string>();
+
+  // Secondary blitzes — only safeties and CBs rotate
+  for (const blitzer of blitzingSecondary) {
+    const isCBBlitz = blitzer.label.toUpperCase() === 'CB';
+
+    // CB blitz → only safeties can rotate; SS/FS blitz → only other safeties rotate (CBs must cover their man)
+    const candidates = isCBBlitz
+      ? defenders.filter(d => (d.label.toUpperCase() === 'SS' || d.label.toUpperCase() === 'FS') && !d.rushing && !assigned.has(d.id))
+      : defenders.filter(d => (d.label.toUpperCase() === 'SS' || d.label.toUpperCase() === 'FS') && !d.rushing && !assigned.has(d.id));
+
+    let bestId = '';
+    let bestDist = Infinity;
+
+    for (const cov of candidates) {
+      // Weight horizontal distance more — zone coverage is about lateral proximity.
+      // The field is taller than wide, so raw y% diffs overpower x% visually.
+      const dist = Math.sqrt((cov.x - blitzer.x) ** 2 + ((cov.y - blitzer.y) * 0.3) ** 2);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = cov.id;
+      }
+    }
+
+    if (!bestId) continue;
+    assigned.add(bestId);
+
+    const covPlayer = candidates.find(d => d.id === bestId)!;
+
+    const dx = (blitzer.x - covPlayer.x) * 0.45;
+    const dy = Math.min(0, (blitzer.y - covPlayer.y) * 0.3 - 3);
+
+    offsets[bestId] = { dx, dy };
+  }
+
+  // Collision avoidance: nudge coverage defenders out of a blitzer's rush lane
+  const allBlitzers = [...blitzingSecondary, ...blitzingLBs];
+  const allCoverage = defenders.filter(d => !d.rushing);
+
+  for (const cov of allCoverage) {
+    const existing = offsets[cov.id] || { dx: 0, dy: 0 };
+    const covX = cov.x + existing.dx;
+
+    for (const blitzer of allBlitzers) {
+      const xGap = Math.abs(covX - blitzer.x);
+      // Only nudge if they're within ~6% horizontally (would visually overlap)
+      // and the coverage player is in the blitzer's forward path (between blitzer and LOS)
+      if (xGap < 6 && cov.y < blitzer.y + 15 && cov.y > blitzer.y - 5) {
+        // Push laterally away from the blitzer
+        const nudge = covX >= blitzer.x ? (6 - xGap) : -(6 - xGap);
+        offsets[cov.id] = { dx: existing.dx + nudge, dy: existing.dy };
+        break; // one nudge per defender
+      }
+    }
+  }
+
+  return offsets;
+}
+
+/**
+ * Compute post-snap target positions for each OL based on protection scheme.
+ * Blocked (rushing + not hot) defenders get matched to the nearest OL.
+ * Hot defenders get no OL — they're free runners.
+ */
+function computeOLAssignments(
+  defenders: Record<string, Defender>,
+  protectionType: string,
+  callSide: string
+): Record<string, { x: number; y: number }> {
+  const OL_BASE = [
+    { label: 'LT', x: 40 },
+    { label: 'LG', x: 45 },
+    { label: 'C',  x: 50 },
+    { label: 'RG', x: 55 },
+    { label: 'RT', x: 60 },
+  ];
+
+  // Pocket depth: tackles drift back most, guards less, center holds firm
+  // Higher y% = further back toward QB (65% is base, QB is at 76%)
+  const pocketDepth: Record<string, number> = {
+    LT: 3, LG: 1.5, C: 0, RG: 1.5, RT: 3,
+  };
+
+  // Blocked defenders = rushing but NOT hot (hot = free runners, no OL picks them up)
+  const blocked = Object.values(defenders)
+    .filter(d => d.rushing && !d.hot)
+    .sort((a, b) => a.x - b.x);
+
+  const result: Record<string, { x: number; y: number }> = {};
+  const assigned = new Set<string>();
+
+  // Greedy nearest-match: each blocked defender gets the closest available OL
+  for (const def of blocked) {
+    let best: typeof OL_BASE[0] | null = null;
+    let bestDist = Infinity;
+
+    for (const ol of OL_BASE) {
+      if (assigned.has(ol.label)) continue;
+      const d = Math.abs(ol.x - def.x);
+      if (d < bestDist) {
+        bestDist = d;
+        best = ol;
+      }
+    }
+
+    if (best && bestDist <= 20) {
+      assigned.add(best.label);
+      // OL moves 45% toward defender's x, drifts back to form pocket
+      result[best.label] = {
+        x: best.x + (def.x - best.x) * 0.45,
+        y: 66 + pocketDepth[best.label],
+      };
+    }
+  }
+
+  // Slide-aware lateral shift for unassigned OL
+  const isFullSlide = /^3[56]/.test(protectionType);  // 360, 361, 350, 351
+  const isHalfSlide = /^6[45]/.test(protectionType);  // 64, 65
+  const slideShift = callSide === 'right' ? 2.5 : -2.5;
+
+  // Half-slide: only the call-side OL slide (C + 2 OL toward call_side)
+  // Man side (away from call) holds position
+  const slideSideOL = new Set<string>();
+  if (isHalfSlide) {
+    slideSideOL.add('C');  // Center is always the slide pivot
+    if (callSide === 'right') {
+      slideSideOL.add('RG');
+      slideSideOL.add('RT');
+    } else {
+      slideSideOL.add('LG');
+      slideSideOL.add('LT');
+    }
+  }
+
+  for (const ol of OL_BASE) {
+    if (!assigned.has(ol.label)) {
+      const shouldSlide = isFullSlide || (isHalfSlide && slideSideOL.has(ol.label));
+      result[ol.label] = {
+        x: ol.x + (shouldSlide ? slideShift : 0),
+        y: 66 + pocketDepth[ol.label],
+      };
+    }
+  }
+
+  return result;
+}
 
 const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; time: number }> = {
   chill: { label: 'Chill', time: 5000 },
@@ -72,6 +334,96 @@ const GRADE_TIERS = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
+// HELMET ICON — Top-down football helmet SVG
+// ═══════════════════════════════════════════════════════════════════════════
+
+function HelmetIcon({
+  label,
+  fill,
+  stroke,
+  strokeWidth = 2.5,
+  stripeColor,
+  stripeOpacity = 0.4,
+  maskColor = '#6b7280',
+  maskOpacity = 1,
+  textColor,
+  fontSize = 13,
+  facing = 'down',
+}: {
+  label: string;
+  fill: string;
+  stroke: string;
+  strokeWidth?: number;
+  stripeColor: string;
+  stripeOpacity?: number;
+  maskColor?: string;
+  maskOpacity?: number;
+  textColor: string;
+  fontSize?: number;
+  facing?: 'up' | 'down';
+}) {
+  const down = facing === 'down';
+  // Elongated helmet: 48 wide x 56 tall viewBox
+  // Facemask end is narrower (egg shape via path, not ellipse)
+  const cy = down ? 24 : 32;
+
+  return (
+    <svg viewBox="0 0 48 56" width="100%" height="100%">
+      {/* Helmet shell — elongated egg shape, narrow at facemask end */}
+      {down ? (
+        <path d="M 24 3 C 6 3, 3 18, 3 26 C 3 34, 8 42, 14 46 Q 24 52 34 46 C 40 42, 45 34, 45 26 C 45 18, 42 3, 24 3 Z"
+          fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
+      ) : (
+        <path d="M 24 53 C 6 53, 3 38, 3 30 C 3 22, 8 14, 14 10 Q 24 4 34 10 C 40 14, 45 22, 45 30 C 45 38, 42 53, 24 53 Z"
+          fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
+      )}
+      {/* Gloss reflection */}
+      <defs>
+        <radialGradient id={`gloss-${facing}`} cx="50%" cy="30%" rx="50%" ry="40%">
+          <stop offset="0%" stopColor="white" stopOpacity={0.18} />
+          <stop offset="60%" stopColor="white" stopOpacity={0.06} />
+          <stop offset="100%" stopColor="white" stopOpacity={0} />
+        </radialGradient>
+      </defs>
+      {/* Broad soft glow */}
+      <ellipse cx={24} cy={cy - 6} rx={14} ry={8} fill={`url(#gloss-${facing})`} />
+      {/* Tight specular highlight */}
+      <ellipse cx={20} cy={cy - 10} rx={5} ry={2.5} fill="white" opacity={0.14} />
+      {/* Double center stripe */}
+      <rect x={18} y={down ? 5 : 12} width={3.5} height={down ? 36 : 36} rx={1.75} fill={stripeColor} opacity={stripeOpacity + 0.15} />
+      <rect x={26.5} y={down ? 5 : 12} width={3.5} height={down ? 36 : 36} rx={1.75} fill={stripeColor} opacity={stripeOpacity + 0.15} />
+      {/* Ear holes */}
+      <ellipse cx={4.5} cy={cy} rx={2} ry={3} fill="none" stroke={stroke} strokeWidth={1} opacity={0.4} />
+      <ellipse cx={43.5} cy={cy} rx={2} ry={3} fill="none" stroke={stroke} strokeWidth={1} opacity={0.4} />
+      {/* Facemask cage */}
+      {down ? (
+        <>
+          <path d="M 14 42 Q 24 54 34 42" fill="none" stroke={maskColor} strokeWidth={2.5} strokeLinecap="round" opacity={maskOpacity} />
+          <line x1={17} y1={45} x2={31} y2={45} stroke={maskColor} strokeWidth={2} strokeLinecap="round" opacity={maskOpacity} />
+          <line x1={19} y1={48} x2={29} y2={48} stroke={maskColor} strokeWidth={1.5} strokeLinecap="round" opacity={maskOpacity} />
+          {/* Vertical cage bars */}
+          <line x1={24} y1={42} x2={24} y2={49} stroke={maskColor} strokeWidth={1.2} opacity={maskOpacity * 0.7} />
+          <line x1={19} y1={43} x2={18.5} y2={48} stroke={maskColor} strokeWidth={1} opacity={maskOpacity * 0.5} />
+          <line x1={29} y1={43} x2={29.5} y2={48} stroke={maskColor} strokeWidth={1} opacity={maskOpacity * 0.5} />
+        </>
+      ) : (
+        <>
+          <path d="M 14 14 Q 24 2 34 14" fill="none" stroke={maskColor} strokeWidth={2.5} strokeLinecap="round" opacity={maskOpacity} />
+          <line x1={17} y1={11} x2={31} y2={11} stroke={maskColor} strokeWidth={2} strokeLinecap="round" opacity={maskOpacity} />
+          <line x1={19} y1={8} x2={29} y2={8} stroke={maskColor} strokeWidth={1.5} strokeLinecap="round" opacity={maskOpacity} />
+          {/* Vertical cage bars */}
+          <line x1={24} y1={14} x2={24} y2={7} stroke={maskColor} strokeWidth={1.2} opacity={maskOpacity * 0.7} />
+          <line x1={19} y1={13} x2={18.5} y2={8} stroke={maskColor} strokeWidth={1} opacity={maskOpacity * 0.5} />
+          <line x1={29} y1={13} x2={29.5} y2={8} stroke={maskColor} strokeWidth={1} opacity={maskOpacity * 0.5} />
+        </>
+      )}
+      {/* Position label */}
+      <text x={24} y={cy + 1} textAnchor="middle" dy="0.1em" fill={textColor} fontSize={fontSize} fontWeight={800} fontFamily="system-ui, sans-serif">{label}</text>
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -82,6 +434,8 @@ interface RBProtectionContentProps {
 
 export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProtectionContentProps = {}) {
   const { session, orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
 
   const [screen, setScreen] = useState<Screen>('menu');
   const [scenarios, setScenarios] = useState<ProtectionScenario[]>([]);
@@ -104,6 +458,17 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const [bestStreak, setBestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
 
+  // Pre-snap phase state
+  const [playPhase, setPlayPhase] = useState<PlayPhase>('snapped');
+  const [preSnapAnimating, setPreSnapAnimating] = useState(false);
+  const [coverageSliding, setCoverageSliding] = useState(false);
+  const [postSnapRushing, setPostSnapRushing] = useState(false);
+  const [postSnapBreakthrough, setPostSnapBreakthrough] = useState(false);
+  const preSnapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preSnapAnimRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coverageSlideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const breakthroughRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Feedback state
   const [lastResult, setLastResult] = useState<PlayResult | null>(null);
 
@@ -116,6 +481,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   // Timer ref
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const gameContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Load stats from localStorage
   useEffect(() => {
@@ -190,7 +556,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   };
 
   const startAnalysis = async () => {
-    if (!confirm('This will analyze your playbook PDFs using AI to extract protection scenarios. This may take several minutes. Continue?')) return;
+    if (!(await confirm({ message: 'This will analyze your playbook PDFs using AI to extract protection scenarios. This may take several minutes. Continue?', confirmLabel: 'Continue' }))) return;
     if (!session?.access_token || !orgId) return;
 
     setAnalyzing(true);
@@ -217,7 +583,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     } catch (error) {
       setAnalysisStatus('failed');
       setAnalyzing(false);
-      alert(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -324,7 +690,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     }
 
     if (pool.length === 0) {
-      alert('No scenarios available for this protection type.');
+      showToast('No scenarios available for this protection type.', 'error');
       return;
     }
 
@@ -342,23 +708,55 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const startPlay = (scenario: ProtectionScenario) => {
     const totalTime = DIFFICULTY_CONFIG[difficulty].time;
     setTimeRemaining(totalTime);
-    setPlayStartTime(Date.now());
 
-    // Clear any existing timer
+    // Clear any existing timers
     if (timerRef.current) clearInterval(timerRef.current);
+    if (preSnapTimeoutRef.current) clearTimeout(preSnapTimeoutRef.current);
+    if (preSnapAnimRef.current) clearTimeout(preSnapAnimRef.current);
+    if (coverageSlideRef.current) clearTimeout(coverageSlideRef.current);
+    if (breakthroughRef.current) clearTimeout(breakthroughRef.current);
 
-    // Start countdown
-    const startMs = Date.now();
-    timerRef.current = setInterval(() => {
-      const elapsed = Date.now() - startMs;
-      const remaining = Math.max(0, totalTime - elapsed);
-      setTimeRemaining(remaining);
+    // Show defenders at pre-snap offsets, then release to final positions
+    setPreSnapAnimating(true);
+    setCoverageSliding(false);
+    setPostSnapRushing(false);
+    setPostSnapBreakthrough(false);
+    setPlayPhase('pre_snap');
 
-      if (remaining <= 0) {
-        if (timerRef.current) clearInterval(timerRef.current);
-        handleAnswer('TIMEOUT', scenario);
-      }
-    }, 50);
+    // After 60ms (guarantees first paint), flip the boolean to trigger CSS transition to final positions
+    preSnapAnimRef.current = setTimeout(() => {
+      setPreSnapAnimating(false);
+    }, 60);
+
+    // After 900ms (walk-up mostly complete), trigger coverage rotation slide
+    coverageSlideRef.current = setTimeout(() => {
+      setCoverageSliding(true);
+    }, 900);
+
+    // After 1.8s: snap the ball, start the timer
+    preSnapTimeoutRef.current = setTimeout(() => {
+      setPlayPhase('snapped');
+      setPostSnapRushing(true);
+      setPlayStartTime(Date.now());
+
+      // Schedule breakthrough: hot defenders break through past OL after 1.5s
+      breakthroughRef.current = setTimeout(() => {
+        setPostSnapBreakthrough(true);
+      }, 1500);
+
+      // Start countdown
+      const startMs = Date.now();
+      timerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startMs;
+        const remaining = Math.max(0, totalTime - elapsed);
+        setTimeRemaining(remaining);
+
+        if (remaining <= 0) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          handleAnswer('TIMEOUT', scenario);
+        }
+      }, 50);
+    }, 1800);
   };
 
   const handleAnswer = useCallback((answer: string, scenario?: ProtectionScenario) => {
@@ -448,8 +846,19 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       if (timerRef.current) clearInterval(timerRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
+      if (preSnapTimeoutRef.current) clearTimeout(preSnapTimeoutRef.current);
+      if (preSnapAnimRef.current) clearTimeout(preSnapAnimRef.current);
+      if (coverageSlideRef.current) clearTimeout(coverageSlideRef.current);
+      if (breakthroughRef.current) clearTimeout(breakthroughRef.current);
     };
   }, []);
+
+  // Scroll to top of game container on screen transitions
+  useEffect(() => {
+    if ((screen === 'playing' || screen === 'feedback') && gameContainerRef.current) {
+      gameContainerRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+    }
+  }, [screen, playIndex]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LOADING / AUTH
@@ -665,14 +1074,18 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (!scenario) return null;
 
     const totalTime = DIFFICULTY_CONFIG[difficulty].time;
-    const pct = (timeRemaining / totalTime) * 100;
+    const pct = playPhase === 'pre_snap' ? 100 : (timeRemaining / totalTime) * 100;
     const timerColor = pct > 60 ? '#00d4aa' : pct > 30 ? '#fbbf24' : '#ef4444';
+    const isPreSnap = playPhase === 'pre_snap';
 
     const defenders = Object.entries(scenario.defensive_positions).map(([id, def]) => {
       // Support both old format (just coordinates) and new format (full defender object)
       const defender = typeof def === 'object' && def !== null ? def as Defender : { id, x: 50, y: 30, label: id, rushing: false };
       return { ...defender, id: defender.id || id };
     });
+
+    // Compute coverage rotation offsets for post-snap secondary sliding
+    const coverageRotation = computeCoverageRotation(defenders);
 
     // Build flag badges
     const flags: string[] = [];
@@ -683,7 +1096,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (scenario.hoss) flags.push('HOSS');
 
     return (
-      <div>
+      <div ref={gameContainerRef}>
         {/* Info Bar */}
         <div className="bg-gray-800 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
@@ -707,16 +1120,25 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           )}
         </div>
 
+        {/* Pre-snap cadence text — always rendered to preserve layout */}
+        <div className={`text-center mb-2 transition-opacity duration-300 ${isPreSnap ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          <span className={`text-sm font-semibold text-gray-400 uppercase tracking-widest ${isPreSnap ? 'animate-cadence' : ''}`}>
+            Reading defense...
+          </span>
+        </div>
+
         {/* Timer */}
         <div className="mb-4">
           <div className="flex justify-between text-xs text-gray-400 mb-1">
             <span>Play {playIndex + 1} of {currentScenarios.length}</span>
-            <span style={{ color: timerColor }}>{(timeRemaining / 1000).toFixed(1)}s</span>
+            <span style={{ color: isPreSnap ? '#64748b' : timerColor }}>
+              {isPreSnap ? 'PRE-SNAP' : `${(timeRemaining / 1000).toFixed(1)}s`}
+            </span>
           </div>
           <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-100"
-              style={{ width: `${pct}%`, backgroundColor: timerColor }}
+              style={{ width: `${pct}%`, backgroundColor: isPreSnap ? '#475569' : timerColor }}
             />
           </div>
         </div>
@@ -724,7 +1146,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         {/* Football Field */}
         <div
           className="relative bg-[#1a3a25] rounded-lg overflow-hidden mb-4"
-          style={{ height: 340 }}
+          style={{ height: 560 }}
         >
           {/* Yard lines */}
           {[20, 40, 60, 80].map(pctLine => (
@@ -735,47 +1157,96 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             />
           ))}
 
+          {/* Line of Scrimmage */}
+          <div
+            className="absolute w-full border-t-2 border-[#00d4aa]/40"
+            style={{ top: '60%' }}
+          />
+
           {/* OL */}
-          {['LT', 'LG', 'C', 'RG', 'RT'].map((label, i) => (
+          {(() => {
+            const olAssignments = computeOLAssignments(
+              scenario.defensive_positions,
+              scenario.protection_type,
+              scenario.call_side
+            );
+            return ['LT', 'LG', 'C', 'RG', 'RT'].map((label, i) => {
+              const baseX = 40 + i * 5;
+              const target = olAssignments[label];
+              return (
+                <div
+                  key={label}
+                  className="absolute"
+                  style={{
+                    left: `${postSnapRushing && target ? target.x : baseX}%`,
+                    top: postSnapRushing && target ? `${target.y}%` : '65%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 48,
+                    height: 56,
+                    transition: 'left 1.4s cubic-bezier(0.22, 1, 0.36, 1), top 1.4s cubic-bezier(0.22, 1, 0.36, 1)',
+                  }}
+                >
+                  <HelmetIcon label={label.replace('L', '').replace('R', '')} fill="#1a2744" stroke="#2a3f66" stripeColor="#2a3f66" stripeOpacity={0.5} maskColor="#4b5563" textColor="#9ca3af" facing="up" />
+                </div>
+              );
+            });
+          })()}
+
+          {/* WR/TE */}
+          {getSkillPositions(scenario.offensive_formation).map((sp) => (
             <div
-              key={label}
-              className="absolute w-8 h-8 rounded-full bg-[#1a2744] border-2 border-[#2a3f66] flex items-center justify-center text-xs font-bold text-gray-400"
+              key={sp.label}
+              className="absolute"
               style={{
-                left: `${30 + i * 10}%`,
-                top: '65%',
+                left: `${sp.x}%`,
+                top: `${sp.y}%`,
                 transform: 'translate(-50%, -50%)',
+                width: 40,
+                height: 48,
               }}
             >
-              {label.replace('L', '').replace('R', '')}
+              <HelmetIcon label={sp.label} fill="#0a2e24" stroke="#0d9488" stripeColor="#0d9488" stripeOpacity={0.3} maskColor="#4b5563" textColor="#5eead4" facing="up" />
             </div>
           ))}
 
           {/* QB */}
           <div
-            className="absolute w-8 h-8 rounded-full bg-[#1a2744] border-2 border-[#3a5f88] flex items-center justify-center text-xs font-bold text-gray-300"
-            style={{ left: '50%', top: '73%', transform: 'translate(-50%, -50%)' }}
+            className="absolute"
+            style={{
+              left: '50%',
+              top: postSnapRushing ? '79%' : '76%',
+              transform: 'translate(-50%, -50%)',
+              width: 48,
+              height: 56,
+              transition: 'top 1.8s ease-out',
+            }}
           >
-            QB
+            <HelmetIcon label="QB" fill="#1a2744" stroke="#3a5f88" stripeColor="#3a5f88" stripeOpacity={0.5} maskColor="#4b5563" textColor="#d1d5db" facing="up" />
           </div>
 
           {/* TB */}
           <div
-            className="absolute flex flex-col items-center"
+            className="absolute"
             style={{
               left: scenario.call_side === 'left' ? '38%' : '62%',
               top: '80%',
               transform: 'translate(-50%, -50%)',
+              width: 48,
+              height: 56,
             }}
           >
-            <div className="w-9 h-9 rounded-full bg-[#00d4aa]/20 border-2 border-[#00d4aa] flex items-center justify-center text-xs font-bold text-[#00d4aa]">
-              TB
-            </div>
+            <HelmetIcon label="TB" fill="rgba(0,212,170,0.15)" stroke="#00d4aa" stripeColor="#00d4aa" stripeOpacity={0.3} maskColor="#00d4aa" maskOpacity={0.6} textColor="#00d4aa" facing="up" />
           </div>
 
-          {/* Release button below TB */}
+          {/* Release button below TB — dimmed during pre-snap */}
           <button
             onClick={() => handleAnswer('RELEASE')}
-            className="absolute px-3 py-1 bg-[#00d4aa]/20 border border-[#00d4aa]/50 rounded text-xs font-semibold text-[#00d4aa] hover:bg-[#00d4aa]/30 transition"
+            disabled={isPreSnap}
+            className={`absolute px-3 py-1 rounded text-xs font-semibold transition ${
+              isPreSnap
+                ? 'bg-gray-700/30 border border-gray-600/30 text-gray-600 cursor-not-allowed'
+                : 'bg-[#00d4aa]/20 border border-[#00d4aa]/50 text-[#00d4aa] hover:bg-[#00d4aa]/30'
+            }`}
             style={{
               left: scenario.call_side === 'left' ? '38%' : '62%',
               top: '90%',
@@ -787,57 +1258,145 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
           {/* Defenders */}
           {defenders.map(def => {
-            const isBlitz = def.blitz;
-            const isWalkedUp = def.walked_up;
-            const isHot = def.hot;
+            const secondary = isSecondary(def.label);
+            const fillColor = secondary
+              ? (def.rushing ? '#701a75' : 'rgba(112,26,117,0.6)')
+              : (def.rushing ? '#7f1d1d' : 'rgba(69,10,10,0.6)');
+            const strokeColor = def.walked_up ? '#e5e7eb'
+              : def.blitz ? '#facc15'
+              : def.rushing ? (secondary ? '#e879f9' : '#ef4444')
+              : (secondary ? 'rgba(232,121,249,0.5)' : 'rgba(153,27,27,0.5)');
+            const textColor = secondary
+              ? (def.rushing ? '#f0abfc' : 'rgba(240,171,252,0.7)')
+              : (def.rushing ? '#fecaca' : 'rgba(252,165,165,0.7)');
+            const stripeColor = secondary
+              ? (def.rushing ? '#e879f9' : 'rgba(232,121,249,0.5)')
+              : (def.rushing ? '#ef4444' : 'rgba(153,27,27,0.5)');
+            const maskColor = def.rushing ? '#6b7280' : '#4b5563';
+
+            // Compute pre-snap margin offset in pixels (field height = 560px)
+            const FIELD_H = 560;
+            let offsetY = 0;
+            if (preSnapAnimating && def.walked_up) {
+              offsetY = secondary
+                ? -(18 / 100) * FIELD_H   // -100.8px — deep secondary depth
+                : -(12 / 100) * FIELD_H;  // -67.2px — natural LB depth
+            } else if (preSnapAnimating && def.blitz) {
+              offsetY = secondary
+                ? -(8 / 100) * FIELD_H    // -44.8px — deeper disguise
+                : -(5 / 100) * FIELD_H;   // -28px — LB disguise depth
+            }
+
+            // Coverage rotation: non-blitzing secondary slides pre-snap after walk-up
+            const rotation = coverageRotation[def.id];
+            const rotX = (coverageSliding && rotation) ? rotation.dx : 0;
+            const rotY = (coverageSliding && rotation) ? rotation.dy : 0;
+
+            // Post-snap: two-phase rush targeting
+            // Edge rushers bend deeper, interior guys stay shallow (mirrors OL pocket)
+            const edgeness = Math.min(Math.abs(def.x - 50) / 15, 1); // 0=interior, 1=edge
+            const ENGAGEMENT_Y = 58 + edgeness * 4; // interior 58%, edge up to 62%
+            const BREAKTHROUGH_Y = 70;  // past OL, approaching QB (76%)
+            let rushOffsetY = 0;
+            let rushDuration = 0;
+
+            if (postSnapRushing && def.rushing) {
+              if (postSnapBreakthrough && def.hot) {
+                // Phase 2: hot defenders break through past OL toward QB
+                rushOffsetY = BREAKTHROUGH_Y - def.y - rotY;
+                rushOffsetY = Math.max(0, rushOffsetY);
+                const breakthroughDist = Math.abs(BREAKTHROUGH_Y - def.y);
+                rushDuration = Math.max(0.8, breakthroughDist * 0.08);
+              } else {
+                // Phase 1: all rushers stop at engagement line
+                rushOffsetY = ENGAGEMENT_Y - def.y - rotY;
+                rushOffsetY = Math.max(0, rushOffsetY);
+                const rushDist = Math.abs(ENGAGEMENT_Y - def.y);
+                rushDuration = rushDist > 0 ? Math.max(1.2, rushDist * 0.12) : 0;
+              }
+            }
 
             return (
               <button
                 key={def.id}
                 onClick={() => handleAnswer(def.id)}
-                className={`absolute w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-transform hover:scale-110 ${
-                  def.rushing
-                    ? 'bg-red-900/80 border-2 border-red-500 text-red-200'
-                    : 'bg-red-950/60 border-2 border-red-800/50 text-red-300/70'
-                } ${isBlitz ? 'shadow-[0_0_12px_rgba(234,179,8,0.4)] border-yellow-400' : ''} ${
-                  isWalkedUp ? 'border-[#00d4aa]' : ''
+                disabled={isPreSnap}
+                className={`absolute flex items-center justify-center ${
+                  isPreSnap ? 'cursor-default' : ''
                 }`}
                 style={{
-                  left: `${def.x}%`,
-                  top: `${def.y}%`,
-                  transform: 'translate(-50%, -50%)',
+                  left: `${def.x + rotX}%`,
+                  top: `${def.y + rotY + rushOffsetY}%`,
+                  transform: `translate(-50%, -50%) scale(${
+                    postSnapBreakthrough && def.hot ? 1.14
+                    : postSnapRushing && def.rushing ? 1.08
+                    : 1
+                  })`,
+                  width: 48,
+                  height: 56,
+                  marginTop: offsetY,
+                  transition: `left 1.4s ease-in-out, top ${rushDuration > 0 ? rushDuration : 1.4}s ${
+                    postSnapBreakthrough && def.hot
+                      ? 'cubic-bezier(0.45, 0, 0.55, 1)'
+                      : rushDuration > 0
+                        ? 'cubic-bezier(0.22, 1, 0.36, 1)'
+                        : 'ease-in-out'
+                  }, margin-top 1.6s ease-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)`,
                 }}
               >
-                <span>{def.label}</span>
+                <HelmetIcon label={def.label} fill={fillColor} stroke={strokeColor} stripeColor={stripeColor} maskColor={maskColor} textColor={textColor} facing="down" />
+
+                {/* Badges */}
                 {def.tb_read && (
-                  <span className="absolute -top-3 -right-1 text-[10px] bg-gray-900 text-[#00d4aa] rounded-full w-4 h-4 flex items-center justify-center border border-[#00d4aa]/50">
+                  <span className="absolute -top-2 -right-0.5 text-[10px] bg-gray-900 text-[#00d4aa] rounded-full w-4 h-4 flex items-center justify-center border border-[#00d4aa]/50">
                     {def.tb_read}
                   </span>
                 )}
-                {isHot && (
-                  <span className="absolute -top-3 -left-1 text-[10px]">🔥</span>
-                )}
-                {isWalkedUp && (
-                  <span className="absolute -bottom-4 text-[8px] text-[#00d4aa] font-semibold tracking-wide">WALKED</span>
+                {def.hot && (
+                  <span className="absolute -top-2 -left-0.5 text-[10px]">🔥</span>
                 )}
               </button>
             );
           })}
+
+          {/* Snap flash overlay — brief white flash on snap, then gone */}
+          {!isPreSnap && (
+            <div key={`snap-flash-${playIndex}`} className="absolute inset-0 animate-snap-flash rounded-lg pointer-events-none" />
+          )}
         </div>
 
         {/* Legend */}
-        <div className="flex justify-center gap-6 text-xs text-gray-400">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full border-2 border-yellow-400 bg-red-900/50" />
-            <span>Blitzing</span>
+        <div className="flex justify-center gap-4 text-xs text-gray-400 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <svg viewBox="0 0 16 18" width="14" height="16">
+              <ellipse cx="8" cy="9" rx="7" ry="8" fill="#7f1d1d" stroke="#ef4444" strokeWidth="1.5" />
+              <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="#ef4444" opacity="0.4" />
+            </svg>
+            <span>Rushing</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full border-2 border-[#00d4aa] bg-red-950/50" />
-            <span>Walked Up</span>
+          <div className="flex items-center gap-1.5">
+            <svg viewBox="0 0 16 18" width="14" height="16">
+              <ellipse cx="8" cy="9" rx="7" ry="8" fill="rgba(69,10,10,0.6)" stroke="rgba(153,27,27,0.5)" strokeWidth="1.5" />
+              <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="rgba(153,27,27,0.5)" opacity="0.4" />
+            </svg>
+            <span>Coverage</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <svg viewBox="0 0 16 18" width="14" height="16" className="drop-shadow-[0_0_4px_rgba(234,179,8,0.5)]">
+              <ellipse cx="8" cy="9" rx="7" ry="8" fill="#7f1d1d" stroke="#facc15" strokeWidth="1.5" />
+            </svg>
+            <span>Blitz</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg viewBox="0 0 16 18" width="14" height="16">
+              <ellipse cx="8" cy="9" rx="7" ry="8" fill="#701a75" stroke="#e879f9" strokeWidth="1.5" />
+              <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="#e879f9" opacity="0.4" />
+            </svg>
+            <span>Secondary</span>
+          </div>
+          <div className="flex items-center gap-1.5">
             <span>🔥</span>
-            <span>Hot (unblocked)</span>
+            <span>Hot</span>
           </div>
         </div>
       </div>
@@ -853,7 +1412,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     const isTimeout = lastResult.userAnswer === 'TIMEOUT';
 
     return (
-      <div>
+      <div ref={gameContainerRef}>
         {/* Banner */}
         <div
           className={`rounded-xl p-6 mb-6 text-center ${
@@ -1080,8 +1639,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
         {/* Reset */}
         <button
-          onClick={() => {
-            if (confirm('Reset all protection training stats? This cannot be undone.')) {
+          onClick={async () => {
+            if (await confirm({ message: 'Reset all protection training stats? This cannot be undone.', variant: 'destructive', confirmLabel: 'Reset' })) {
               const empty: SessionStats = {
                 totalReps: 0, totalCorrect: 0, totalTime: 0,
                 byProtection: {}, byFront: {}, sessions: [],

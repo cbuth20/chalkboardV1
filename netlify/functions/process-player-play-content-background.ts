@@ -527,9 +527,10 @@ Focus on information that would be useful for generating study flashcards.`;
           content: [
             { type: 'text', text: prompt },
             {
-              type: 'image_url',
-              image_url: {
-                url: `data:application/pdf;base64,${base64PDF}`,
+              type: 'file',
+              file: {
+                filename: 'playbook.pdf',
+                file_data: `data:application/pdf;base64,${base64PDF}`,
               },
             },
           ],

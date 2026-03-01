@@ -10,6 +10,8 @@ import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { PlaysProvider } from "@/contexts/PlaysContext";
 import { AssignmentGenerationProvider } from "@/contexts/AssignmentGenerationContext";
 import { UnhandledRejectionGuard } from "@/components/UnhandledRejectionGuard";
+import { ToastProvider } from "@/components/Toast";
+import { ConfirmProvider } from "@/components/ConfirmModal";
 
 const rajdhani = Rajdhani({
   weight: ["300", "400", "500", "600", "700"],
@@ -43,6 +45,8 @@ export default function RootLayout({
         className={`${rajdhani.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <UnhandledRejectionGuard />
+        <ToastProvider>
+        <ConfirmProvider>
         <AuthProvider>
           <OnboardingProvider>
             <PlaysProvider>
@@ -59,6 +63,8 @@ export default function RootLayout({
             </PlaysProvider>
           </OnboardingProvider>
         </AuthProvider>
+        </ConfirmProvider>
+        </ToastProvider>
       </body>
     </html>
   );

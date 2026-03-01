@@ -9,10 +9,14 @@ import { FileUploadScreen } from '@/components/play-recognition/FileUploadScreen
 import { PlayBuilder, BuiltPlayData } from '@/components/play-recognition/PlayBuilder';
 import { PlaybookMetadataInput } from '@/types/playbook-metadata';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 type ViewState = 'list' | 'upload' | 'create';
 
 export default function CoachPlaybookPage() {
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { orgId, teamId, userRole, session, loading: authLoading } = useAuth();
   const { plays, loading, error, refetch } = usePlays({});
   const { updateStatus } = useUpdatePlayStatus();
@@ -167,7 +171,7 @@ export default function CoachPlaybookPage() {
       await refetch();
     } catch (error) {
       console.error('Error updating play:', error);
-      alert('Failed to update play. Please try again.');
+      showToast('Failed to update play. Please try again.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -180,18 +184,18 @@ export default function CoachPlaybookPage() {
       ? `Unpublish "${playName}"? It will be hidden from players but can be republished later.`
       : `Publish "${playName}"? It will become visible to players.`;
 
-    if (!confirm(message)) {
+    if (!(await confirm({ message, confirmLabel: "Confirm" }))) {
       return;
     }
 
     try {
       setIsUpdating(true);
       await updateStatus(playId, { isPublished: !currentStatus });
-      alert(`Play ${action}ed successfully`);
+      showToast(`Play ${action}ed successfully`, 'success');
       refetch();
     } catch (error) {
       console.error(`Error ${action}ing play:`, error);
-      alert(`Failed to ${action} play. Please try again.`);
+      showToast(`Failed to ${action} play. Please try again.`, 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -205,7 +209,7 @@ export default function CoachPlaybookPage() {
       await refetch();
     } catch (error) {
       console.error('Error updating status:', error);
-      alert('Failed to update status. Please try again.');
+      showToast('Failed to update status. Please try again.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -215,11 +219,11 @@ export default function CoachPlaybookPage() {
     e.stopPropagation();
 
     if (!session?.access_token) {
-      alert('You must be signed in to process plays.');
+      showToast('You must be signed in to process plays.', 'error');
       return;
     }
 
-    if (!confirm(`Process "${playName}"? This will analyze the play and generate assignments and questions.`)) {
+    if (!(await confirm({ message: `Process "${playName}"? This will analyze the play and generate assignments and questions.`, confirmLabel: "Process" }))) {
       return;
     }
 
@@ -254,7 +258,7 @@ export default function CoachPlaybookPage() {
       // Clear loading state immediately
       setIsRegeneratingQuestions(false);
 
-      alert(`Processing started! This will take 1-2 minutes. The page will auto-refresh to show results.`);
+      showToast('Processing started! The page will auto-refresh in 1-2 minutes.', 'info');
 
       // Auto-refresh after 2 minutes to show results
       setTimeout(async () => {
@@ -262,7 +266,7 @@ export default function CoachPlaybookPage() {
       }, 120000);
     } catch (error) {
       console.error('Error processing play:', error);
-      alert(`Failed to process play: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to process play: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
       setIsRegeneratingQuestions(false);
     }
   };
@@ -271,11 +275,11 @@ export default function CoachPlaybookPage() {
     e.stopPropagation();
 
     if (!session?.access_token) {
-      alert('You must be signed in to regenerate questions.');
+      showToast('You must be signed in to regenerate questions.', 'error');
       return;
     }
 
-    if (!confirm(`Regenerate questions for "${playName}"? This will deactivate old questions and create new AI-powered questions.`)) {
+    if (!(await confirm({ message: `Regenerate questions for "${playName}"? This will deactivate old questions and create new AI-powered questions.`, confirmLabel: "Regenerate" }))) {
       return;
     }
 
@@ -305,9 +309,10 @@ export default function CoachPlaybookPage() {
 
         // If play has no assignments, offer to process the full play instead
         if (errorData.error?.includes('no assignments')) {
-          const shouldProcess = confirm(
-            `This play hasn't been fully processed yet. Would you like to process it now? This will analyze the play and generate assignments and questions.`
-          );
+          const shouldProcess = await confirm({
+            message: `This play hasn't been fully processed yet. Would you like to process it now? This will analyze the play and generate assignments and questions.`,
+            confirmLabel: "Process",
+          });
 
           if (shouldProcess) {
             // Call process play instead
@@ -326,7 +331,7 @@ export default function CoachPlaybookPage() {
 
       // Background job was triggered (202 response)
       if (response.status === 202) {
-        alert(`Question generation started! This will take 1-2 minutes. The page will auto-refresh to show results.`);
+        showToast('Question generation started! The page will auto-refresh in 1-2 minutes.', 'info');
 
         // Auto-refresh after 90 seconds to show results
         setTimeout(async () => {
@@ -334,12 +339,12 @@ export default function CoachPlaybookPage() {
         }, 90000);
       } else {
         // Immediate success (shouldn't happen with background job, but keeping for safety)
-        alert(`Successfully generated ${result.questionsGenerated} new questions!`);
+        showToast(`Successfully generated ${result.questionsGenerated} new questions!`, 'success');
         await refetch();
       }
     } catch (error) {
       console.error('Error regenerating questions:', error);
-      alert(`Failed to regenerate questions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to regenerate questions: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
       setIsRegeneratingQuestions(false);
     }
   };
@@ -359,7 +364,7 @@ export default function CoachPlaybookPage() {
   const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
       if (!orgId) {
-        alert('Authentication error. Please sign in.');
+        showToast('Authentication error. Please sign in.', 'error');
         return;
       }
 
@@ -407,21 +412,21 @@ export default function CoachPlaybookPage() {
       }
 
       console.log('[Upload] All files uploaded successfully');
-      alert(`Successfully uploaded ${files.length} file(s)`);
+      showToast(`Successfully uploaded ${files.length} file(s)`, 'success');
 
       // Refresh plays list and go back to list view
       await refetch();
       setCurrentView('list');
     } catch (error) {
       console.error('[Upload] Error uploading files:', error);
-      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
   const handlePlayBuilt = async (playData: BuiltPlayData, metadata?: PlaybookMetadataInput) => {
     try {
       if (!orgId) {
-        alert('Authentication error. Please sign in.');
+        showToast('Authentication error. Please sign in.', 'error');
         return;
       }
 
@@ -445,14 +450,14 @@ export default function CoachPlaybookPage() {
         throw new Error('Failed to save built play');
       }
 
-      alert('Play created successfully!');
+      showToast('Play created successfully!', 'success');
 
       // Refresh plays list and go back to list view
       await refetch();
       setCurrentView('list');
     } catch (error) {
       console.error('Error saving built play:', error);
-      alert('Failed to save play. Please try again.');
+      showToast('Failed to save play. Please try again.', 'error');
     }
   };
 

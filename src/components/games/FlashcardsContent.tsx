@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { playerGamesAPI, PlayerGame, GameFilters } from '@/lib/api/player-games';
+import { useToast } from '@/components/Toast';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GAME CATEGORIES
@@ -62,6 +63,7 @@ export function FlashcardsContent({
   customGames,
 }: FlashcardsContentProps) {
   const router = useRouter();
+  const { showToast } = useToast();
 
   const startQuickGame = async (category: string, filters: GameFilters) => {
     try {
@@ -82,7 +84,7 @@ export function FlashcardsContent({
       router.push(`/games-center/play/${result.attemptId}`);
     } catch (error) {
       console.error('Failed to start game:', error);
-      alert('Failed to start game. Please try again.');
+      showToast('Failed to start game. Please try again.', 'error');
     }
   };
 
@@ -100,7 +102,7 @@ export function FlashcardsContent({
       router.push(`/games-center/play/${result.attemptId}`);
     } catch (error) {
       console.error('Failed to start custom game:', error);
-      alert('Failed to start game. Please try again.');
+      showToast('Failed to start game. Please try again.', 'error');
     }
   };
 

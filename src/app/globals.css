@@ -1667,3 +1667,29 @@ body {
 .playbook-stage {
   overflow: auto;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RB PROTECTION — PRE-SNAP MOVEMENT ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Snap flash overlay — background color in keyframes so default is transparent */
+@keyframes snap-flash {
+  0% { background-color: transparent; }
+  15% { background-color: rgba(255, 255, 255, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.animate-snap-flash {
+  animation: snap-flash 0.4s ease-out;
+  pointer-events: none;
+}
+
+/* Pre-snap cadence text */
+@keyframes cadence-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.animate-cadence {
+  animation: cadence-pulse 0.8s ease-in-out infinite;
+}

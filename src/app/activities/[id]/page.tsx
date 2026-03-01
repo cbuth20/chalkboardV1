@@ -5,6 +5,7 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useToast } from '@/components/Toast';
 import type { ActivityType } from "@/types/activities";
 
 const ACTIVITY_METADATA: Record<ActivityType, {
@@ -32,6 +33,7 @@ function ActivityDetailContent() {
   const { orgId, session } = useAuth();
   const router = useRouter();
   const params = useParams();
+  const { showToast } = useToast();
   const activityId = params.id as string;
 
   const [activity, setActivity] = useState<any>(null);
@@ -80,7 +82,7 @@ function ActivityDetailContent() {
       setActivity(found);
     } catch (error) {
       console.error('Error fetching activity:', error);
-      alert('Failed to load activity');
+      showToast('Failed to load activity', 'error');
       router.push('/activities');
     } finally {
       setLoading(false);
@@ -89,7 +91,7 @@ function ActivityDetailContent() {
 
   const handleStart = async () => {
     if (!session?.access_token) {
-      alert('You must be signed in to start activities');
+      showToast('You must be signed in to start activities', 'error');
       return;
     }
 
@@ -115,7 +117,7 @@ function ActivityDetailContent() {
       router.push(`/activities/${activityId}/play?attemptId=${data.attempt.id}`);
     } catch (error) {
       console.error('Error starting activity:', error);
-      alert(error instanceof Error ? error.message : 'Failed to start activity');
+      showToast(error instanceof Error ? error.message : 'Failed to start activity', 'error');
       setStarting(false);
     }
   };

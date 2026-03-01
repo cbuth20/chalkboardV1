@@ -5,6 +5,8 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface Question {
   id: string;
@@ -40,6 +42,8 @@ function ActivityPlayContent() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const activityId = params.id as string;
   const attemptId = searchParams.get('attemptId');
 
@@ -90,7 +94,7 @@ function ActivityPlayContent() {
       setQuestions(data.questions);
     } catch (error) {
       console.error('Error loading activity:', error);
-      alert('Failed to load activity');
+      showToast('Failed to load activity', 'error');
       router.push(`/activities/${activityId}`);
     } finally {
       setLoading(false);
@@ -138,7 +142,7 @@ function ActivityPlayContent() {
 
   const handleFinish = async () => {
     if (!session?.access_token) {
-      alert('You must be signed in to submit results');
+      showToast('You must be signed in to submit results', 'error');
       return;
     }
 
@@ -178,7 +182,7 @@ function ActivityPlayContent() {
       router.push(`/activities/${activityId}/results?attemptId=${attemptId}`);
     } catch (error) {
       console.error('Error submitting results:', error);
-      alert(error instanceof Error ? error.message : 'Failed to submit results. Please try again.');
+      showToast(error instanceof Error ? error.message : 'Failed to submit results. Please try again.', 'error');
       setSubmitting(false);
     }
   };
@@ -349,8 +353,8 @@ function ActivityPlayContent() {
         {/* Action Buttons */}
         <div className="flex items-center justify-between">
           <button
-            onClick={() => {
-              if (confirm('Are you sure you want to quit? Your progress will be lost.')) {
+            onClick={async () => {
+              if (await confirm({ message: 'Are you sure you want to quit? Your progress will be lost.', variant: 'destructive', confirmLabel: 'Quit' })) {
                 router.push(`/activities/${activityId}`);
               }
             }}

@@ -4,6 +4,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 import { FileUploadScreen } from '@/components/play-recognition/FileUploadScreen';
 import { PlaybookMetadataInput, NOTE_TYPE_LABELS, NoteType } from '@/types/playbook-metadata';
 
@@ -25,6 +27,8 @@ interface NoteFile {
 export default function PlayerNotesPage() {
   const router = useRouter();
   const { session, orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [currentView, setCurrentView] = useState<ViewState>('library');
   const [notes, setNotes] = useState<NoteFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +128,7 @@ export default function PlayerNotesPage() {
   const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
       if (!session?.access_token || !orgId) {
-        alert('Authentication error. Please sign in.');
+        showToast('Authentication error. Please sign in.', 'error');
         return;
       }
 
@@ -196,16 +200,16 @@ export default function PlayerNotesPage() {
       setUploadProgress(null);
 
       if (failCount > 0) {
-        alert(`Upload complete: ${successCount} succeeded, ${failCount} failed. Check console for details.`);
+        showToast(`Upload complete: ${successCount} succeeded, ${failCount} failed. Check console for details.`, 'warning');
       } else {
-        alert(`Successfully uploaded ${successCount} file(s) to My Notes`);
+        showToast(`Successfully uploaded ${successCount} file(s) to My Notes`, 'success');
       }
 
       await loadNotes();
       setCurrentView('library');
     } catch (error) {
       console.error('Error uploading files:', error);
-      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -213,11 +217,11 @@ export default function PlayerNotesPage() {
     e.stopPropagation();
 
     if (!session?.access_token) {
-      alert('You must be signed in to process notes.');
+      showToast('You must be signed in to process notes.', 'error');
       return;
     }
 
-    if (!confirm('Process this file? This will analyze the content and generate flashcards.')) {
+    if (!(await confirm({ message: 'Process this file? This will analyze the content and generate flashcards.', confirmLabel: 'Process' }))) {
       return;
     }
 
@@ -243,18 +247,18 @@ export default function PlayerNotesPage() {
         throw new Error('Failed to start processing');
       }
 
-      alert('Processing started! Check back in a few minutes.');
+      showToast('Processing started! Check back in a few minutes.', 'info');
       await loadNotes();
     } catch (error) {
       console.error('Error processing note:', error);
-      alert('Failed to start processing. Please try again.');
+      showToast('Failed to start processing. Please try again.', 'error');
     }
   };
 
   const handleDeleteNote = async (noteId: string, fileName: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!confirm(`Delete "${fileName}"? This will permanently remove the file and all associated flashcards. This cannot be undone.`)) {
+    if (!(await confirm({ message: `Delete "${fileName}"? This will permanently remove the file and all associated flashcards. This cannot be undone.`, variant: 'destructive', confirmLabel: 'Delete' }))) {
       return;
     }
 
@@ -274,11 +278,11 @@ export default function PlayerNotesPage() {
         throw new Error('Failed to delete note');
       }
 
-      alert('Note deleted successfully');
+      showToast('Note deleted successfully', 'success');
       await loadNotes();
     } catch (error) {
       console.error('Error deleting note:', error);
-      alert('Failed to delete note. Please try again.');
+      showToast('Failed to delete note. Please try again.', 'error');
     }
   };
 
@@ -319,7 +323,7 @@ export default function PlayerNotesPage() {
   const handleBulkDelete = async () => {
     if (selectedNoteIds.size === 0) return;
 
-    if (!confirm(`Delete ${selectedNoteIds.size} selected file(s)? This cannot be undone.`)) {
+    if (!(await confirm({ message: `Delete ${selectedNoteIds.size} selected file(s)? This cannot be undone.`, variant: 'destructive', confirmLabel: 'Delete' }))) {
       return;
     }
 
@@ -338,12 +342,12 @@ export default function PlayerNotesPage() {
       );
 
       await Promise.all(deletePromises);
-      alert(`Successfully deleted ${selectedNoteIds.size} file(s)`);
+      showToast(`Successfully deleted ${selectedNoteIds.size} file(s)`, 'success');
       setSelectedNoteIds(new Set());
       await loadNotes();
     } catch (error) {
       console.error('Error deleting notes:', error);
-      alert('Failed to delete some files. Please try again.');
+      showToast('Failed to delete some files. Please try again.', 'error');
     }
   };
 

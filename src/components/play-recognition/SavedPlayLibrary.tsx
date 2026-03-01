@@ -10,6 +10,8 @@ import { PlayRenderer } from './PlayRenderer';
 import { ALL_POSITIONS } from '@/lib/positions';
 import { useAuth } from '@/contexts/AuthContext';
 import { playsAPI } from '@/lib/api/plays';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface Play {
   id: string;
@@ -36,6 +38,8 @@ interface SavedPlayLibraryProps {
 
 export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay, onFileUpload, onCreatePlay }) => {
   const { orgId, session } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [plays, setPlays] = useState<Play[]>([]);
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -152,7 +156,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       setTimeout(() => setUpdateSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to update metadata:', err);
-      alert('Failed to update metadata');
+      showToast('Failed to update metadata', 'error');
     }
   };
 
@@ -188,7 +192,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       setTimeout(() => setUpdateSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to update metadata:', err);
-      alert('Failed to update metadata');
+      showToast('Failed to update metadata', 'error');
     }
   };
 
@@ -236,7 +240,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   // Generate content for multiple plays (creates separate play records)
   const handleGenerateMultiplePlays = async () => {
     if (selectedPlayIds.size === 0) {
-      alert('Please select at least one play');
+      showToast('Please select at least one play', 'error');
       return;
     }
 
@@ -254,10 +258,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     const playsWithoutMetadata = selectedPlays.filter(p => !p.metadataId);
     if (playsWithoutMetadata.length > 0) {
       const fileNames = playsWithoutMetadata.map(p => p.fileName).join(', ');
-      const proceed = window.confirm(
-        `The following files are missing metadata and will be analyzed with minimal context:\n\n${fileNames}\n\n` +
-        `Do you want to continue? (Metadata will be auto-created during generation)`
-      );
+      const proceed = await confirm({
+        message: `The following files are missing metadata and will be analyzed with minimal context: ${fileNames}. Do you want to continue? (Metadata will be auto-created during generation)`,
+      });
       if (!proceed) {
         return;
       }
@@ -270,7 +273,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   // NEW: Generate unified play from multiple source files
   const handleGenerateUnifiedPlay = async () => {
     if (selectedPlayIds.size === 0) {
-      alert('Please select at least one file');
+      showToast('Please select at least one file', 'error');
       return;
     }
 
@@ -286,17 +289,16 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     const playsWithoutMetadata = selectedPlays.filter(p => !p.metadata?.id);
     if (playsWithoutMetadata.length > 0) {
       const fileNames = playsWithoutMetadata.map(p => p.fileName).join(', ');
-      const proceed = window.confirm(
-        `The following files are missing metadata and will be analyzed with minimal context:\n\n${fileNames}\n\n` +
-        `Do you want to continue? (Metadata will be auto-created during generation)`
-      );
+      const proceed = await confirm({
+        message: `The following files are missing metadata and will be analyzed with minimal context: ${fileNames}. Do you want to continue? (Metadata will be auto-created during generation)`,
+      });
       if (!proceed) {
         return;
       }
     }
 
     if (!orgId) {
-      alert('Not authenticated. Please sign in.');
+      showToast('Not authenticated. Please sign in.', 'error');
       return;
     }
 
@@ -383,7 +385,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       await fetchPlays();
     } catch (err: any) {
       console.error('Failed to generate unified content:', err);
-      alert(`Failed to generate content: ${err.message}`);
+      showToast(`Failed to generate content: ${err.message}`, 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -392,7 +394,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   // Generate AI content (insights + assignments + knowledge cards)
   const handleGenerateContent = async () => {
     if (!selectedPlay) {
-      alert('Please select a play first');
+      showToast('Please select a play first', 'error');
       return;
     }
 
@@ -404,12 +406,12 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   // Execute single file generation with user message
   const executeSingleGeneration = async (additionalContext: string) => {
     if (!selectedPlay) {
-      alert('Please select a play first');
+      showToast('Please select a play first', 'error');
       return;
     }
 
     if (!session?.access_token || !orgId) {
-      alert('Not authenticated. Please sign in.');
+      showToast('Not authenticated. Please sign in.', 'error');
       return;
     }
 
@@ -455,7 +457,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         console.log('[SingleGen] Created metadata:', newMetadata);
       } catch (err) {
         console.error('[SingleGen] Failed to create metadata:', err);
-        alert('Failed to create metadata. Please try adding metadata manually first.');
+        showToast('Failed to create metadata. Please try adding metadata manually first.', 'error');
         setIsGenerating(false);
         return;
       }
@@ -487,7 +489,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
         if (pollCount > maxPolls) {
           if (pollIntervalId) clearInterval(pollIntervalId);
           console.error('[SingleGen] Polling timeout');
-          alert('Generation is taking longer than expected. Please refresh and check back.');
+          showToast('Generation is taking longer than expected. Please refresh and check back.', 'error');
           setIsGenerating(false);
           return;
         }
@@ -513,7 +515,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
             // Failed
             if (pollIntervalId) clearInterval(pollIntervalId);
             console.error('[SingleGen] ❌ Generation failed');
-            alert('Content generation failed. Please try again.');
+            showToast('Content generation failed. Please try again.', 'error');
             setIsGenerating(false);
           }
           // If status is 'generating', continue polling
@@ -526,7 +528,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     } catch (err: any) {
       console.error('[SingleGen] ❌ Failed to generate content:', err);
       if (pollIntervalId) clearInterval(pollIntervalId);
-      alert(`Failed to generate content: ${err.message}`);
+      showToast(`Failed to generate content: ${err.message}`, 'error');
       setIsGenerating(false);
     }
   };
@@ -542,7 +544,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
 
     if (!session?.access_token) {
-      alert('Not authenticated. Please sign in.');
+      showToast('Not authenticated. Please sign in.', 'error');
       return;
     }
 
@@ -560,7 +562,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       if (!playId) {
         setShowReviewModal(false);
         setGeneratedContent(null);
-        alert('Content approved and published successfully!');
+        showToast('Content approved and published successfully!', 'success');
 
         // Refresh play library
         const fetchUrl = getPlaybooksApiUrl();
@@ -570,7 +572,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       }
     } catch (err: any) {
       console.error('[Approve] ❌ Failed:', err);
-      alert(`Failed to approve content: ${err.message}`);
+      showToast(`Failed to approve content: ${err.message}`, 'error');
     }
   };
 
@@ -585,7 +587,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     }
 
     if (!session?.access_token) {
-      alert('Not authenticated. Please sign in.');
+      showToast('Not authenticated. Please sign in.', 'error');
       return;
     }
 
@@ -602,11 +604,11 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       if (!playId) {
         setShowReviewModal(false);
         setGeneratedContent(null);
-        alert('Content rejected');
+        showToast('Content rejected', 'info');
       }
     } catch (err: any) {
       console.error('[Reject] ❌ Failed:', err);
-      alert(`Failed to reject content: ${err.message}`);
+      showToast(`Failed to reject content: ${err.message}`, 'error');
     }
   };
 
@@ -615,7 +617,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     if (!generatedContent?.play?.id) return;
 
     if (!session?.access_token) {
-      alert('Not authenticated. Please sign in.');
+      showToast('Not authenticated. Please sign in.', 'error');
       return;
     }
 
@@ -630,10 +632,10 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
 
       setShowReviewModal(false);
       setGeneratedContent(null);
-      alert('Draft saved successfully');
+      showToast('Draft saved successfully', 'success');
     } catch (err: any) {
       console.error('[SaveDraft] ❌ Failed:', err);
-      alert(`Failed to save draft: ${err.message}`);
+      showToast(`Failed to save draft: ${err.message}`, 'error');
     }
   };
 
@@ -642,9 +644,12 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
   const handleDeletePlay = async () => {
     if (!selectedPlay) return;
 
-    const confirmMessage = `Delete "${selectedPlay.name}"?\n\nThis will permanently delete:\n• The play file (image/PDF)\n• Metadata record\n• Associated play record (if exists)\n• All assignments\n• All flashcards\n\nThis cannot be undone.`;
-
-    if (!confirm(confirmMessage)) return;
+    const proceed = await confirm({
+      message: `Delete "${selectedPlay.name}"? This will permanently delete the play file, metadata record, associated play records, all assignments, and all flashcards. This cannot be undone.`,
+      variant: 'destructive',
+      confirmLabel: 'Delete',
+    });
+    if (!proceed) return;
 
     try {
       const apiUrl = getPlaybooksApiUrl();
@@ -672,7 +677,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       console.log('[Delete Play] API success response:', result);
 
       // Show success message
-      alert('Playbook deleted successfully!\n\nDeleted:\n• File from storage\n• Metadata record\n• Associated play records\n• All assignments and flashcards');
+      showToast('Playbook deleted successfully', 'success');
 
       // Remove from local state
       setPlays((prev) => {
@@ -686,7 +691,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       });
     } catch (err: any) {
       console.error('[Delete Play] Error:', err);
-      alert(`Failed to delete play: ${err.message}\n\nCheck console for details.`);
+      showToast(`Failed to delete play: ${err.message}`, 'error');
     }
   };
 
@@ -695,9 +700,12 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
     if (selectedPlayIds.size === 0) return;
 
     const count = selectedPlayIds.size;
-    const confirmMessage = `Delete ${count} selected playbook${count > 1 ? 's' : ''}?\n\nThis will permanently delete:\n• ${count} play file${count > 1 ? 's' : ''}\n• ${count} metadata record${count > 1 ? 's' : ''}\n• Associated play records\n• All assignments and flashcards\n\nThis cannot be undone.`;
-
-    if (!confirm(confirmMessage)) return;
+    const proceed = await confirm({
+      message: `Delete ${count} selected playbook${count > 1 ? 's' : ''}? This will permanently delete all associated files, metadata, play records, assignments, and flashcards. This cannot be undone.`,
+      variant: 'destructive',
+      confirmLabel: 'Delete',
+    });
+    if (!proceed) return;
 
     try {
       setIsGenerating(true); // Reuse loading state
@@ -722,9 +730,9 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       const failedCount = results.filter((r) => !r.ok).length;
 
       if (failedCount > 0) {
-        alert(`${count - failedCount} of ${count} playbooks deleted successfully.\n${failedCount} failed - check console for details.`);
+        showToast(`${count - failedCount} of ${count} playbooks deleted. ${failedCount} failed.`, 'warning');
       } else {
-        alert(`Successfully deleted ${count} playbook${count > 1 ? 's' : ''}!`);
+        showToast(`Successfully deleted ${count} playbook${count > 1 ? 's' : ''}!`, 'success');
       }
 
       // Remove deleted plays from local state
@@ -743,7 +751,7 @@ export const SavedPlayLibrary: React.FC<SavedPlayLibraryProps> = ({ onSelectPlay
       setIsMultiSelectMode(false);
     } catch (err: any) {
       console.error('[Delete Selected] Error:', err);
-      alert(`Failed to delete playbooks: ${err.message}\n\nCheck console for details.`);
+      showToast(`Failed to delete playbooks: ${err.message}`, 'error');
     } finally {
       setIsGenerating(false);
     }

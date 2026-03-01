@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMode } from '@/contexts/ModeContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 import { SkillPosition } from '@/lib/supabase/types/database';
 import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPositionCategory } from '@/lib/positions';
 
@@ -44,6 +46,8 @@ interface Team {
 export default function AssignmentLibraryPage() {
   const { orgId, teamId: userTeamId, loading: authLoading } = useAuth();
   const { mode } = useMode();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,7 +150,7 @@ export default function AssignmentLibraryPage() {
 
   // Delete single assignment
   const handleDeleteAssignment = async (assignmentId: string) => {
-    if (!confirm('Delete this assignment? This action cannot be undone.')) return;
+    if (!(await confirm({ message: 'Delete this assignment? This action cannot be undone.', variant: 'destructive', confirmLabel: 'Delete' }))) return;
 
     try {
       setIsDeleting(true);
@@ -164,10 +168,10 @@ export default function AssignmentLibraryPage() {
       setSelectedAssignment(null);
       setIsQuizExpanded(false);
       setReviewFlashcards([]);
-      alert('Assignment deleted successfully');
+      showToast('Assignment deleted successfully', 'success');
     } catch (error) {
       console.error('[Coach Assignments] Error deleting assignment:', error);
-      alert('Failed to delete assignment. Please try again.');
+      showToast('Failed to delete assignment. Please try again.', 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -176,12 +180,12 @@ export default function AssignmentLibraryPage() {
   // Delete multiple selected assignments
   const handleDeleteSelected = async () => {
     if (selectedAssignmentIds.size === 0) {
-      alert('Please select assignments to delete');
+      showToast('Please select assignments to delete', 'info');
       return;
     }
 
     const count = selectedAssignmentIds.size;
-    if (!confirm(`Delete ${count} assignment${count > 1 ? 's' : ''}? This action cannot be undone.`)) return;
+    if (!(await confirm({ message: `Delete ${count} assignment${count > 1 ? 's' : ''}? This action cannot be undone.`, variant: 'destructive', confirmLabel: 'Delete' }))) return;
 
     try {
       setIsDeleting(true);
@@ -193,9 +197,9 @@ export default function AssignmentLibraryPage() {
       const failedCount = results.filter(r => !r.ok).length;
 
       if (failedCount > 0) {
-        alert(`${count - failedCount} of ${count} assignments deleted. ${failedCount} failed.`);
+        showToast(`${count - failedCount} of ${count} assignments deleted. ${failedCount} failed.`, 'warning');
       } else {
-        alert(`${count} assignment${count > 1 ? 's' : ''} deleted successfully`);
+        showToast(`${count} assignment${count > 1 ? 's' : ''} deleted successfully`, 'success');
       }
 
       // Refresh assignments
@@ -204,7 +208,7 @@ export default function AssignmentLibraryPage() {
       setIsMultiSelectMode(false);
     } catch (error) {
       console.error('[Coach Assignments] Error deleting assignments:', error);
-      alert('Failed to delete assignments. Please try again.');
+      showToast('Failed to delete assignments. Please try again.', 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -215,7 +219,7 @@ export default function AssignmentLibraryPage() {
     if (assignments.length === 0) return;
 
     const count = assignments.length;
-    if (!confirm(`Delete ALL ${count} assignments? This action cannot be undone and will affect all positions and plays.`)) return;
+    if (!(await confirm({ message: `Delete ALL ${count} assignments? This action cannot be undone and will affect all positions and plays.`, variant: 'destructive', confirmLabel: 'Delete All' }))) return;
 
     try {
       setIsDeleting(true);
@@ -227,16 +231,16 @@ export default function AssignmentLibraryPage() {
       const failedCount = results.filter(r => !r.ok).length;
 
       if (failedCount > 0) {
-        alert(`${count - failedCount} of ${count} assignments deleted. ${failedCount} failed.`);
+        showToast(`${count - failedCount} of ${count} assignments deleted. ${failedCount} failed.`, 'warning');
       } else {
-        alert('All assignments deleted successfully');
+        showToast('All assignments deleted successfully', 'success');
       }
 
       // Refresh assignments
       await fetchAssignments();
     } catch (error) {
       console.error('[Coach Assignments] Error deleting all assignments:', error);
-      alert('Failed to delete all assignments. Please try again.');
+      showToast('Failed to delete all assignments. Please try again.', 'error');
     } finally {
       setIsDeleting(false);
     }

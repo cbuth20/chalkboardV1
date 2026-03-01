@@ -4,8 +4,8 @@
  */
 
 import { Handler } from '@netlify/functions';
-import { getSupabaseAdmin } from './shared/supabase';
 import Anthropic from '@anthropic-ai/sdk';
+import { getSupabaseAdmin } from './shared/supabase';
 
 interface AnalysisRequest {
   analysisId: string;
@@ -234,22 +234,24 @@ async function analyzeProtectionPDF(
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
   const systemPrompt = `You are an expert football coach analyzing playbook PDFs to extract RB (running back) protection assignments.
 
-Your task is to identify protection schemes and generate training scenarios for running backs to practice their pass protection reads.
+Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL) with both base and blitz variations.
 
-For each protection scheme found in the playbook, generate scenarios against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, etc.).
+Always use standard numbered protection schemes (360, 361, 64, 65, 350, 351, 433, 50, 51) as the protection_type — never use play concept names from the PDF. Use multiple different protection types across scenarios.
 
 For each scenario, determine:
-1. The protection scheme name and type (e.g., "360/361", "64/65", "350/351", "433/432", "50/51")
+1. The protection scheme type (e.g., "360", "64", "350", "433", "50")
 2. The defensive front name
 3. Which defenders are rushing, blitzing, walking up, or in coverage
 4. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
 5. A coaching explanation of why this is the correct read
 
-Defender position labels: E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), C (Corner), SS (Strong Safety), FS (Free Safety)
+Defender position labels: E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), CB (Cornerback), SS (Strong Safety), FS (Free Safety)
 
-Defender coordinates use a percentage-based system: x: 0-100 (left to right), y: 0-100 (top=deep, bottom=LOS at ~65%)
+Defender coordinates use a percentage-based system for positioning on the field diagram:
+- x: 0-100 (left to right). DL should align over the offensive line (x: 35-65 range). Other defenders position naturally based on their alignment.
+- y: 0-100 (top=deep, bottom=offense). LOS is at y: 55. DL should be at y: 53-58 (right at the LOS). Position all other defenders based on their actual depth relative to the LOS. The offensive line is rendered at y: 65.
 
-Return a JSON array of scenarios:
+Return a JSON object with a "scenarios" array. Each scenario should look like this:
 {
   "scenarios": [
     {
@@ -264,18 +266,50 @@ Return a JSON array of scenarios:
       "hoss": false,
       "scat_release": null,
       "defensive_positions": {
-        "E1": {"x": 30, "y": 60, "label": "E", "rushing": true},
-        "T1": {"x": 42, "y": 60, "label": "T", "rushing": true},
-        "N": {"x": 55, "y": 60, "label": "N", "rushing": true},
-        "E2": {"x": 68, "y": 60, "label": "E", "rushing": true},
-        "M": {"x": 50, "y": 45, "label": "M", "rushing": false},
-        "W": {"x": 35, "y": 45, "label": "W", "rushing": false},
-        "S": {"x": 71, "y": 45, "label": "S", "rushing": true, "blitz": true, "hot": true}
+        "E1": {"x": 38, "y": 56, "label": "E", "rushing": true},
+        "T1": {"x": 45, "y": 56, "label": "T", "rushing": true},
+        "N": {"x": 52, "y": 56, "label": "N", "rushing": true},
+        "E2": {"x": 62, "y": 56, "label": "E", "rushing": true},
+        "M": {"x": 50, "y": 40, "label": "M", "rushing": false},
+        "W": {"x": 40, "y": 40, "label": "W", "rushing": false},
+        "S": {"x": 63, "y": 42, "label": "S", "rushing": true, "blitz": true, "hot": true},
+        "CB1": {"x": 22, "y": 45, "label": "CB", "rushing": false},
+        "CB2": {"x": 78, "y": 45, "label": "CB", "rushing": false},
+        "SS": {"x": 58, "y": 30, "label": "SS", "rushing": false},
+        "FS": {"x": 50, "y": 20, "label": "FS", "rushing": false}
       },
       "correct_block_target": "S",
       "explanation": "Sam is the first LB off the ball to the call side — block him.",
       "offensive_formation": "POSSE 2x2",
       "down_distance": "2nd & 7"
+    },
+    {
+      "coverage_name": "OVER",
+      "coverage_type": "blitz",
+      "protection_type": "360",
+      "call_side": "right",
+      "solid_call": false,
+      "free_release": false,
+      "play_action": false,
+      "naked": false,
+      "hoss": false,
+      "scat_release": null,
+      "defensive_positions": {
+        "E1": {"x": 38, "y": 56, "label": "E", "rushing": true},
+        "T1": {"x": 45, "y": 56, "label": "T", "rushing": true},
+        "N": {"x": 52, "y": 56, "label": "N", "rushing": true},
+        "E2": {"x": 62, "y": 56, "label": "E", "rushing": true},
+        "M": {"x": 50, "y": 40, "label": "M", "rushing": false},
+        "W": {"x": 40, "y": 40, "label": "W", "rushing": false},
+        "CB1": {"x": 22, "y": 45, "label": "CB", "rushing": false},
+        "CB2": {"x": 78, "y": 45, "label": "CB", "rushing": false},
+        "SS": {"x": 58, "y": 30, "label": "SS", "rushing": true, "blitz": true, "walked_up": true},
+        "FS": {"x": 50, "y": 20, "label": "FS", "rushing": false}
+      },
+      "correct_block_target": "SS",
+      "explanation": "Strong safety is creeping into the box and showing blitz. OL has the 4 down linemen. LBs are dropping. SS is the free runner — pick him up.",
+      "offensive_formation": "POSSE 2x2",
+      "down_distance": "3rd & 5"
     }
   ]
 }
@@ -287,12 +321,17 @@ Important rules:
 - Mark defenders as "blitz": true if they're blitzing from a non-traditional rush position
 - Mark defenders as "hot": true if they're unblocked rushers the QB must deal with
 - Mark defenders as "walked_up": true if they've walked up to the LOS from a LB position
-- For 64/65 protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through`;
+- For 64/65 protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
+- ALWAYS include the full secondary (2 CBs, SS, FS) in every scenario so the field looks like a real defensive look. Mark their "rushing" as false if they are in coverage. Only mark "blitz": true, "rushing": true if they are actually blitzing.
+- Secondary positioning depth ranges: SS at y: 25-35 (near box), FS at y: 15-25 (deep), CB at y: 42-50 (near LOS, wide at x: 20-30 or x: 70-80 for outside corners, x: 30-38 or x: 62-70 for nickel/slot corners)
+- When a secondary defender blitzes, the TB's read changes — explain this clearly in the coaching explanation
+
+Return ONLY the JSON object, no other text.`;
 
   try {
-    const response = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: 'claude-opus-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: systemPrompt,
       messages: [
         {
@@ -315,25 +354,32 @@ Important rules:
       ],
     });
 
-    const content = response.content[0].type === 'text' ? response.content[0].text : '{}';
-    const tokenCount = response.usage.input_tokens + response.usage.output_tokens;
+    const response = await stream.finalMessage();
 
-    // Extract JSON from response
-    let jsonContent = content;
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') throw new Error('No text response from Claude');
+
+    const tokenCount = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
+
+    // Extract JSON from response (may be wrapped in markdown code blocks)
+    let jsonStr = textBlock.text.trim();
+    const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
-      jsonContent = jsonMatch[1];
-    } else {
-      const codeMatch = content.match(/```\s*([\s\S]*?)\s*```/);
-      if (codeMatch) {
-        jsonContent = codeMatch[1];
-      }
+      jsonStr = jsonMatch[1].trim();
     }
 
-    const parsed = JSON.parse(jsonContent);
+    const parsed = JSON.parse(jsonStr);
     const scenarios = parsed.scenarios || [];
 
     console.log(`📊 Claude returned ${scenarios.length} protection scenarios (${tokenCount} tokens)`);
+    console.log(`📝 PROMPT (first 500 chars):\n${systemPrompt.slice(0, 500)}...`);
+    console.log(`📨 RAW RESPONSE:\n${textBlock.text}`);
+    console.log(`🔍 PARSED SCENARIOS:`);
+    scenarios.forEach((s: ProtectionScenario, i: number) => {
+      const defCount = Object.keys(s.defensive_positions).length;
+      const blitzers = Object.values(s.defensive_positions).filter((d) => d.blitz).map((d) => d.label);
+      console.log(`  ${i + 1}. ${s.protection_type} vs ${s.coverage_name} (${s.coverage_type}) → ${s.correct_block_target} | ${defCount} defenders | blitzers: [${blitzers.join(', ')}] | formation: ${s.offensive_formation || 'none'}`);
+    });
 
     return { scenarios, tokenCount };
   } catch (error) {

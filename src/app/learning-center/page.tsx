@@ -22,6 +22,8 @@ import { situationalTagsAPI, type SituationalTag } from '@/lib/api/situational-t
 import { conceptTagsAPI, type ConceptTag } from '@/lib/api/concept-tags';
 import { formationsAPI, type Formation } from '@/lib/api/formations';
 import { getPlaybooksApiUrl } from '@/lib/api-config';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 type ViewState = 'list' | 'upload' | 'create' | 'view';
 
@@ -145,6 +147,8 @@ export default function LearningCenterPage() {
   const { processPlay } = useProcessPlayerPlay();
   const { deletePlay } = useDeletePlayerPlay();
   const { createPlay } = useCreatePlayerPlay();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
 
   const [currentView, setCurrentView] = useState<ViewState>('list');
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,7 +217,7 @@ export default function LearningCenterPage() {
         setFormations(formationsRes.formations);
       } catch (err) {
         console.error('Error loading structured data:', err);
-        alert(`Failed to load play builder data: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        showToast(`Failed to load play builder data: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
       } finally {
         setLoadingStructuredData(false);
       }
@@ -311,11 +315,11 @@ export default function LearningCenterPage() {
     e.stopPropagation();
 
     if (!session?.access_token) {
-      alert('You must be signed in to process plays.');
+      showToast('You must be signed in to process plays.', 'error');
       return;
     }
 
-    if (!confirm(`Process "${playName}"? This will analyze the play and generate assignments and questions.`)) {
+    if (!(await confirm({ message: `Process "${playName}"? This will analyze the play and generate assignments and questions.`, confirmLabel: 'Process' }))) {
       return;
     }
 
@@ -326,11 +330,11 @@ export default function LearningCenterPage() {
         generateAssignments: true,
         generateKnowledge: true,
       });
-      alert('Processing started! Check back in a few minutes.');
+      showToast('Processing started! Check back in a few minutes.', 'info');
       await refetch();
     } catch (error) {
       console.error('Error processing play:', error);
-      alert('Failed to start processing. Please try again.');
+      showToast('Failed to start processing. Please try again.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -338,7 +342,7 @@ export default function LearningCenterPage() {
 
   const quickPractice = async (playId: string) => {
     if (!orgId) {
-      alert('Organization ID not found. Please try refreshing the page.');
+      showToast('Organization ID not found. Please try refreshing the page.', 'error');
       return;
     }
 
@@ -362,9 +366,9 @@ export default function LearningCenterPage() {
       // Show more helpful error message
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (errorMessage.includes('No questions')) {
-        alert('This play has no questions yet. Try processing it again or check if the questions were generated successfully.');
+        showToast('This play has no questions yet. Try processing it again or check if the questions were generated successfully.', 'error');
       } else {
-        alert(`Failed to start practice: ${errorMessage}`);
+        showToast(`Failed to start practice: ${errorMessage}`, 'error');
       }
     }
   };
@@ -391,23 +395,23 @@ export default function LearningCenterPage() {
 
   const handleBatchProcess = async () => {
     if (!session || !orgId) {
-      alert('Please log in to process plays');
+      showToast('Please log in to process plays', 'error');
       return;
     }
 
     if (selectedPlayIds.size === 0) {
-      alert('Please select at least one play to process');
+      showToast('Please select at least one play to process', 'error');
       return;
     }
 
     if (selectedPlayIds.size > 10) {
-      alert('Maximum 10 plays can be processed at once');
+      showToast('Maximum 10 plays can be processed at once', 'error');
       return;
     }
 
     const confirmMessage = `Process ${selectedPlayIds.size} selected play(s)?\n\nThis will generate:\n• Insights\n• Assignments\n• Knowledge cards`;
 
-    if (!confirm(confirmMessage)) {
+    if (!(await confirm({ message: confirmMessage, confirmLabel: 'Process' }))) {
       return;
     }
 
@@ -442,7 +446,7 @@ export default function LearningCenterPage() {
 
       const result = await response.json();
 
-      alert(`Successfully started processing ${result.processingCount} play(s)!\n\nProcessing in background. Check back in a minute to see results.\n\nTip: Failed plays will show a "🔄 Retry" button.`);
+      showToast(`Successfully started processing ${result.processingCount} play(s). Check back in a minute to see results.`, 'success');
       setSelectedPlayIds(new Set());
 
       // Refetch to update statuses - poll multiple times to catch updates
@@ -452,7 +456,7 @@ export default function LearningCenterPage() {
     } catch (error) {
       console.error('Failed to batch process:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to start batch processing: ${errorMessage}`);
+      showToast(`Failed to start batch processing: ${errorMessage}`, 'error');
     } finally {
       setIsBatchProcessing(false);
     }
@@ -465,18 +469,18 @@ export default function LearningCenterPage() {
 
   const handleDeletePlay = async (playId: string, playName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Delete "${playName}"? This will permanently remove the play, flashcards, assignments, and associated files. This cannot be undone.`)) {
+    if (!(await confirm({ message: `Delete "${playName}"? This will permanently remove the play, flashcards, assignments, and associated files. This cannot be undone.`, variant: 'destructive', confirmLabel: 'Delete' }))) {
       return;
     }
 
     try {
       setIsUpdating(true);
       await deletePlay(playId);
-      alert('Play deleted successfully');
+      showToast('Play deleted successfully', 'success');
       await refetch();
     } catch (error) {
       console.error('Error deleting play:', error);
-      alert('Failed to delete play. Please try again.');
+      showToast('Failed to delete play. Please try again.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -490,7 +494,7 @@ export default function LearningCenterPage() {
   const handleUploadComplete = async (files: Array<{fileData: string, fileName: string, fileType: string, metadata?: PlaybookMetadataInput}>) => {
     try {
       if (!session?.access_token || !orgId) {
-        alert('Authentication error. Please sign in.');
+        showToast('Authentication error. Please sign in.', 'error');
         return;
       }
 
@@ -539,14 +543,14 @@ export default function LearningCenterPage() {
       }
 
       console.log('[Player Upload] All files uploaded successfully');
-      alert(`Successfully uploaded ${files.length} file(s) to your library`);
+      showToast(`Successfully uploaded ${files.length} file(s) to your library`, 'success');
 
       // Refresh plays list and go back to list view
       await refetch();
       setCurrentView('list');
     } catch (error) {
       console.error('[Player Upload] Error uploading files:', error);
-      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to upload files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -616,7 +620,7 @@ export default function LearningCenterPage() {
               setCurrentView('list');
             } catch (error) {
               console.error('Error creating play:', error);
-              alert('Failed to create play. Please try again.');
+              showToast('Failed to create play. Please try again.', 'error');
             }
           }}
           orgId={orgId}

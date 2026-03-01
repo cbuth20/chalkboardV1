@@ -3,11 +3,15 @@
 import React, { useState } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 import { usePlays, useUpdatePlayStatus } from '@/hooks/usePlaysAPI';
 import { useFlashcards } from '@/hooks/useFlashcardsAPI';
 
 export default function PlayReviewPage() {
   const { orgId, userRole, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const { plays, loading, error, refetch } = usePlays({ status: 'draft' });
   const { updateStatus, loading: updating } = useUpdatePlayStatus();
 
@@ -31,7 +35,7 @@ export default function PlayReviewPage() {
 
   const handleApprove = async (playId: string) => {
     const notes = reviewNotes[playId] || '';
-    if (!confirm(`Approve and publish this play?\n\n${notes ? `Notes: ${notes}\n\n` : ''}This will make it visible to players.`)) {
+    if (!(await confirm({ message: `Approve and publish this play?\n\n${notes ? `Notes: ${notes}\n\n` : ''}This will make it visible to players.`, confirmLabel: 'Approve' }))) {
       return;
     }
 
@@ -40,7 +44,7 @@ export default function PlayReviewPage() {
         contentStatus: 'approved',
         isPublished: true,
       });
-      alert('Play approved and published successfully!');
+      showToast('Play approved and published successfully!', 'success');
       refetch();
       setSelectedPlayId(null);
       setReviewNotes(prev => {
@@ -50,18 +54,18 @@ export default function PlayReviewPage() {
       });
     } catch (err) {
       console.error('[Review] Error approving play:', err);
-      alert('Failed to approve play. Please try again.');
+      showToast('Failed to approve play. Please try again.', 'error');
     }
   };
 
   const handleReject = async (playId: string) => {
     const notes = reviewNotes[playId] || '';
     if (!notes.trim()) {
-      alert('Please provide a reason for rejection in the notes field.');
+      showToast('Please provide a reason for rejection in the notes field.', 'error');
       return;
     }
 
-    if (!confirm(`Reject this play?\n\nReason: ${notes}\n\nThe play will remain as draft and can be regenerated.`)) {
+    if (!(await confirm({ message: `Reject this play?\n\nReason: ${notes}\n\nThe play will remain as draft and can be regenerated.`, variant: 'destructive', confirmLabel: 'Reject' }))) {
       return;
     }
 
@@ -69,7 +73,7 @@ export default function PlayReviewPage() {
       await updateStatus(playId, {
         contentStatus: 'rejected',
       });
-      alert('Play rejected. It will remain in drafts for regeneration.');
+      showToast('Play rejected. It will remain in drafts for regeneration.', 'info');
       refetch();
       setSelectedPlayId(null);
       setReviewNotes(prev => {
@@ -79,7 +83,7 @@ export default function PlayReviewPage() {
       });
     } catch (err) {
       console.error('[Review] Error rejecting play:', err);
-      alert('Failed to reject play. Please try again.');
+      showToast('Failed to reject play. Please try again.', 'error');
     }
   };
 

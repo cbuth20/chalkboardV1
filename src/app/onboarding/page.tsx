@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { useConfirm } from '@/components/ConfirmModal';
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { confirm } = useConfirm();
   const { user, loading: authLoading } = useAuth();
   const { status, loading, error, updateProfile, createOrganization, createTeam, resetOnboarding } = useOnboarding();
   const [resetting, setResetting] = useState(false);
@@ -53,7 +55,7 @@ export default function OnboardingPage() {
   }
 
   const handleReset = async () => {
-    if (!confirm('Are you sure you want to reset your onboarding? This will delete your organization memberships.')) {
+    if (!(await confirm({ message: 'Are you sure you want to reset your onboarding? This will delete your organization memberships.', variant: "destructive", confirmLabel: "Reset" }))) {
       return;
     }
     setResetting(true);

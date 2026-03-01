@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
 import { playerGamesAPI, PlayerGame, GameFilters } from '@/lib/api/player-games';
 import { GamesTabs, GamesTab } from '@/components/games/GamesTabs';
 import { FlashcardsContent } from '@/components/games/FlashcardsContent';
@@ -17,6 +18,7 @@ import { RBProtectionContent } from '@/components/games/RBProtectionContent';
 export default function GamesCenterPage() {
   const router = useRouter();
   const { session, orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<GamesTab>('flashcards');
   const [stats, setStats] = useState({
@@ -73,7 +75,7 @@ export default function GamesCenterPage() {
       console.error('Failed to load games data:', error);
       // Don't show alert for auth errors - they're expected during load
       if (error instanceof Error && !error.message.includes('authorization')) {
-        alert('Failed to load games. Please try refreshing the page.');
+        showToast('Failed to load games. Please try refreshing the page.', 'error');
       }
     } finally {
       setLoading(false);

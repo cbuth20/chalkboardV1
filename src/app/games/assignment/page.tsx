@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ChevronLeft, CheckCircle, XCircle } from "lucide-react";
 import { SkillPosition } from "@/lib/supabase/types/database";
 import { POSITIONS_BY_CATEGORY, CATEGORY_LABELS, type PositionCategory, getPositionCategory } from '@/lib/positions';
+import { useToast } from '@/components/Toast';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -109,6 +110,7 @@ export default function AssignmentPage() {
 
 function AssignmentTracker() {
   const { userPositions, userRole, orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
   const [viewMode, setViewMode] = useState<ViewMode>("assignments");
 
   // Assignments data
@@ -241,12 +243,12 @@ function AssignmentTracker() {
 
   const handleStartQuiz = async (playId: string) => {
     if (userPositions.length === 0) {
-      alert('Please set your positions in settings to take quizzes');
+      showToast('Please set your positions in settings to take quizzes', 'error');
       return;
     }
 
     if (!orgId) {
-      alert('Authentication error. Please sign in.');
+      showToast('Authentication error. Please sign in.', 'error');
       return;
     }
 
@@ -266,7 +268,7 @@ function AssignmentTracker() {
       );
 
       if (uniqueFlashcards.length === 0) {
-        alert('No quiz questions available for this play');
+        showToast('No quiz questions available for this play', 'error');
         return;
       }
 
@@ -279,7 +281,7 @@ function AssignmentTracker() {
       setIncorrectCount(0);
     } catch (err) {
       console.error("Failed to load flashcards:", err);
-      alert('Failed to load quiz questions');
+      showToast('Failed to load quiz questions', 'error');
     }
   };
 
@@ -312,7 +314,7 @@ function AssignmentTracker() {
       const finalIncorrect = incorrectCount;
       const accuracy = finalCorrect > 0 ? Math.round((finalCorrect / (finalCorrect + finalIncorrect)) * 100) : 0;
 
-      alert(`Quiz Complete!\n\nCorrect: ${finalCorrect}\nIncorrect: ${finalIncorrect}\nAccuracy: ${accuracy}%`);
+      showToast(`Quiz Complete! Correct: ${finalCorrect}, Incorrect: ${finalIncorrect}, Accuracy: ${accuracy}%`, 'success');
       setViewMode("detail");
     }
   };
