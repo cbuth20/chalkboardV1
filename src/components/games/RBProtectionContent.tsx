@@ -612,11 +612,17 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     setLoading(true);
     try {
-      // Check if user has any uploaded files (for showing/hiding Analyze button)
+      // Check if user has any analyzable files (PDFs/images) for showing/hiding Analyze button
       fetch(`/api/player-notes?orgId=${orgId}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       }).then(r => r.ok ? r.json() : null).then(data => {
-        setHasUploadedFiles(data && data.total > 0);
+        if (!data?.notes) { setHasUploadedFiles(false); return; }
+        const SUPPORTED_EXTS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']);
+        const hasFiles = data.notes.some((n: any) => {
+          const ext = (n.filePath || '').split('.').pop()?.toLowerCase() || '';
+          return SUPPORTED_EXTS.has(ext);
+        });
+        setHasUploadedFiles(hasFiles);
       }).catch(() => {});
 
       const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
