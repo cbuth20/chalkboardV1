@@ -292,6 +292,7 @@ For each scenario, determine:
 1. The protection name (use the team's actual name from the playbook)
 2. The protection_concept (from the taxonomy above)
 3. The defensive front name
+4. The call_side: the direction the OL slides ("left" or "right"). This determines slide direction only — the TB's alignment depends on the formation.
 4. Which defenders are rushing, blitzing, walking up, or in coverage
 5. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
 6. A coaching explanation of why this is the correct read
@@ -312,7 +313,7 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
       "coverage_type": "blitz",
       "protection_type": "60 Protection",
       "protection_concept": "full_slide",
-      "call_side": "right",
+      "call_side": "right",  // The direction the OL slides. "right" = OL slides right.
       "solid_call": false,
       "free_release": false,
       "play_action": false,
