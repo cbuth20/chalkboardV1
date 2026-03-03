@@ -52,6 +52,19 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
     console.log(`Analyzing ${pdfIds.length} PDFs for protection scenarios`);
 
     const supabase = getSupabaseAdmin();
+
+    // Skip stale jobs — if the analysis record is no longer 'processing', another
+    // run already handled it or the stale check marked it failed
+    const { data: analysisRecord } = await supabase
+      .from('player_playbook_analysis')
+      .select('status')
+      .eq('id', analysisId)
+      .single();
+    if (!analysisRecord || analysisRecord.status !== 'processing') {
+      console.log(`Skipping stale job: analysis ${analysisId} status is '${analysisRecord?.status || 'not found'}', not 'processing'`);
+      return;
+    }
+
     const anthropic = new Anthropic();
 
     // Helper to update progress message visible to frontend
