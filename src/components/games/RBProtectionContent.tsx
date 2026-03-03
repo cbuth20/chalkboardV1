@@ -639,11 +639,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           coaching_notes: s.blocking_rules || '',
         }));
         setScenarios(scenarioData);
-        console.log('[RBProtection] coverages response:', { hasAnalyzableFiles: data.hasAnalyzableFiles, analysisStatus: data.analysisStatus, scenarioCount: scenarioData.length });
         setHasUploadedFiles(data.hasAnalyzableFiles ?? false);
 
         // Pick up analysis status if one was running (e.g., page reload during analysis)
-        // Only resume if the analysis started within the last 15 minutes (not a stale record)
+        // Only resume if the analysis started within the last 10 minutes (not a stale record)
         if (data.analysisStatus === 'processing' && data.analysisStartedAt) {
           const startedAt = new Date(data.analysisStartedAt).getTime();
           const ageMinutes = (Date.now() - startedAt) / 60000;
@@ -651,7 +650,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             setAnalysisStatus('processing');
             setAnalyzing(true);
             if (data.analysisError) setAnalysisProgress(data.analysisError);
-            startPolling();
+            setAnalysisId(data.analysisId || null);
+            startPolling(data.analysisId);
           }
         }
       }
@@ -692,8 +692,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       const data = await response.json();
       setAnalysisId(data.analysisId);
 
-      // Start polling for completion
-      startPolling();
+      // Start polling for completion — pass the specific analysis ID
+      startPolling(data.analysisId);
     } catch (error) {
       setAnalysisStatus('failed');
       setAnalyzing(false);
@@ -701,16 +701,20 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     }
   };
 
-  const startPolling = () => {
+  const startPolling = (trackAnalysisId?: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
 
     // Snapshot current scenario IDs so we can detect when new ones replace them
     const idsAtStart = new Set(scenarios.map(s => s.id));
     const countAtStart = scenarios.length;
+    // Use the specific analysis ID if provided (from startAnalysis or page-load resume)
+    const pollAnalysisId = trackAnalysisId || analysisId;
 
     pollRef.current = setInterval(async () => {
       try {
-        const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
+        let pollUrl = `/api/player-block-coverages?orgId=${orgId}`;
+        if (pollAnalysisId) pollUrl += `&analysisId=${pollAnalysisId}`;
+        const response = await fetch(pollUrl, {
           headers: { Authorization: `Bearer ${session!.access_token}` },
         });
 
