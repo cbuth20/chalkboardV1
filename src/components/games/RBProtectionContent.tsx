@@ -680,13 +680,12 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const startPolling = () => {
     if (pollRef.current) clearInterval(pollRef.current);
 
-    // Track the scenario count at the moment polling starts (before delete wipes them)
+    // Snapshot current scenario IDs so we can detect when new ones replace them
+    const idsAtStart = new Set(scenarios.map(s => s.id));
     const countAtStart = scenarios.length;
-    let sawEmpty = false;
 
     pollRef.current = setInterval(async () => {
       try {
-        // Re-fetch scenarios to see if new ones appeared
         const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
           headers: { Authorization: `Bearer ${session!.access_token}` },
         });
@@ -695,11 +694,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           const data = await response.json();
           const newScenarios = data.scenarios || [];
 
-          // Worker deletes old scenarios first, so we'll see 0 during processing
-          if (newScenarios.length === 0) sawEmpty = true;
+          // Done when: new IDs appear that weren't in the original set, or count changes from 0 to >0
+          const hasNewIds = newScenarios.some((s: any) => !idsAtStart.has(s.id));
+          const firstAnalysis = countAtStart === 0 && newScenarios.length > 0;
 
-          // Done when: we see scenarios after seeing 0 (re-analysis), or count increased (first analysis)
-          if (newScenarios.length > 0 && (sawEmpty || newScenarios.length > countAtStart)) {
+          if (hasNewIds || firstAnalysis) {
             // New scenarios arrived — analysis completed
             const scenarioData = newScenarios.map((s: any) => ({
               id: s.id,

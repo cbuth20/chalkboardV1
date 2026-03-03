@@ -54,18 +54,14 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
     const supabase = getSupabaseAdmin();
     const anthropic = new Anthropic();
 
-    // Delete existing scenarios for this user before re-generating
-    const { error: deleteError, count: deletedCount } = await supabase
+    // Snapshot existing scenario IDs so we can delete them AFTER new ones are inserted
+    const { data: existingRows } = await supabase
       .from('player_block_coverages')
-      .delete({ count: 'exact' })
+      .select('id')
       .eq('user_id', userId)
       .eq('org_id', orgId);
-
-    if (deleteError) {
-      console.error(`Failed to delete old scenarios: ${deleteError.message}`);
-    } else {
-      console.log(`Deleted ${deletedCount ?? 0} existing scenarios for user ${userId}`);
-    }
+    const oldScenarioIds = (existingRows || []).map(r => r.id);
+    console.log(`Found ${oldScenarioIds.length} existing scenarios to replace after successful generation`);
 
     // Fetch all PDF file paths
     const { data: pdfs, error: pdfsError } = await supabase
@@ -218,6 +214,23 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
       }
 
       console.log(`Saved ${allScenarios.length} protection scenarios to database`);
+
+      // New scenarios inserted successfully — now safe to delete old ones
+      if (oldScenarioIds.length > 0) {
+        // Delete in batches to avoid query size limits
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < oldScenarioIds.length; i += BATCH_SIZE) {
+          const batch = oldScenarioIds.slice(i, i + BATCH_SIZE);
+          const { error: deleteError } = await supabase
+            .from('player_block_coverages')
+            .delete()
+            .in('id', batch);
+          if (deleteError) {
+            console.error(`Failed to delete old scenario batch: ${deleteError.message}`);
+          }
+        }
+        console.log(`Deleted ${oldScenarioIds.length} old scenarios`);
+      }
     }
 
     // Update analysis record
