@@ -67,6 +67,15 @@ const handler: Handler = async (event) => {
     const supabase = getSupabaseAdmin();
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+    // Helper to update progress message visible to frontend
+    const updateProgress = async (message: string) => {
+      console.log(`[Progress] ${message}`);
+      await supabase
+        .from('player_playbook_analysis')
+        .update({ error_message: message })
+        .eq('id', analysisId);
+    };
+
     // Snapshot existing scenario IDs so we can delete them AFTER new ones are inserted
     const { data: existingRows } = await supabase
       .from('player_block_coverages')
@@ -75,6 +84,8 @@ const handler: Handler = async (event) => {
       .eq('org_id', orgId);
     const oldScenarioIds = (existingRows || []).map(r => r.id);
     console.log(`Found ${oldScenarioIds.length} existing scenarios to replace after successful generation`);
+
+    await updateProgress(`Preparing to analyze ${pdfIds.length} file${pdfIds.length === 1 ? '' : 's'}...`);
 
     // Fetch all PDF file paths
     const { data: pdfs, error: pdfsError } = await supabase
@@ -93,6 +104,8 @@ const handler: Handler = async (event) => {
 
       const ext = filePath.split('.').pop()?.toLowerCase() || '';
       console.log(`📄 Processing file ${i + 1}/${pdfs.length}: ${filePath}`);
+      const fileName = filePath.split('/').pop() || `File ${i + 1}`;
+      await updateProgress(`Analyzing file ${i + 1} of ${pdfs.length}: ${fileName}`);
 
       const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif']);
       const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']);
@@ -191,6 +204,9 @@ const handler: Handler = async (event) => {
     }
 
     console.log(`🎉 Total protection scenarios extracted: ${allScenarios.length}`);
+    await updateProgress(allScenarios.length > 0
+      ? `Saving ${allScenarios.length} scenario${allScenarios.length === 1 ? '' : 's'}...`
+      : 'No scenarios found in your files.');
 
     // Insert scenarios into database
     if (allScenarios.length > 0) {
