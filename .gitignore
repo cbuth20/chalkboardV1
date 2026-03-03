@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+
+# Supabase CLI
+supabase/.temp/
 /.pnp
 .pnp.js
 

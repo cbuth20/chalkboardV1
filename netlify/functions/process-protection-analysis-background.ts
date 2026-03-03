@@ -5,7 +5,11 @@
 
 import { Handler } from '@netlify/functions';
 import Anthropic from '@anthropic-ai/sdk';
+import heicConvert from 'heic-convert';
 import { getSupabaseAdmin } from './shared/supabase';
+
+// Claude API only accepts these image formats
+const CLAUDE_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 interface AnalysisRequest {
   analysisId: string;
@@ -63,6 +67,15 @@ const handler: Handler = async (event) => {
     const supabase = getSupabaseAdmin();
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+    // Snapshot existing scenario IDs so we can delete them AFTER new ones are inserted
+    const { data: existingRows } = await supabase
+      .from('player_block_coverages')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('org_id', orgId);
+    const oldScenarioIds = (existingRows || []).map(r => r.id);
+    console.log(`Found ${oldScenarioIds.length} existing scenarios to replace after successful generation`);
+
     // Fetch all PDF file paths
     const { data: pdfs, error: pdfsError } = await supabase
       .from('player_playbook_metadata')
@@ -78,7 +91,11 @@ const handler: Handler = async (event) => {
       const pdf = pdfs[i];
       const filePath = pdf.file_paths[0];
 
-      console.log(`📄 Processing PDF ${i + 1}/${pdfs.length}: ${filePath}`);
+      const ext = filePath.split('.').pop()?.toLowerCase() || '';
+      console.log(`📄 Processing file ${i + 1}/${pdfs.length}: ${filePath}`);
+
+      const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif']);
+      const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']);
 
       try {
         const { data: urlData } = supabase.storage
@@ -97,22 +114,68 @@ const handler: Handler = async (event) => {
         }
 
         const contentType = fileResponse.headers.get('content-type') || '';
-        if (!contentType.includes('pdf') && !contentType.includes('octet-stream')) {
-          console.log(`⚠️  File ${filePath} is not a PDF, skipping`);
+        const arrayBuffer = await fileResponse.arrayBuffer();
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+        // Determine if this is a PDF or an image
+        let fileType: 'pdf' | 'image' | null = null;
+        let mediaType = contentType;
+
+        if (contentType.includes('pdf') || ext === 'pdf') {
+          const header = Buffer.from(arrayBuffer.slice(0, 4)).toString();
+          if (!header.startsWith('%PDF')) {
+            console.log(`⚠️  File ${filePath} has pdf extension but no PDF signature, skipping`);
+            continue;
+          }
+          fileType = 'pdf';
+          mediaType = 'application/pdf';
+        } else if (IMAGE_TYPES.has(contentType) || IMAGE_EXTENSIONS.has(ext)) {
+          fileType = 'image';
+          if (!IMAGE_TYPES.has(contentType)) {
+            const extToMime: Record<string, string> = {
+              jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+              gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif',
+            };
+            mediaType = extToMime[ext] || 'image/jpeg';
+          }
+        } else if (contentType.includes('octet-stream')) {
+          const header = Buffer.from(arrayBuffer.slice(0, 4)).toString();
+          if (header.startsWith('%PDF')) {
+            fileType = 'pdf';
+            mediaType = 'application/pdf';
+          } else if (IMAGE_EXTENSIONS.has(ext)) {
+            fileType = 'image';
+            const extToMime: Record<string, string> = {
+              jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+              gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif',
+            };
+            mediaType = extToMime[ext] || 'image/jpeg';
+          }
+        }
+
+        if (!fileType) {
+          console.log(`⚠️  File ${filePath} is not a supported type (${contentType}), skipping`);
           continue;
         }
 
-        const arrayBuffer = await fileResponse.arrayBuffer();
-        const base64PDF = Buffer.from(arrayBuffer).toString('base64');
-
-        const header = Buffer.from(arrayBuffer.slice(0, 4)).toString();
-        if (!header.startsWith('%PDF')) {
-          console.log(`⚠️  File ${filePath} does not have PDF signature, skipping`);
-          continue;
+        // Convert unsupported image formats (HEIC/HEIF) to JPEG for Claude
+        let finalBase64 = base64Data;
+        let finalMediaType = mediaType;
+        if (fileType === 'image' && !CLAUDE_SUPPORTED_IMAGE_TYPES.has(mediaType)) {
+          console.log(`🔄 Converting ${mediaType} to JPEG for Claude compatibility`);
+          try {
+            const inputBuffer = Buffer.from(base64Data, 'base64');
+            const jpegBuffer = await heicConvert({ buffer: inputBuffer, format: 'JPEG', quality: 0.9 });
+            finalBase64 = Buffer.from(jpegBuffer).toString('base64');
+            finalMediaType = 'image/jpeg';
+          } catch (convErr) {
+            console.error(`❌ Failed to convert ${mediaType} to JPEG, skipping ${filePath}:`, convErr);
+            continue;
+          }
         }
 
         // Analyze with Claude
-        const analysis = await analyzeProtectionPDF(anthropic, base64PDF);
+        const analysis = await analyzeProtectionFile(anthropic, finalBase64, fileType, finalMediaType);
         tokenCount += analysis.tokenCount;
         allScenarios.push(...analysis.scenarios);
 
@@ -162,6 +225,22 @@ const handler: Handler = async (event) => {
       }
 
       console.log(`💾 Saved ${allScenarios.length} protection scenarios to database`);
+
+      // New scenarios inserted successfully — now safe to delete old ones
+      if (oldScenarioIds.length > 0) {
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < oldScenarioIds.length; i += BATCH_SIZE) {
+          const batch = oldScenarioIds.slice(i, i + BATCH_SIZE);
+          const { error: deleteError } = await supabase
+            .from('player_block_coverages')
+            .delete()
+            .in('id', batch);
+          if (deleteError) {
+            console.error(`Failed to delete old scenario batch: ${deleteError.message}`);
+          }
+        }
+        console.log(`Deleted ${oldScenarioIds.length} old scenarios`);
+      }
     }
 
     // Update analysis record
@@ -230,9 +309,11 @@ const handler: Handler = async (event) => {
   }
 };
 
-async function analyzeProtectionPDF(
+async function analyzeProtectionFile(
   anthropic: Anthropic,
-  base64PDF: string
+  base64Data: string,
+  fileType: 'pdf' | 'image',
+  mediaType: string
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
   const systemPrompt = `You are an expert football coach analyzing playbook PDFs to extract RB (running back) protection assignments.
 
@@ -257,11 +338,14 @@ For each scenario, determine:
 1. The protection name (use the team's actual name from the playbook)
 2. The protection_concept (from the taxonomy above)
 3. The defensive front name
-4. Which defenders are rushing, blitzing, walking up, or in coverage
+4. The call_side: the direction the OL slides ("left" or "right"). This determines slide direction only — the TB's alignment depends on the formation.
+5. Which defenders are rushing, blitzing, walking up, or in coverage
 5. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
 6. A coaching explanation of why this is the correct read
 
-Defender position labels: E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), CB (Cornerback), SS (Strong Safety), FS (Free Safety)
+Defender position labels — use ONLY these labels (keys and label field). Do NOT invent other labels:
+E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), CB (Cornerback), SS (Strong Safety / Rover), FS (Free Safety)
+If the playbook calls a defender "Rover", "R", "Robber", "Star", or "$" — map it to SS. If "Star" or "Stud" refers to a nickel LB, map to Q.
 
 Defender coordinates use a percentage-based system for positioning on the field diagram:
 - x: 0-100 (left to right). DL should align over the offensive line (x: 35-65 range). Other defenders position naturally based on their alignment.
@@ -275,7 +359,7 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
       "coverage_type": "blitz",
       "protection_type": "60 Protection",
       "protection_concept": "full_slide",
-      "call_side": "right",
+      "call_side": "right",  // The direction the OL slides. "right" = OL slides right.
       "solid_call": false,
       "free_release": false,
       "play_action": false,
@@ -326,17 +410,28 @@ Return ONLY the JSON object, no other text.`;
         {
           role: 'user',
           content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64PDF,
-              },
-            },
+            fileType === 'pdf'
+              ? {
+                  type: 'document' as const,
+                  source: {
+                    type: 'base64' as const,
+                    media_type: mediaType as 'application/pdf',
+                    data: base64Data,
+                  },
+                }
+              : {
+                  type: 'image' as const,
+                  source: {
+                    type: 'base64' as const,
+                    media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                    data: base64Data,
+                  },
+                },
             {
               type: 'text',
-              text: 'Analyze this playbook PDF and extract all RB protection scenarios. Focus on accuracy and include realistic defensive front variations. Return the response as valid JSON.',
+              text: fileType === 'pdf'
+                ? 'Analyze this playbook PDF and extract all RB protection scenarios. Focus on accuracy and include realistic defensive front variations. Return the response as valid JSON.'
+                : 'Analyze this playbook image and extract all RB protection scenarios. Focus on accuracy and include realistic defensive front variations. Return the response as valid JSON.',
             },
           ],
         },
