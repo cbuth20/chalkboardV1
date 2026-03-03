@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -298,6 +300,8 @@ interface FormationTrainerContentProps {
 
 export function FormationTrainerContent({ demoMode = false, demoFormations }: FormationTrainerContentProps = {}) {
   const { session, orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
 
   const [view, setView] = useState<View>('home');
   const [formations, setFormations] = useState<Formation[]>([]);
@@ -370,7 +374,7 @@ export function FormationTrainerContent({ demoMode = false, demoFormations }: Fo
         const startedAt = new Date(data.latestAnalysis.started_at).getTime();
         const minutesElapsed = (Date.now() - startedAt) / 1000 / 60;
         if (minutesElapsed > 15) {
-          const confirmed = confirm('Your previous analysis appears to be stuck. Would you like to reset it?');
+          const confirmed = await confirm({ message: 'Your previous analysis appears to be stuck. Would you like to reset it?', variant: 'destructive', confirmLabel: 'Reset' });
           if (confirmed) await clearStuckAnalysis(data.latestAnalysis.id);
         }
       }
@@ -390,15 +394,15 @@ export function FormationTrainerContent({ demoMode = false, demoFormations }: Fo
         body: JSON.stringify({ analysisId }),
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to reset');
-      alert('Analysis reset successfully! You can now start a new analysis.');
+      showToast('Analysis reset successfully! You can now start a new analysis.', 'success');
       await loadData();
     } catch (error) {
-      alert(`Failed to reset: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed to reset: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
   const startAnalysis = async () => {
-    if (!confirm('This will analyze all your uploaded PDFs using AI. This may take several minutes. Continue?')) return;
+    if (!(await confirm({ message: 'This will analyze all your uploaded PDFs using AI. This may take several minutes. Continue?', confirmLabel: 'Continue' }))) return;
     if (!session?.access_token || !orgId) return;
 
     setAnalyzing(true);
@@ -411,10 +415,10 @@ export function FormationTrainerContent({ demoMode = false, demoFormations }: Fo
 
       if (!response.ok) throw new Error((await response.json()).error || 'Analysis failed');
       const data = await response.json();
-      alert(`Analysis started! Processing ${data.pdfCount} PDFs. Estimated time: ${data.estimatedDuration}. Refresh in a few minutes.`);
+      showToast(`Analysis started! Processing ${data.pdfCount} PDFs. Estimated time: ${data.estimatedDuration}. Refresh in a few minutes.`, 'success');
       await loadData();
     } catch (error) {
-      alert(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
       setAnalyzing(false);
     }
@@ -434,7 +438,7 @@ export function FormationTrainerContent({ demoMode = false, demoFormations }: Fo
     const source = formationsWithAlignments.length > 0 ? formationsWithAlignments : formations;
     const questions = generateQuizQuestions(source);
     if (questions.length === 0) {
-      alert('Not enough alignment data to generate a quiz. Try analyzing your playbooks first.');
+      showToast('Not enough alignment data to generate a quiz. Try analyzing your playbooks first.', 'error');
       return;
     }
     setQuizQuestions(questions);

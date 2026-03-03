@@ -9,6 +9,7 @@ import { withOrgAuth, getAuthenticatedUser } from './shared/auth';
 import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, NotFoundError, ForbiddenError, ValidationError } from './shared/errors';
 import { validateUUID } from './shared/validators';
+import { enqueuePlayerPlayProcessing } from './shared/queue-jobs';
 
 interface ProcessPlayerPlayRequest {
   generateInsights?: boolean;
@@ -103,35 +104,30 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       throw new Error(`Failed to update player play status: ${updateError.message}`);
     }
 
-    // Call background processing function
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-player-play-content-background`;
-
-    console.log(`🚀 Triggering background processing for player play ${playId}`);
+    // Enqueue job to Redis via BullMQ
+    console.log(`Triggering background processing for player play ${playId}`);
     if (isDiagramPlay) {
-      console.log(`📐 Diagram play - using diagram data`);
+      console.log(`Diagram play - using diagram data`);
     } else {
-      console.log(`📷 Image URL: ${imageUrl}`);
+      console.log(`Image URL: ${imageUrl}`);
     }
 
-    // Fire-and-forget call to background function
-    fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        playId,
-        imageUrl,
-        generateInsights,
-        generateAssignments,
-        generateKnowledge,
-      }),
-    }).catch((error) => {
-      console.error('Failed to trigger background function:', error);
-      // Don't throw - we already updated the status
+    const jobId = await enqueuePlayerPlayProcessing({
+      playId,
+      imageUrl: imageUrl || undefined,
+      generateInsights,
+      generateAssignments,
+      generateKnowledge,
     });
 
-    console.log(`✅ Background processing triggered for player play ${playId}`);
+    console.log(`Enqueued player play processing job ${jobId} for play ${playId}`);
+
+    // Ping the worker to ensure it's running
+    const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
+    const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
+    fetch(workerUrl, { method: 'POST' }).catch(() => {
+      // Worker may already be running — that's fine
+    });
 
     return {
       statusCode: 202, // Accepted
@@ -139,8 +135,9 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       body: JSON.stringify({
         success: true,
         playId,
+        jobId,
         status: 'generating',
-        message: 'Background processing started. Check play status for completion.',
+        message: 'Processing queued. You will be notified when complete.',
       }),
     };
   } catch (error) {

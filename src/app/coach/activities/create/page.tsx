@@ -4,6 +4,7 @@ import { SidebarLayout } from "@/components/SidebarLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from '@/components/Toast';
 import type { ActivityType } from "@/types/activities";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -84,6 +85,7 @@ const COLOR_CLASSES = {
 export default function CreateActivityPage() {
   const { orgId, teamId, session, loading: authLoading } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
 
   const [step, setStep] = useState(1);
   const [plays, setPlays] = useState<any[]>([]);
@@ -143,12 +145,12 @@ export default function CreateActivityPage() {
 
   const handleCreate = async () => {
     if (!activityType || !title || selectedPlayIds.size === 0) {
-      alert('Please complete all required fields');
+      showToast('Please complete all required fields', 'error');
       return;
     }
 
     if (!session?.access_token) {
-      alert('You must be signed in to create activities');
+      showToast('You must be signed in to create activities', 'error');
       return;
     }
 
@@ -194,11 +196,11 @@ export default function CreateActivityPage() {
       }
 
       const data = await response.json();
-      alert('Activity created successfully!');
+      showToast('Activity created successfully!', 'success');
       router.push('/coach/activities');
     } catch (error) {
       console.error('Error creating activity:', error);
-      alert(error instanceof Error ? error.message : 'Failed to create activity');
+      showToast(error instanceof Error ? error.message : 'Failed to create activity', 'error');
       setCreating(false);
     }
   };

@@ -4,12 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 import { playerGamesAPI, GameQuestion, ScoredResponse } from '@/lib/api/player-games';
 
 export default function GameSessionPage() {
   const router = useRouter();
   const params = useParams();
   const { session, orgId } = useAuth();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const attemptId = params.attemptId as string;
 
   const [questions, setQuestions] = useState<GameQuestion[]>([]);
@@ -41,7 +45,7 @@ export default function GameSessionPage() {
       setQuestions(JSON.parse(storedQuestions));
       setLoading(false);
     } else {
-      alert('Game session not found');
+      showToast('Game session not found', 'error');
       router.push('/games-center');
     }
   };
@@ -55,7 +59,7 @@ export default function GameSessionPage() {
 
   const handleNext = () => {
     if (!selectedAnswer) {
-      alert('Please select an answer');
+      showToast('Please select an answer', 'error');
       return;
     }
 
@@ -83,7 +87,7 @@ export default function GameSessionPage() {
 
   const submitGame = async (finalResponses: typeof responses) => {
     if (!orgId) {
-      alert('Organization ID not found. Please try refreshing the page.');
+      showToast('Organization ID not found. Please try refreshing the page.', 'error');
       return;
     }
 
@@ -98,7 +102,7 @@ export default function GameSessionPage() {
       setGameComplete(true);
     } catch (error) {
       console.error('Failed to submit game:', error);
-      alert('Failed to submit answers. Please try again.');
+      showToast('Failed to submit answers. Please try again.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -240,8 +244,8 @@ export default function GameSessionPage() {
                 Question {currentQuestionIndex + 1} of {questions.length}
               </span>
               <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to quit? Your progress will be lost.')) {
+                onClick={async () => {
+                  if (await confirm({ message: 'Are you sure you want to quit? Your progress will be lost.', variant: 'destructive', confirmLabel: 'Quit' })) {
                     router.push('/games-center');
                   }
                 }}

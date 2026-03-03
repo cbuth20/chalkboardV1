@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Save, CheckCircle } from 'lucide-react';
+import { useToast } from '@/components/Toast';
 import type {
   BuiltPlayData,
   PlayMetadata,
@@ -41,6 +42,7 @@ export function StructuredPlayBuilder({
   formations,
 }: StructuredPlayBuilderProps) {
   // State
+  const { showToast } = useToast();
   const [mode, setMode] = useState<BuilderMode>('draw');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | undefined>();
   const [playData, setPlayData] = useState<BuiltPlayData>(() => ({
@@ -175,7 +177,7 @@ export function StructuredPlayBuilder({
     const validation = validatePlay();
 
     if (!validation.isValid) {
-      alert('Please fix all validation errors before finalizing.');
+      showToast('Please fix all validation errors before finalizing.', 'error');
       return;
     }
 

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/Toast';
 import { playerGamesAPI, GameFilters, CreateGameRequest } from '@/lib/api/player-games';
 
 const TOPICS = [
@@ -31,6 +32,7 @@ const CATEGORIES = [
 export default function CreateCustomGamePage() {
   const router = useRouter();
   const { session, orgId } = useAuth();
+  const { showToast } = useToast();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -86,17 +88,17 @@ export default function CreateCustomGamePage() {
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      alert('Please enter a game name');
+      showToast('Please enter a game name', 'error');
       return;
     }
 
     if (availableQuestions < questionCount) {
-      alert('Not enough questions match your filters');
+      showToast('Not enough questions match your filters', 'error');
       return;
     }
 
     if (!orgId) {
-      alert('Organization ID not found. Please try refreshing the page.');
+      showToast('Organization ID not found. Please try refreshing the page.', 'error');
       return;
     }
 
@@ -121,11 +123,11 @@ export default function CreateCustomGamePage() {
 
       const result = await playerGamesAPI.createGame(request, orgId);
 
-      alert('Game created successfully!');
+      showToast('Game created successfully!', 'success');
       router.push('/games-center');
     } catch (error) {
       console.error('Failed to create game:', error);
-      alert('Failed to create game. Please try again.');
+      showToast('Failed to create game. Please try again.', 'error');
     } finally {
       setCreating(false);
     }

@@ -4,12 +4,14 @@ import React, { useState } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFlashcards } from '@/hooks/useFlashcardsAPI';
+import { useToast } from '@/components/Toast';
 
 type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
 type CardCategory = 'play_concept' | 'route_recognition' | 'formation' | 'coverage' | 'technique';
 
 export default function QuestionBankPage() {
   const { orgId, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
   const [selectedPlayId, setSelectedPlayId] = useState<string>('');
   const [selectedPosition, setSelectedPosition] = useState<string>('');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel | ''>('');
@@ -54,12 +56,12 @@ export default function QuestionBankPage() {
 
   const handleCreateQuiz = () => {
     if (selectedCards.size === 0) {
-      alert('Please select at least one flashcard');
+      showToast('Please select at least one flashcard', 'error');
       return;
     }
     // Navigate to quiz creator with selected cards
     // TODO: Implement navigation to quiz creator with selectedCards
-    alert(`Creating quiz with ${selectedCards.size} flashcards...\n\nTODO: Navigate to quiz creator`);
+    showToast(`Creating quiz with ${selectedCards.size} flashcards... (TODO: Navigate to quiz creator)`, 'info');
   };
 
   if (authLoading || loading) {

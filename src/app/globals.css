@@ -50,6 +50,12 @@
   --color-deep-space: var(--deep-space-black);
 }
 
+/* Native select dropdown options — force dark theme so options are visible */
+select option {
+  background-color: var(--graphite-steel);
+  color: #ffffff;
+}
+
 /* Base Body Styles */
 body {
   background: var(--deep-space-black);
@@ -1666,4 +1672,92 @@ body {
 /* Playbook stage - scrollable container for field */
 .playbook-stage {
   overflow: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RB PROTECTION — PRE-SNAP MOVEMENT ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Snap flash overlay — background color in keyframes so default is transparent */
+@keyframes snap-flash {
+  0% { background-color: transparent; }
+  15% { background-color: rgba(255, 255, 255, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.animate-snap-flash {
+  animation: snap-flash 0.4s ease-out;
+  pointer-events: none;
+}
+
+/* Pre-snap cadence text */
+@keyframes cadence-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.animate-cadence {
+  animation: cadence-pulse 0.8s ease-in-out infinite;
+}
+
+/* Mike designation reticle — scales in and settles */
+@keyframes mike-reticle {
+  0% { transform: scale(1.8); opacity: 0; }
+  40% { transform: scale(0.9); opacity: 1; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-mike-reticle {
+  animation: mike-reticle 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Mike callout text — fade in */
+@keyframes mike-callout {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.animate-mike-callout {
+  animation: mike-callout 0.4s ease-out forwards;
+}
+
+/* Slide arrow — extends outward from reticle */
+@keyframes slide-arrow-right {
+  0% { opacity: 0; clip-path: inset(0 100% 0 0); }
+  100% { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+
+@keyframes slide-arrow-left {
+  0% { opacity: 0; clip-path: inset(0 0 0 100%); }
+  100% { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+
+.animate-slide-arrow-right {
+  animation: slide-arrow-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-arrow-left {
+  animation: slide-arrow-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Defender idle pulse — subtle glow to signal clickability */
+@keyframes defender-idle {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+  50% { box-shadow: 0 0 10px 3px rgba(255,255,255,0.15); }
+}
+
+.animate-defender-idle {
+  animation: defender-idle 2s ease-in-out infinite;
+  border-radius: 50%;
+}
+
+/* Release button idle pulse */
+@keyframes release-idle {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,212,170,0); }
+  50% { box-shadow: 0 0 8px 2px rgba(0,212,170,0.15); }
+}
+
+.animate-release-idle {
+  animation: release-idle 2s ease-in-out infinite;
 }

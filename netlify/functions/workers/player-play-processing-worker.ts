@@ -1,87 +1,51 @@
 /**
- * Background function to process player play content with AI
- * Targets player_plays, player_play_assignments, player_flashcard_templates
- * IMPORTANT: This reuses the same AI analysis logic as team plays
+ * Player Play Processing Worker
+ * Extracted logic from process-player-play-content-background.ts
+ * Called by the BullMQ worker, NOT directly via HTTP
  */
 
-import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
-import { diagramToText } from '../../src/lib/playDiagramToText';
+import { PlayerPlayProcessingJobData } from '../shared/queue';
+import { diagramToText } from '../../../src/lib/playDiagramToText';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const openaiApiKey = process.env.GPT_KEY || process.env.OPENAI_API_KEY;
 
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
-const openai = new OpenAI({
-  apiKey: openaiApiKey,
-  baseURL: 'https://api.openai.com/v1',
-  maxRetries: 3,
-});
+export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Promise<void> {
+  const {
+    playId,
+    imageUrl,
+    generateInsights = true,
+    generateAssignments = true,
+    generateKnowledge = true,
+    useStructuredData = false,
+  } = data;
 
-export const handler: Handler = async (event, context) => {
-  console.log('🚀 Player play background processing started - 15 minute timeout');
-
-  // Check environment variables
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('❌ Missing Supabase environment variables');
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Server configuration error - missing Supabase credentials' }),
-    };
+    throw new Error('Missing Supabase environment variables');
   }
 
   if (!openaiApiKey) {
-    console.error('❌ Missing OpenAI API key - GPT_KEY environment variable not set');
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Server configuration error - missing OpenAI API key' }),
-    };
+    throw new Error('Missing OpenAI API key - GPT_KEY environment variable not set');
   }
 
-  console.log('✅ Environment variables loaded:', {
-    hasSupabaseUrl: !!supabaseUrl,
-    hasSupabaseKey: !!supabaseServiceKey,
-    hasOpenAIKey: !!openaiApiKey,
-    openAIKeyPrefix: openaiApiKey?.substring(0, 15) + '...',
-    openAIKeyLength: openaiApiKey?.length,
-    openAIKeySuffix: '...' + openaiApiKey?.substring(openaiApiKey.length - 8),
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const openai = new OpenAI({
+    apiKey: openaiApiKey,
+    baseURL: 'https://api.openai.com/v1',
+    maxRetries: 3,
   });
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
-  }
-
   const startTime = Date.now();
-  let playId: string | null = null;
 
   try {
-    const {
-      playId: inputPlayId,
-      imageUrl,
-      generateInsights = true,
-      generateAssignments = true,
-      generateKnowledge = true,
-      useStructuredData = false, // NEW: Flag to use structured assignments instead of image
-    } = JSON.parse(event.body || '{}');
-
-    playId = inputPlayId;
-    console.log('📝 Processing player play:', playId);
-    console.log('🔧 Using structured data:', useStructuredData);
+    console.log('Processing player play:', playId);
+    console.log('Using structured data:', useStructuredData);
 
     if (!playId) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'playId is required' }),
-      };
+      throw new Error('playId is required');
     }
 
     // Fetch player play
@@ -95,31 +59,24 @@ export const handler: Handler = async (event, context) => {
       .single();
 
     if (playError || !play) {
-      console.error('❌ Player play fetch failed:', playError);
-      return {
-        statusCode: 404,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Player play not found' }),
-      };
+      throw new Error(`Player play not found: ${playError?.message}`);
     }
 
     const metadata = (play as any).player_playbook_metadata;
-    console.log('✅ Player play and metadata found:', play.name);
+    console.log('Player play and metadata found:', play.name);
 
     // Build metadata context
     const metadataContext = buildMetadataContext(metadata);
-    console.log('🎬 Starting AI generation...');
+    console.log('Starting AI generation...');
 
     let playAnalysis = null;
 
-    // NEW: Check if this is a structured play (with player_responsibilities)
+    // Check if this is a structured play (with player_responsibilities)
     const hasStructuredData = useStructuredData && play.player_responsibilities && Object.keys(play.player_responsibilities).length > 0;
 
     if (hasStructuredData) {
-      // For structured plays, use player responsibilities directly
-      console.log('🎯 This is a structured play - using player responsibilities');
+      console.log('This is a structured play - using player responsibilities');
 
-      // Get situational tags
       const { data: situationalTags } = await supabase
         .from('player_play_situational_tags')
         .select('tag_id, situational_tags(name)')
@@ -128,15 +85,14 @@ export const handler: Handler = async (event, context) => {
       const tags = situationalTags?.map((t: any) => t.situational_tags?.name).filter(Boolean) || [];
 
       const structuredText = buildStructuredPlayText(play, tags);
-      console.log('1️⃣  Analyzing structured play with GPT-4o...');
+      console.log('Analyzing structured play with GPT-4o...');
       playAnalysis = await analyzeStructuredPlay(openai, structuredText, metadataContext);
     } else {
       // Check if this is a diagram-built play or an image-based play
       const isDiagramPlay = play.diagram_data && play.diagram_data.offensePlayers;
 
       if (isDiagramPlay) {
-        // For diagram plays, convert diagram to text and use that instead of vision
-        console.log('📐 This is a diagram-built play - using diagram data');
+        console.log('This is a diagram-built play - using diagram data');
         const diagramText = diagramToText(play.diagram_data, {
           name: play.name,
           formation: play.formation_name || '',
@@ -146,15 +102,14 @@ export const handler: Handler = async (event, context) => {
           personnel: '11',
         });
 
-        console.log('1️⃣  Analyzing diagram play with GPT-4o...');
+        console.log('Analyzing diagram play with GPT-4o...');
         playAnalysis = await analyzeDiagramPlay(openai, diagramText, metadataContext);
       } else {
-        // For image/PDF plays, use vision AI
         if (!imageUrl) {
           throw new Error('Image URL is required for non-diagram plays');
         }
 
-        console.log('📷 Fetching file from:', imageUrl);
+        console.log('Fetching file from:', imageUrl);
         const fileResponse = await fetch(imageUrl);
         if (!fileResponse.ok) {
           throw new Error('Failed to fetch file from URL');
@@ -164,22 +119,21 @@ export const handler: Handler = async (event, context) => {
         const base64File = Buffer.from(fileBuffer).toString('base64');
         const mimeType = fileResponse.headers.get('content-type') || 'image/jpeg';
 
-        // Check if this is a PDF
         const filePath = metadata?.file_paths?.[0] || '';
         const fileName = filePath.split('/').pop() || '';
         const isPDF = fileName.toLowerCase().endsWith('.pdf') || mimeType === 'application/pdf';
 
         if (isPDF) {
-          console.log('📄 Analyzing PDF with GPT-4o...');
+          console.log('Analyzing PDF with GPT-4o...');
           playAnalysis = await analyzePDFWithVision(openai, base64File, metadataContext);
         } else {
-          console.log('1️⃣  Analyzing play with GPT-4o Vision...');
+          console.log('Analyzing play with GPT-4o Vision...');
           playAnalysis = await analyzePlayWithVision(openai, base64File, mimeType, metadataContext);
         }
       }
     }
 
-    console.log('✅ Analysis complete:', {
+    console.log('Analysis complete:', {
       name: playAnalysis?.name,
       positions: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
     });
@@ -187,21 +141,21 @@ export const handler: Handler = async (event, context) => {
     // Generate insights
     let insights = null;
     if (generateInsights && playAnalysis) {
-      console.log('2️⃣  Generating insights...');
+      console.log('Generating insights...');
       insights = await generatePlayInsights(openai, metadata, playAnalysis);
-      console.log('✅ Insights generated');
+      console.log('Insights generated');
     }
 
     // Generate knowledge cards
     let knowledgeCards: any[] = [];
     if (generateKnowledge && playAnalysis) {
-      console.log('3️⃣  Generating knowledge cards...');
+      console.log('Generating knowledge cards...');
       knowledgeCards = await generateKnowledgeCards(openai, playAnalysis, metadata);
-      console.log('✅ Generated', knowledgeCards.length, 'knowledge cards');
+      console.log('Generated', knowledgeCards.length, 'knowledge cards');
     }
 
     // Update player play
-    console.log('💾 Updating player play...');
+    console.log('Updating player play...');
     const validPlayTypes = ['PASS', 'RUN', 'RPO', 'SCREEN'];
     let playType = playAnalysis?.playType?.toUpperCase() || 'PASS';
     if (!validPlayTypes.includes(playType)) {
@@ -217,12 +171,12 @@ export const handler: Handler = async (event, context) => {
         concept: playAnalysis?.concept || metadata?.concept_name,
         formation_name: playAnalysis?.formation || metadata?.formation_name,
         ai_insights: insights,
-        content_status: 'approved', // Auto-approve for player plays
+        content_status: 'approved',
       })
       .eq('id', playId);
 
     if (updateError) {
-      console.error('❌ Update failed:', updateError);
+      console.error('Update failed:', updateError);
       await supabase
         .from('player_plays')
         .update({ content_status: 'rejected' })
@@ -230,7 +184,7 @@ export const handler: Handler = async (event, context) => {
       throw updateError;
     }
 
-    console.log('✅ Player play updated');
+    console.log('Player play updated');
 
     // Insert assignments
     if (playAnalysis?.positions && generateAssignments) {
@@ -239,7 +193,6 @@ export const handler: Handler = async (event, context) => {
           const normalizedPosition = normalizePosition(position);
           if (!normalizedPosition) return null;
 
-          // Parse route_depth - should be a number, not a string
           let routeDepth = null;
           if (posData.depth) {
             const parsed = parseInt(posData.depth);
@@ -267,7 +220,7 @@ export const handler: Handler = async (event, context) => {
         .filter(Boolean);
 
       if (assignmentRecords.length > 0) {
-        // Delete existing assignments first to avoid duplicates (for re-processing)
+        // Delete existing assignments first to avoid duplicates
         const { error: deleteError } = await supabase
           .from('player_play_assignments')
           .delete()
@@ -286,7 +239,7 @@ export const handler: Handler = async (event, context) => {
           console.error('Failed to insert assignments:', assignmentError);
           throw new Error(`Failed to insert assignments: ${assignmentError.message}`);
         } else {
-          console.log(`✅ Inserted ${assignments?.length || 0} assignments`);
+          console.log(`Inserted ${assignments?.length || 0} assignments`);
         }
       }
     }
@@ -309,10 +262,9 @@ export const handler: Handler = async (event, context) => {
         ...(conceptTags?.map((ct: any) => ct.concept_tags?.name).filter(Boolean) || [])
       ];
 
-      console.log(`📌 Inherited ${inheritedTags.length} tags from play:`, inheritedTags);
+      console.log(`Inherited ${inheritedTags.length} tags from play:`, inheritedTags);
 
       const flashcardRecords = knowledgeCards.map((card: any) => {
-        // Combine inherited tags with AI-generated tags
         const allTags = [
           ...inheritedTags,
           ...(card.tags || [])
@@ -323,8 +275,6 @@ export const handler: Handler = async (event, context) => {
           org_id: play.org_id,
           position: normalizePosition(card.position) || 'QB',
           category: mapToValidCategory(card.category),
-
-          // NEW FIELDS
           question_type: card.questionType || 'multiple_choice',
           topic: card.topic || null,
           options: card.options || null,
@@ -337,8 +287,6 @@ export const handler: Handler = async (event, context) => {
             play_concept: play.concept,
             play_name: play.name,
           },
-
-          // EXISTING FIELDS
           question_prompt: card.question,
           correct_answer: card.correctAnswer || card.answer,
           hints: card.hints || [],
@@ -349,7 +297,7 @@ export const handler: Handler = async (event, context) => {
         };
       });
 
-      // Delete existing flashcards first to avoid duplicates (for re-processing)
+      // Delete existing flashcards first
       const { error: deleteFlashcardsError } = await supabase
         .from('player_flashcard_templates')
         .delete()
@@ -368,58 +316,35 @@ export const handler: Handler = async (event, context) => {
         console.error('Failed to insert flashcards:', flashcardError);
         throw new Error(`Failed to insert flashcards: ${flashcardError.message}`);
       } else {
-        console.log(`✅ Inserted ${flashcards?.length || 0} flashcards with enhanced metadata`);
+        console.log(`Inserted ${flashcards?.length || 0} flashcards with enhanced metadata`);
       }
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`✅ Player play processing complete in ${elapsed}s`);
-
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        success: true,
-        playId,
-        processingTimeSeconds: parseFloat(elapsed),
-        assignmentsGenerated: playAnalysis?.positions ? Object.keys(playAnalysis.positions).length : 0,
-        flashcardsGenerated: knowledgeCards.length,
-      }),
-    };
+    console.log(`Player play processing complete in ${elapsed}s`);
   } catch (error: any) {
-    console.error('❌ Processing failed:', error);
+    console.error('Processing failed:', error);
 
-    // Store error message for UI to display
     const errorMessage = error.message || 'Unknown processing error';
     const errorDetails = `Processing Error: ${errorMessage}\n\nTimestamp: ${new Date().toISOString()}\n\nYou can retry processing this play.`;
 
     if (playId) {
+      const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
       await supabase
         .from('player_plays')
         .update({
           content_status: 'rejected',
-          ai_insights: errorDetails, // Store error in ai_insights field for now
+          ai_insights: errorDetails,
         })
         .eq('id', playId);
     }
 
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        error: 'Failed to process player play',
-        message: errorMessage,
-        playId,
-      }),
-    };
+    throw error; // Re-throw so BullMQ knows the job failed and can retry
   }
-};
+}
 
-// AI Processing Functions (using fetch instead of OpenAI SDK)
+// --- AI Processing Functions ---
 
-/**
- * Analyze a diagram-built play using text description instead of vision
- */
 async function analyzeDiagramPlay(
   openai: OpenAI,
   diagramText: string,
@@ -451,12 +376,11 @@ IMPORTANT:
 - For "depth" use a NUMBER representing yards (e.g., 5, 10, 15, 20) NOT a route name
 - Include all visible positions in the diagram`;
 
-  const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -498,7 +422,6 @@ Provide a JSON response with:
   "positions": {
     "QB": { "alignment": "", "landmark": "", "assignment": "", "read": "", "adjustments": { "vsMan": "", "vsZone": "", "vsBlitz": "" } },
     "RB": { "alignment": "", "landmark": "", "assignment": "", "read": "", "adjustments": { ... } }
-    // Include all positions with responsibilities mentioned
   }
 }
 
@@ -512,12 +435,11 @@ Extract key information about:
 
 Focus on information that would be useful for generating study flashcards.`;
 
-  const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -583,13 +505,11 @@ IMPORTANT:
 - For "depth" use a NUMBER representing yards (e.g., 5, 10, 15, 20) NOT a route name
 - Include all visible positions in the diagram`;
 
-  // Use fetch directly instead of OpenAI SDK to avoid bundling issues
-  const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -645,12 +565,11 @@ Provide 3-5 key coaching points focusing on:
 
 Keep it concise and actionable.`;
 
-  const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -688,12 +607,12 @@ Create diverse questions covering different aspects. For each question, provide:
   "questionType": "multiple_choice|true_false|scenario",
   "topic": "coverage_recognition|route_running|blocking_assignments|pre_snap_reads|post_snap_reads|alignment_rules|play_concepts|situational_football",
   "question": "question text",
-  "options": ["A", "B", "C", "D"],  // For multiple_choice only
+  "options": ["A", "B", "C", "D"],
   "correctAnswer": "exact match to one option or 'true'/'false'",
   "explanation": "detailed explanation of correct answer",
   "learningObjective": "what this question teaches",
-  "scenarioContext": "game situation if applicable (e.g., '3rd & 6, red zone, vs Cover 2')",
-  "tags": ["relevant", "tags"],  // e.g., ["3rd_down", "red_zone"]
+  "scenarioContext": "game situation if applicable",
+  "tags": ["relevant", "tags"],
   "difficulty": "beginner|intermediate|advanced"
 }
 
@@ -719,12 +638,11 @@ Generate 2-5 questions per position based on their assignments. Mix difficulty l
 
 Return JSON: { "flashcards": [...] }`;
 
-  const apiKey = openaiApiKey;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -773,7 +691,6 @@ function normalizePosition(position: string): string | null {
 }
 
 function mapToValidCategory(category: string): string {
-  // Valid enum values: 'alignment', 'assignment', 'coverage', 'motion', 'read', 'progression', 'terminology', 'blocking'
   const categoryMap: Record<string, string> = {
     'play_concept': 'assignment',
     'route_running': 'assignment',
@@ -792,43 +709,36 @@ function mapToValidCategory(category: string): string {
 
   const normalized = (category || '').toLowerCase().replace(/_/g, '');
 
-  // Try direct match
   if (categoryMap[category]) return categoryMap[category];
 
-  // Try normalized match
   for (const [key, value] of Object.entries(categoryMap)) {
     if (key.replace(/_/g, '') === normalized) {
       return value;
     }
   }
 
-  // Default to 'assignment' for unknown categories
   return 'assignment';
 }
 
-// NEW: Helper function to build structured play text from player responsibilities
 function buildStructuredPlayText(play: any, situationalTags: string[]): string {
   const parts: string[] = [];
 
-  // Play metadata
   parts.push(`Play: ${play.name}`);
   if (play.side_of_ball) parts.push(`Side of Ball: ${play.side_of_ball}`);
   if (play.structured_play_type) parts.push(`Play Type: ${play.structured_play_type}`);
   if (play.formation_name) parts.push(`Formation: ${play.formation_name}`);
   if (play.personnel) parts.push(`Personnel: ${play.personnel}`);
 
-  // Situational tags
   if (situationalTags.length > 0) {
     parts.push(`Situations: ${situationalTags.join(', ')}`);
   }
 
   parts.push('\n--- Player Responsibilities ---\n');
 
-  // Player responsibilities (filter by includeInAI flag)
   const responsibilities = play.player_responsibilities || {};
   Object.entries(responsibilities).forEach(([playerId, resp]: [string, any]) => {
-    if (resp.includeInAI !== false) { // Include by default
-      const playerLabel = playerId; // You may want to map this to actual player labels
+    if (resp.includeInAI !== false) {
+      const playerLabel = playerId;
       parts.push(`${playerLabel}: ${resp.responsibility}`);
       if (resp.coachingNotes) {
         parts.push(`  Notes: ${resp.coachingNotes}`);
@@ -839,7 +749,6 @@ function buildStructuredPlayText(play: any, situationalTags: string[]): string {
   return parts.join('\n');
 }
 
-// NEW: Analyze structured play using GPT-4o
 async function analyzeStructuredPlay(
   openai: OpenAI,
   structuredText: string,

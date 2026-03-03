@@ -1,25 +1,19 @@
 /**
- * Background function to analyze PDFs and extract RB protection scenarios
- * This is a long-running, expensive operation
+ * Protection Analysis Worker
+ * Extracted logic from process-protection-analysis-background.ts
+ * Called by the BullMQ worker, NOT directly via HTTP
  */
 
-import { Handler } from '@netlify/functions';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSupabaseAdmin } from './shared/supabase';
-
-interface AnalysisRequest {
-  analysisId: string;
-  userId: string;
-  orgId: string;
-  pdfIds: string[];
-}
+import { ProtectionAnalysisJobData } from '../shared/queue';
+import { getSupabaseAdmin } from '../shared/supabase';
 
 interface ProtectionScenario {
-  coverage_name: string;       // defensive front name
-  coverage_type: string;       // zone/man/blitz
-  protection_type: string;     // team's actual protection name
-  protection_concept: string;  // behavioral classification (full_slide, half_slide, etc.)
-  call_side: string;           // "left" or "right"
+  coverage_name: string;
+  coverage_type: string;
+  protection_type: string;
+  protection_concept: string;
+  call_side: string;
   solid_call: boolean;
   free_release: boolean;
   play_action: boolean;
@@ -42,26 +36,19 @@ interface ProtectionScenario {
   down_distance?: string;
 }
 
-let allScenarios: ProtectionScenario[] = [];
-
-const handler: Handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' };
-  }
+export async function analyzeProtections(data: ProtectionAnalysisJobData): Promise<void> {
+  const { analysisId, userId, orgId, pdfIds } = data;
 
   const startTime = Date.now();
   let tokenCount = 0;
-  allScenarios = [];
+  let allScenarios: ProtectionScenario[] = [];
 
   try {
-    const request: AnalysisRequest = JSON.parse(event.body || '{}');
-    const { analysisId, userId, orgId, pdfIds } = request;
-
-    console.log(`🛡️ Starting protection analysis ${analysisId}`);
-    console.log(`📚 Analyzing ${pdfIds.length} PDFs for protection scenarios`);
+    console.log(`Starting protection analysis ${analysisId}`);
+    console.log(`Analyzing ${pdfIds.length} PDFs for protection scenarios`);
 
     const supabase = getSupabaseAdmin();
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const anthropic = new Anthropic();
 
     // Fetch all PDF file paths
     const { data: pdfs, error: pdfsError } = await supabase
@@ -78,7 +65,7 @@ const handler: Handler = async (event) => {
       const pdf = pdfs[i];
       const filePath = pdf.file_paths[0];
 
-      console.log(`📄 Processing PDF ${i + 1}/${pdfs.length}: ${filePath}`);
+      console.log(`Processing PDF ${i + 1}/${pdfs.length}: ${filePath}`);
 
       try {
         const { data: urlData } = supabase.storage
@@ -86,19 +73,19 @@ const handler: Handler = async (event) => {
           .getPublicUrl(filePath);
 
         if (!urlData?.publicUrl) {
-          console.error(`❌ No public URL for ${filePath}, skipping`);
+          console.error(`No public URL for ${filePath}, skipping`);
           continue;
         }
 
         const fileResponse = await fetch(urlData.publicUrl);
         if (!fileResponse.ok) {
-          console.error(`❌ Failed to fetch ${filePath} (HTTP ${fileResponse.status})`);
+          console.error(`Failed to fetch ${filePath} (HTTP ${fileResponse.status})`);
           continue;
         }
 
         const contentType = fileResponse.headers.get('content-type') || '';
         if (!contentType.includes('pdf') && !contentType.includes('octet-stream')) {
-          console.log(`⚠️  File ${filePath} is not a PDF, skipping`);
+          console.log(`File ${filePath} is not a PDF, skipping`);
           continue;
         }
 
@@ -107,7 +94,7 @@ const handler: Handler = async (event) => {
 
         const header = Buffer.from(arrayBuffer.slice(0, 4)).toString();
         if (!header.startsWith('%PDF')) {
-          console.log(`⚠️  File ${filePath} does not have PDF signature, skipping`);
+          console.log(`File ${filePath} does not have PDF signature, skipping`);
           continue;
         }
 
@@ -116,18 +103,18 @@ const handler: Handler = async (event) => {
         tokenCount += analysis.tokenCount;
         allScenarios.push(...analysis.scenarios);
 
-        console.log(`✅ Extracted ${analysis.scenarios.length} protection scenarios from ${filePath}`);
+        console.log(`Extracted ${analysis.scenarios.length} protection scenarios from ${filePath}`);
 
         if (i < pdfs.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       } catch (pdfError) {
-        console.error(`❌ Error processing PDF ${filePath}:`, pdfError instanceof Error ? pdfError.message : 'Unknown error');
+        console.error(`Error processing PDF ${filePath}:`, pdfError instanceof Error ? pdfError.message : 'Unknown error');
         continue;
       }
     }
 
-    console.log(`🎉 Total protection scenarios extracted: ${allScenarios.length}`);
+    console.log(`Total protection scenarios extracted: ${allScenarios.length}`);
 
     // Insert scenarios into database
     if (allScenarios.length > 0) {
@@ -150,7 +137,7 @@ const handler: Handler = async (event) => {
         explanation: s.explanation,
         offensive_formation: s.offensive_formation,
         down_distance: s.down_distance,
-        rb_position: { x: 55, y: 42 }, // Default RB position
+        rb_position: { x: 55, y: 42 },
       }));
 
       const { error: insertError } = await supabase
@@ -161,7 +148,7 @@ const handler: Handler = async (event) => {
         throw new Error(`Failed to insert scenarios: ${insertError.message}`);
       }
 
-      console.log(`💾 Saved ${allScenarios.length} protection scenarios to database`);
+      console.log(`Saved ${allScenarios.length} protection scenarios to database`);
     }
 
     // Update analysis record
@@ -181,28 +168,13 @@ const handler: Handler = async (event) => {
       console.error('Failed to update analysis record:', updateError);
     }
 
-    console.log(`✅ Protection analysis complete in ${processingTime}s`);
-
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        success: true,
-        analysisId,
-        scenariosExtracted: allScenarios.length,
-        processingTime,
-        tokenCount,
-      }),
-    };
+    console.log(`Protection analysis complete in ${processingTime}s`);
   } catch (error) {
-    console.error('❌ Fatal error in protection analysis:', error);
+    console.error('Fatal error in protection analysis:', error);
 
-    let analysisId = null;
+    // Update analysis record to failed
     try {
-      const request: AnalysisRequest = JSON.parse(event.body || '{}');
-      analysisId = request.analysisId;
       const supabase = getSupabaseAdmin();
-
       const processingTime = Math.floor((Date.now() - startTime) / 1000);
       await supabase
         .from('player_playbook_analysis')
@@ -215,20 +187,12 @@ const handler: Handler = async (event) => {
         })
         .eq('id', analysisId);
     } catch (updateError) {
-      console.error('❌ Failed to update analysis to failed:', updateError);
+      console.error('Failed to update analysis to failed:', updateError);
     }
 
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Analysis failed',
-        analysisId,
-      }),
-    };
+    throw error; // Re-throw so BullMQ knows the job failed and can retry
   }
-};
+}
 
 async function analyzeProtectionPDF(
   anthropic: Anthropic,
@@ -236,7 +200,7 @@ async function analyzeProtectionPDF(
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
   const systemPrompt = `You are an expert football coach analyzing playbook PDFs to extract RB (running back) protection assignments.
 
-Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL) with both base and blitz variations.
+Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL, DIME) with base rushes, single-blitzer pressures, and occasional exotic multi-blitzer packages.
 
 Extract the team's ACTUAL protection names from the playbook. If they call it "Max", "Fox", "60 Protection", "Half Slide", "BOB", use THAT exact name as protection_type. Do NOT rename protections to standard numbered schemes — preserve the team's terminology.
 
@@ -308,12 +272,24 @@ Important rules:
 - For free release protections (free_release=true, hoss=true), the correct answer is usually "RELEASE"
 - For play action (play_action concept), the TB typically fakes then releases or has late check responsibility
 - Mark defenders as "blitz": true if they're blitzing from a non-traditional rush position
-- Mark defenders as "hot": true if they're unblocked rushers the QB must deal with
+- Mark defenders as "hot": true ONLY if they are the actual unblocked free runner — the defender NO offensive player picks up. "hot" does NOT mean "first read" or "most dangerous" — it means literally unblocked. In a cross blitz where the center picks up one LB, the OTHER LB who comes free is "hot". The correct_block_target and "hot" defender are usually the same player (the TB blocks the free runner).
 - Mark defenders as "walked_up": true if they've walked up to the LOS from a LB position
 - For half_slide protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
 - ALWAYS include the full secondary (2 CBs, SS, FS) in every scenario so the field looks like a real defensive look. Mark their "rushing" as false if they are in coverage. Only mark "blitz": true, "rushing": true if they are actually blitzing.
 - Secondary positioning depth ranges: SS at y: 25-35 (near box), FS at y: 15-25 (deep), CB at y: 42-50 (near LOS, wide at x: 20-30 or x: 70-80 for outside corners, x: 30-38 or x: 62-70 for nickel/slot corners)
 - When a secondary defender blitzes, the TB's read changes — explain this clearly in the coaching explanation
+
+Pressure package distribution — even thirds:
+- ~1/3 of scenarios should be base 4-man rush with standard fronts
+- ~1/3 of scenarios should include a single LB or DB blitz (5-man pressure)
+- ~1/3 of scenarios should feature exotic pressure packages with multiple blitzers. Examples:
+  - COVER 0: All-out man coverage, no deep safety, 6-7 man pressure. SS and/or FS blitz. Both safeties should be walked up near the box (y: 40-48). Mark all blitzing DBs with "blitz": true, "rushing": true, "walked_up": true.
+  - CROSS DOG (Dawg): Two LBs cross-blitz through opposite gaps. E.g., Mike goes weak A-gap (x near 47) while Will loops strong B-gap (x near 57). Position them close together pre-snap (both near x: 48-52, y: 40-44) to show the cross action.
+  - OVERLOAD: Bring an extra rusher to one side — e.g., Sam + SS both blitz off the same edge. Stack them vertically (same x, different y) so the overload is visible.
+  - FIRE ZONE: 5-man pressure with 3-deep/3-under zone behind it. One LB or DB blitzes while a DL drops into coverage (mark that DL as "rushing": false). The dropping DL is unusual — explain it in coaching notes.
+  - SAFETY BLITZ: SS or FS walks down and comes off the edge or through a gap. Mark "walked_up": true so the pre-snap animation shows the walk-up.
+- For exotic pressures, there is almost always a "hot" unblocked rusher — make sure to mark at least one defender as "hot": true
+- In the coaching explanation for pressure scenarios, describe WHO is coming, WHERE the free runner is, and what the TB's job is (block the most dangerous threat vs. release because OL has it handled)
 
 Return ONLY the JSON object, no other text.`;
 
@@ -350,7 +326,6 @@ Return ONLY the JSON object, no other text.`;
 
     const tokenCount = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
 
-    // Extract JSON from response (may be wrapped in markdown code blocks)
     let jsonStr = textBlock.text.trim();
     const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
@@ -360,15 +335,7 @@ Return ONLY the JSON object, no other text.`;
     const parsed = JSON.parse(jsonStr);
     const scenarios = parsed.scenarios || [];
 
-    console.log(`📊 Claude returned ${scenarios.length} protection scenarios (${tokenCount} tokens)`);
-    console.log(`📝 PROMPT (first 500 chars):\n${systemPrompt.slice(0, 500)}...`);
-    console.log(`📨 RAW RESPONSE:\n${textBlock.text}`);
-    console.log(`🔍 PARSED SCENARIOS:`);
-    scenarios.forEach((s: ProtectionScenario, i: number) => {
-      const defCount = Object.keys(s.defensive_positions).length;
-      const blitzers = Object.values(s.defensive_positions).filter((d) => d.blitz).map((d) => d.label);
-      console.log(`  ${i + 1}. ${s.protection_type} vs ${s.coverage_name} (${s.coverage_type}) → ${s.correct_block_target} | ${defCount} defenders | blitzers: [${blitzers.join(', ')}] | formation: ${s.offensive_formation || 'none'}`);
-    });
+    console.log(`Claude returned ${scenarios.length} protection scenarios (${tokenCount} tokens)`);
 
     return { scenarios, tokenCount };
   } catch (error) {
@@ -376,5 +343,3 @@ Return ONLY the JSON object, no other text.`;
     throw error;
   }
 }
-
-export { handler };

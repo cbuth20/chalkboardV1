@@ -4,10 +4,14 @@ import { useState, useEffect } from 'react';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 
 export default function AdminSettingsPage() {
   const { profile, membership, session, loading: authLoading } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [inviteCode, setInviteCode] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -49,7 +53,7 @@ export default function AdminSettingsPage() {
   };
 
   const regenerateInviteCode = async () => {
-    if (!confirm('Are you sure you want to regenerate the invite code? The old code will stop working.')) {
+    if (!(await confirm({ message: 'Are you sure you want to regenerate the invite code? The old code will stop working.', variant: 'destructive', confirmLabel: 'Regenerate' }))) {
       return;
     }
 
@@ -57,7 +61,7 @@ export default function AdminSettingsPage() {
     // TODO: Implement invite code regeneration API
     setTimeout(() => {
       setGenerating(false);
-      alert('Invite code regeneration coming soon!');
+      showToast('Invite code regeneration coming soon!', 'info');
     }, 1000);
   };
 
@@ -71,12 +75,12 @@ export default function AdminSettingsPage() {
     if (!trimmed) return;
 
     if (!isValidEmail(trimmed)) {
-      alert(`Invalid email address: ${trimmed}`);
+      showToast(`Invalid email address: ${trimmed}`, 'error');
       return;
     }
 
     if (bulkEmailTags.includes(trimmed)) {
-      alert(`Email already added: ${trimmed}`);
+      showToast(`Email already added: ${trimmed}`, 'warning');
       return;
     }
 
@@ -152,17 +156,17 @@ export default function AdminSettingsPage() {
     }
 
     if (bulkEmailTags.length === 0) {
-      alert('Please enter at least one email address');
+      showToast('Please enter at least one email address', 'error');
       return;
     }
 
     if (!bulkPassword || bulkPassword.trim().length < 8) {
-      alert('Password must be at least 8 characters');
+      showToast('Password must be at least 8 characters', 'error');
       return;
     }
 
     if (!session) {
-      alert('No active session. Please refresh and try again.');
+      showToast('No active session. Please refresh and try again.', 'error');
       return;
     }
 
@@ -200,7 +204,7 @@ export default function AdminSettingsPage() {
       }
     } catch (err: any) {
       console.error('[Admin] Bulk create error:', err);
-      alert(err.message || 'Failed to create users');
+      showToast(err.message || 'Failed to create users', 'error');
     } finally {
       setBulkCreating(false);
     }

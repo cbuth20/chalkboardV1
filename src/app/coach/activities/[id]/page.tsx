@@ -4,6 +4,8 @@ import { SidebarLayout } from "@/components/SidebarLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useToast } from '@/components/Toast';
+import { useConfirm } from '@/components/ConfirmModal';
 import type { ActivityType } from "@/types/activities";
 
 const ACTIVITY_METADATA: Record<ActivityType, {
@@ -22,6 +24,8 @@ export default function CoachActivityDetailPage() {
   const { orgId, session, loading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const activityId = params.id as string;
 
   const [activity, setActivity] = useState<any>(null);
@@ -63,7 +67,7 @@ export default function CoachActivityDetailPage() {
       setActivity(found);
     } catch (error) {
       console.error('Error fetching activity:', error);
-      alert('Failed to load activity');
+      showToast('Failed to load activity', 'error');
       router.push('/coach/activities');
     } finally {
       setLoading(false);
@@ -71,21 +75,21 @@ export default function CoachActivityDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this activity? This action cannot be undone.')) {
+    if (!(await confirm({ message: 'Are you sure you want to delete this activity? This action cannot be undone.', variant: 'destructive', confirmLabel: 'Delete' }))) {
       return;
     }
 
     // TODO: Implement delete endpoint
-    alert('Delete functionality coming soon!');
+    showToast('Delete functionality coming soon!', 'info');
   };
 
   const handleArchive = async () => {
-    if (!confirm('Archive this activity? Players will no longer be able to access it.')) {
+    if (!(await confirm({ message: 'Archive this activity? Players will no longer be able to access it.', confirmLabel: 'Archive' }))) {
       return;
     }
 
     // TODO: Implement archive endpoint
-    alert('Archive functionality coming soon!');
+    showToast('Archive functionality coming soon!', 'info');
   };
 
   if (authLoading || loading) {

@@ -3,6 +3,7 @@
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from '@/components/Toast';
 import { useState, useEffect } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 
@@ -16,6 +17,7 @@ export default function ActivityResultsPage() {
 
 function ActivityResultsContent() {
   const { orgId, session } = useAuth();
+  const { showToast } = useToast();
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -85,7 +87,7 @@ function ActivityResultsContent() {
       });
     } catch (error) {
       console.error('Error fetching results:', error);
-      alert(error instanceof Error ? error.message : 'Failed to load results');
+      showToast(error instanceof Error ? error.message : 'Failed to load results', 'error');
       router.push(`/activities/${activityId}`);
     } finally {
       setLoading(false);

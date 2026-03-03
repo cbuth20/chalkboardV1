@@ -9,6 +9,7 @@ import { Handler } from '@netlify/functions';
 import { withOrgAuth, getAuthenticatedUser } from './shared/auth';
 import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, ValidationError } from './shared/errors';
+import { enqueueFormationsAnalysis } from './shared/queue-jobs';
 
 interface AnalyzeFormationsRequest {
   positions?: string[]; // Optional: filter by positions (QB, RB, WR, OT)
@@ -84,37 +85,26 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
     console.log(`🎯 Created analysis record ${analysis.id}`);
 
-    // Call background processing function
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-formations-analysis-background`;
+    // Enqueue job to Redis via BullMQ
+    console.log(`Triggering background analysis for ${pdfs.length} PDFs`);
 
-    console.log(`🚀 Triggering background analysis for ${pdfs.length} PDFs`);
-    console.log(`⚠️  WARNING: This will be an expensive operation!`);
-
-    // Fire-and-forget call to background function
-    fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        analysisId: analysis.id,
-        userId: user.userId,
-        orgId: user.orgId,
-        pdfIds: pdfs.map(p => p.id),
-        positions: body.positions || ['QB', 'RB', 'WR', 'OT'],
-        modules: body.modules || ['posse_2x2', 'posse_trips', 'quads', 'ranger', 'zombie', 'empty', 'special'],
-      }),
-    }).catch((error) => {
-      console.error('Failed to trigger background function:', error);
-      // Update status to failed
-      supabase
-        .from('player_playbook_analysis')
-        .update({ status: 'failed', error_message: 'Failed to start background processing' })
-        .eq('id', analysis.id)
-        .then(() => console.log('Updated analysis status to failed'));
+    const jobId = await enqueueFormationsAnalysis({
+      analysisId: analysis.id,
+      userId: user.userId,
+      orgId: user.orgId,
+      pdfIds: pdfs.map(p => p.id),
+      positions: body.positions || ['QB', 'RB', 'WR', 'OT'],
+      modules: body.modules || ['posse_2x2', 'posse_trips', 'quads', 'ranger', 'zombie', 'empty', 'special'],
     });
 
-    console.log(`✅ Background analysis triggered for analysis ${analysis.id}`);
+    console.log(`Enqueued formations analysis job ${jobId}`);
+
+    // Ping the worker to ensure it's running
+    const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
+    const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
+    fetch(workerUrl, { method: 'POST' }).catch(() => {
+      // Worker may already be running — that's fine
+    });
 
     return {
       statusCode: 202, // Accepted
@@ -122,6 +112,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       body: JSON.stringify({
         success: true,
         analysisId: analysis.id,
+        jobId,
         status: 'processing',
         pdfCount: pdfs.length,
         estimatedDuration: `${Math.ceil(pdfs.length * 2)} minutes`,

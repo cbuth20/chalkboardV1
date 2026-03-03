@@ -69,6 +69,9 @@ pids
 # Optional eslint cache
 .eslintcache
 
+# Local notes
+questions.md
+
 # Netlify
 .netlify/
 
