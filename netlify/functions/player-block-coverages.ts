@@ -31,6 +31,15 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       throw new Error(`Failed to fetch coverages: ${error.message}`);
     }
 
+    // Fetch latest analysis status so frontend can detect failures
+    const { data: latestAnalysis } = await supabase
+      .from('player_playbook_analysis')
+      .select('id, status, error_message')
+      .eq('user_id', user.userId)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -38,6 +47,8 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         success: true,
         scenarios: coverages || [],
         total: coverages?.length || 0,
+        analysisStatus: latestAnalysis?.status || null,
+        analysisError: latestAnalysis?.error_message || null,
       }),
     };
   } catch (error) {

@@ -245,14 +245,16 @@ const handler: Handler = async (event) => {
 
     // Update analysis record
     const processingTime = Math.floor((Date.now() - startTime) / 1000);
+    const didSucceed = allScenarios.length > 0;
     const { error: updateError } = await supabase
       .from('player_playbook_analysis')
       .update({
-        status: 'completed',
+        status: didSucceed ? 'completed' : 'failed',
         formations_extracted: allScenarios.length,
         estimated_tokens: tokenCount,
         processing_time_seconds: processingTime,
         completed_at: new Date().toISOString(),
+        error_message: didSucceed ? null : 'No protection scenarios could be extracted from your files. Make sure you uploaded playbook pages that contain pass protection schemes.',
       })
       .eq('id', analysisId);
 
