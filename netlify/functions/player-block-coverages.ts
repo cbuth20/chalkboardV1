@@ -40,10 +40,20 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       .limit(1)
       .single();
 
+    // Check if user has any analyzable files (PDFs/images)
+    const SUPPORTED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
+    const { data: allFiles } = await supabase
+      .from('player_playbook_metadata')
+      .select('file_paths')
+      .eq('user_id', user.userId);
+    const hasAnalyzableFiles = (allFiles || []).some(f =>
+      f.file_paths?.some((p: string) => SUPPORTED_EXTENSIONS.includes(p.split('.').pop()?.toLowerCase() || ''))
+    );
+
     // Auto-mark stale 'processing' records as failed (>15 min old)
     if (latestAnalysis?.status === 'processing' && latestAnalysis.started_at) {
       const ageMinutes = (Date.now() - new Date(latestAnalysis.started_at).getTime()) / 60000;
-      if (ageMinutes > 15) {
+      if (ageMinutes > 10) {
         await supabase
           .from('player_playbook_analysis')
           .update({
@@ -67,6 +77,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         analysisStatus: latestAnalysis?.status || null,
         analysisError: latestAnalysis?.error_message || null,
         analysisStartedAt: latestAnalysis?.started_at || null,
+        hasAnalyzableFiles,
       }),
     };
   } catch (error) {

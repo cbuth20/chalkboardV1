@@ -65,6 +65,18 @@ const handler: Handler = async (event) => {
     console.log(`📚 Analyzing ${pdfIds.length} PDFs for protection scenarios`);
 
     const supabase = getSupabaseAdmin();
+
+    // Skip stale jobs — if the analysis record is no longer 'processing', skip it
+    const { data: analysisRecord } = await supabase
+      .from('player_playbook_analysis')
+      .select('status')
+      .eq('id', analysisId)
+      .single();
+    if (!analysisRecord || analysisRecord.status !== 'processing') {
+      console.log(`Skipping stale job: analysis ${analysisId} status is '${analysisRecord?.status || 'not found'}', not 'processing'`);
+      return { statusCode: 200, body: JSON.stringify({ skipped: true, reason: 'stale' }) };
+    }
+
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     // Helper to update progress message visible to frontend

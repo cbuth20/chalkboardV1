@@ -612,13 +612,6 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     setLoading(true);
     try {
-      // Check if user has any uploaded files (for showing/hiding Analyze button)
-      fetch(`/api/player-notes?orgId=${orgId}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      }).then(r => r.ok ? r.json() : null).then(data => {
-        setHasUploadedFiles(data && data.total > 0);
-      }).catch(() => {});
-
       const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -646,13 +639,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           coaching_notes: s.blocking_rules || '',
         }));
         setScenarios(scenarioData);
+        console.log('[RBProtection] coverages response:', { hasAnalyzableFiles: data.hasAnalyzableFiles, analysisStatus: data.analysisStatus, scenarioCount: scenarioData.length });
+        setHasUploadedFiles(data.hasAnalyzableFiles ?? false);
 
         // Pick up analysis status if one was running (e.g., page reload during analysis)
         // Only resume if the analysis started within the last 15 minutes (not a stale record)
         if (data.analysisStatus === 'processing' && data.analysisStartedAt) {
           const startedAt = new Date(data.analysisStartedAt).getTime();
           const ageMinutes = (Date.now() - startedAt) / 60000;
-          if (ageMinutes < 15) {
+          if (ageMinutes < 10) {
             setAnalysisStatus('processing');
             setAnalyzing(true);
             if (data.analysisError) setAnalysisProgress(data.analysisError);
@@ -738,11 +733,12 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             return;
           }
 
-          // Done when: new IDs appear that weren't in the original set, or count changes from 0 to >0
+          // Done when: status is completed, new IDs appear, or count changes from 0 to >0
+          const isCompleted = data.analysisStatus === 'completed';
           const hasNewIds = newScenarios.some((s: any) => !idsAtStart.has(s.id));
           const firstAnalysis = countAtStart === 0 && newScenarios.length > 0;
 
-          if (hasNewIds || firstAnalysis) {
+          if (isCompleted || hasNewIds || firstAnalysis) {
             // New scenarios arrived — analysis completed
             const scenarioData = newScenarios.map((s: any) => ({
               id: s.id,
