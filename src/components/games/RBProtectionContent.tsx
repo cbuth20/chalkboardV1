@@ -648,10 +648,16 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         setScenarios(scenarioData);
 
         // Pick up analysis status if one was running (e.g., page reload during analysis)
-        if (data.analysisStatus === 'processing') {
-          setAnalysisStatus('processing');
-          setAnalyzing(true);
-          startPolling();
+        // Only resume if the analysis started within the last 15 minutes (not a stale record)
+        if (data.analysisStatus === 'processing' && data.analysisStartedAt) {
+          const startedAt = new Date(data.analysisStartedAt).getTime();
+          const ageMinutes = (Date.now() - startedAt) / 60000;
+          if (ageMinutes < 15) {
+            setAnalysisStatus('processing');
+            setAnalyzing(true);
+            if (data.analysisError) setAnalysisProgress(data.analysisError);
+            startPolling();
+          }
         }
       }
     } catch (error) {

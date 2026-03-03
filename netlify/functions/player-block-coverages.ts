@@ -34,7 +34,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     // Fetch latest analysis status so frontend can detect failures
     const { data: latestAnalysis } = await supabase
       .from('player_playbook_analysis')
-      .select('id, status, error_message')
+      .select('id, status, error_message, started_at')
       .eq('user_id', user.userId)
       .order('started_at', { ascending: false })
       .limit(1)
@@ -49,6 +49,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         total: coverages?.length || 0,
         analysisStatus: latestAnalysis?.status || null,
         analysisError: latestAnalysis?.error_message || null,
+        analysisStartedAt: latestAnalysis?.started_at || null,
       }),
     };
   } catch (error) {
