@@ -517,6 +517,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const [hasUploadedFiles, setHasUploadedFiles] = useState<boolean | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+  const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -647,10 +648,16 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         setScenarios(scenarioData);
 
         // Pick up analysis status if one was running (e.g., page reload during analysis)
-        if (data.analysisStatus === 'processing') {
-          setAnalysisStatus('processing');
-          setAnalyzing(true);
-          startPolling();
+        // Only resume if the analysis started within the last 15 minutes (not a stale record)
+        if (data.analysisStatus === 'processing' && data.analysisStartedAt) {
+          const startedAt = new Date(data.analysisStartedAt).getTime();
+          const ageMinutes = (Date.now() - startedAt) / 60000;
+          if (ageMinutes < 15) {
+            setAnalysisStatus('processing');
+            setAnalyzing(true);
+            if (data.analysisError) setAnalysisProgress(data.analysisError);
+            startPolling();
+          }
         }
       }
     } catch (error) {
@@ -716,9 +723,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           const data = await response.json();
           const newScenarios = data.scenarios || [];
 
+          // Update progress message from backend
+          if (data.analysisStatus === 'processing' && data.analysisError) {
+            setAnalysisProgress(data.analysisError);
+          }
+
           // Check if analysis failed on the backend
           if (data.analysisStatus === 'failed') {
             setAnalysisStatus('failed');
+            setAnalysisProgress(null);
             setAnalyzing(false);
             if (pollRef.current) clearInterval(pollRef.current);
             showToast(data.analysisError || 'Analysis failed. Please try again.', 'error');
@@ -751,6 +764,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             }));
             setScenarios(scenarioData);
             setAnalysisStatus('completed');
+            setAnalysisProgress(null);
             setAnalyzing(false);
             if (pollRef.current) clearInterval(pollRef.current);
           }
@@ -1153,8 +1167,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-[#00d4aa] mb-1">Analyzing Playbooks...</h3>
                 <p className="text-sm text-gray-400">
-                  Extracting protection schemes, defensive fronts, and RB assignments from your playbook files.
-                  This typically takes 2-5 minutes.
+                  {analysisProgress || 'Extracting protection schemes, defensive fronts, and RB assignments from your playbook files.'}
                 </p>
                 <div className="mt-3 h-1.5 bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full bg-[#00d4aa]/60 rounded-full animate-pulse" style={{ width: '60%' }} />

@@ -54,6 +54,15 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
     const supabase = getSupabaseAdmin();
     const anthropic = new Anthropic();
 
+    // Helper to update progress message visible to frontend
+    const updateProgress = async (message: string) => {
+      console.log(`[Progress] ${message}`);
+      await supabase
+        .from('player_playbook_analysis')
+        .update({ error_message: message })
+        .eq('id', analysisId);
+    };
+
     // Snapshot existing scenario IDs so we can delete them AFTER new ones are inserted
     const { data: existingRows } = await supabase
       .from('player_block_coverages')
@@ -62,6 +71,8 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
       .eq('org_id', orgId);
     const oldScenarioIds = (existingRows || []).map(r => r.id);
     console.log(`Found ${oldScenarioIds.length} existing scenarios to replace after successful generation`);
+
+    await updateProgress(`Preparing to analyze ${pdfIds.length} file${pdfIds.length === 1 ? '' : 's'}...`);
 
     // Fetch all PDF file paths
     const { data: pdfs, error: pdfsError } = await supabase
@@ -83,6 +94,8 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
       const ext = filePath.split('.').pop()?.toLowerCase() || '';
 
       console.log(`Processing file ${i + 1}/${pdfs.length}: ${filePath}`);
+      const fileName = filePath.split('/').pop() || `File ${i + 1}`;
+      await updateProgress(`Analyzing file ${i + 1} of ${pdfs.length}: ${fileName}`);
 
       try {
         const { data: urlData } = supabase.storage
@@ -180,6 +193,9 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
     }
 
     console.log(`Total protection scenarios extracted: ${allScenarios.length}`);
+    await updateProgress(allScenarios.length > 0
+      ? `Saving ${allScenarios.length} scenario${allScenarios.length === 1 ? '' : 's'}...`
+      : 'No scenarios found in your files.');
 
     // Insert scenarios into database
     if (allScenarios.length > 0) {

@@ -34,11 +34,28 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     // Fetch latest analysis status so frontend can detect failures
     const { data: latestAnalysis } = await supabase
       .from('player_playbook_analysis')
-      .select('id, status, error_message')
+      .select('id, status, error_message, started_at')
       .eq('user_id', user.userId)
       .order('started_at', { ascending: false })
       .limit(1)
       .single();
+
+    // Auto-mark stale 'processing' records as failed (>15 min old)
+    if (latestAnalysis?.status === 'processing' && latestAnalysis.started_at) {
+      const ageMinutes = (Date.now() - new Date(latestAnalysis.started_at).getTime()) / 60000;
+      if (ageMinutes > 15) {
+        await supabase
+          .from('player_playbook_analysis')
+          .update({
+            status: 'failed',
+            error_message: 'Analysis timed out. Please try again.',
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', latestAnalysis.id);
+        latestAnalysis.status = 'failed';
+        latestAnalysis.error_message = 'Analysis timed out. Please try again.';
+      }
+    }
 
     return {
       statusCode: 200,
@@ -49,6 +66,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         total: coverages?.length || 0,
         analysisStatus: latestAnalysis?.status || null,
         analysisError: latestAnalysis?.error_message || null,
+        analysisStartedAt: latestAnalysis?.started_at || null,
       }),
     };
   } catch (error) {
