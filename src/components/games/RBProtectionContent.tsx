@@ -59,7 +59,14 @@ interface SessionStats {
 
 type Difficulty = 'chill' | 'normal' | 'fast' | 'elite';
 type Screen = 'menu' | 'playing' | 'feedback' | 'results' | 'stats';
-type PlayPhase = 'pre_snap' | 'snapped';
+type PlayPhase = 'call' | 'front_id' | 'pre_snap' | 'snapped';
+
+// Common defensive fronts for generating wrong answers
+const COMMON_FRONTS = [
+  'OVER', 'UNDER', '4-3', '3-4', 'BEAR', 'NICKEL', 'DIME',
+  '4-3 OVER', '4-3 UNDER', '3-4 EAGLE', '46', 'ODD', 'EVEN',
+  'NICKEL OVER', 'NICKEL UNDER', '3-3-5', '4-2-5',
+];
 
 const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS']);
 const isSecondary = (label: string) => SECONDARY_LABELS.has(label.toUpperCase());
@@ -533,11 +540,23 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const [postSnapBreakthrough, setPostSnapBreakthrough] = useState(false);
   const [mikeCallout, setMikeCallout] = useState<string | null>(null);
   const [mikeVisible, setMikeVisible] = useState(false);
+  const callPhaseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preSnapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preSnapAnimRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coverageSlideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const breakthroughRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mikeCalloutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Front ID phase state
+  const [frontChoices, setFrontChoices] = useState<string[]>([]);
+  const [frontIdResult, setFrontIdResult] = useState<'correct' | 'wrong' | null>(null);
+  const [frontIdPicked, setFrontIdPicked] = useState<string | null>(null);
+  const [frontIdTimer, setFrontIdTimer] = useState(5000);
+  const frontIdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const frontIdOverlayVisible = useRef(false);
+  const [frontIdOverlay, setFrontIdOverlay] = useState(false);
+  const [makeReadOverlay, setMakeReadOverlay] = useState(false);
+  const makeReadRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Feedback state
   const [lastResult, setLastResult] = useState<PlayResult | null>(null);
@@ -661,6 +680,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const startPolling = () => {
     if (pollRef.current) clearInterval(pollRef.current);
 
+    // Track the scenario count at the moment polling starts (before delete wipes them)
+    const countAtStart = scenarios.length;
+    let sawEmpty = false;
+
     pollRef.current = setInterval(async () => {
       try {
         // Re-fetch scenarios to see if new ones appeared
@@ -672,7 +695,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           const data = await response.json();
           const newScenarios = data.scenarios || [];
 
-          if (newScenarios.length > scenarios.length) {
+          // Worker deletes old scenarios first, so we'll see 0 during processing
+          if (newScenarios.length === 0) sawEmpty = true;
+
+          // Done when: we see scenarios after seeing 0 (re-analysis), or count increased (first analysis)
+          if (newScenarios.length > 0 && (sawEmpty || newScenarios.length > countAtStart)) {
             // New scenarios arrived — analysis completed
             const scenarioData = newScenarios.map((s: any) => ({
               id: s.id,
@@ -783,25 +810,81 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     // Clear any existing timers
     if (timerRef.current) clearInterval(timerRef.current);
+    if (callPhaseRef.current) clearTimeout(callPhaseRef.current);
     if (preSnapTimeoutRef.current) clearTimeout(preSnapTimeoutRef.current);
     if (preSnapAnimRef.current) clearTimeout(preSnapAnimRef.current);
     if (coverageSlideRef.current) clearTimeout(coverageSlideRef.current);
     if (breakthroughRef.current) clearTimeout(breakthroughRef.current);
     if (mikeCalloutRef.current) clearTimeout(mikeCalloutRef.current);
+    if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
 
-    // Show defenders at pre-snap offsets, then release to final positions
+    // Reset all animation state
     setPreSnapAnimating(true);
     setCoverageSliding(false);
     setPostSnapRushing(false);
     setPostSnapBreakthrough(false);
     setMikeCallout(null);
     setMikeVisible(false);
+    setFrontIdResult(null);
+    setFrontIdPicked(null);
+    setFrontIdTimer(5000);
+    setFrontIdOverlay(false);
+    frontIdOverlayVisible.current = false;
+
+    // Generate front ID multiple choice options
+    const correctFront = scenario.coverage_name;
+    const otherFronts = COMMON_FRONTS.filter(f => f.toUpperCase() !== correctFront.toUpperCase());
+    const shuffledWrong = shuffleArray(otherFronts).slice(0, 3);
+    setFrontChoices(shuffleArray([correctFront, ...shuffledWrong]));
+
+    // Phase 1: Show the call screen (protection name + TB side)
+    setPlayPhase('call');
+
+    // Phase 2: After 1.5s, show field and ask user to ID the front
+    callPhaseRef.current = setTimeout(() => {
+      setPlayPhase('front_id');
+
+      // Start defender walk-up animation
+      preSnapAnimRef.current = setTimeout(() => {
+        setPreSnapAnimating(false);
+      }, 60);
+
+      // Show "IDENTIFY THE FRONT" overlay immediately
+      frontIdOverlayVisible.current = true;
+      setFrontIdOverlay(true);
+
+      // After 1s, hide overlay and start the 5-second countdown
+      setTimeout(() => {
+        setFrontIdOverlay(false);
+
+        const startMs = Date.now();
+        frontIdTimerRef.current = setInterval(() => {
+          const elapsed = Date.now() - startMs;
+          const remaining = Math.max(0, 5000 - elapsed);
+          setFrontIdTimer(remaining);
+          if (remaining <= 0) {
+            if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
+            if (!frontIdOverlayVisible.current) return; // already answered
+            frontIdOverlayVisible.current = false;
+            setFrontIdResult('wrong');
+            setFrontIdPicked(null);
+            setTimeout(() => beginPreSnap(scenario), 1200);
+          }
+        }, 50);
+      }, 1000);
+    }, 1500);
+  };
+
+  /** Runs the pre-snap → snap sequence after the user identifies the front */
+  const beginPreSnap = (scenario: ProtectionScenario) => {
+    const totalTime = DIFFICULTY_CONFIG[difficulty].time;
     setPlayPhase('pre_snap');
 
-    // After 60ms (guarantees first paint), flip the boolean to trigger CSS transition to final positions
-    preSnapAnimRef.current = setTimeout(() => {
-      setPreSnapAnimating(false);
-    }, 60);
+    // Show "MAKE YOUR READ" overlay for 1s
+    setMakeReadOverlay(true);
+    makeReadRef.current = setTimeout(() => {
+      setMakeReadOverlay(false);
+    }, 1000);
 
     // After 500ms: QB identifies and calls the Mike
     mikeCalloutRef.current = setTimeout(() => {
@@ -811,27 +894,24 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         scenario.call_side
       );
       setMikeCallout(mikeId);
-      // Short delay for reticle to appear, then fade in
       setTimeout(() => setMikeVisible(true), 100);
     }, 500);
 
-    // After 900ms (walk-up mostly complete), trigger coverage rotation slide
+    // After 900ms: trigger coverage rotation slide
     coverageSlideRef.current = setTimeout(() => {
       setCoverageSliding(true);
     }, 900);
 
-    // After 1.8s: snap the ball, start the timer
+    // After 1.8s + 1s overlay = 2.8s: snap the ball, start the timer
     preSnapTimeoutRef.current = setTimeout(() => {
       setPlayPhase('snapped');
       setPostSnapRushing(true);
       setPlayStartTime(Date.now());
 
-      // Schedule breakthrough: hot defenders break through past OL after 1.5s
       breakthroughRef.current = setTimeout(() => {
         setPostSnapBreakthrough(true);
       }, 1500);
 
-      // Start countdown
       const startMs = Date.now();
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - startMs;
@@ -843,7 +923,27 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           handleAnswer('TIMEOUT', scenario);
         }
       }, 50);
-    }, 1800);
+    }, 1800 + 1000);
+  };
+
+  /** Called when user picks a front in the front_id phase */
+  const handleFrontAnswer = (choice: string) => {
+    const scenario = currentScenarios[playIndex];
+    if (!scenario || frontIdResult) return;
+
+    // Stop the countdown
+    if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
+    frontIdOverlayVisible.current = false;
+    setFrontIdOverlay(false);
+
+    const correct = choice.toUpperCase() === scenario.coverage_name.toUpperCase();
+    setFrontIdResult(correct ? 'correct' : 'wrong');
+    setFrontIdPicked(choice);
+
+    // Brief flash, then move to pre-snap
+    setTimeout(() => {
+      beginPreSnap(scenario);
+    }, correct ? 600 : 1200);
   };
 
   const handleAnswer = useCallback((answer: string, scenario?: ProtectionScenario) => {
@@ -853,7 +953,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (!current) return;
 
     const responseTime = Date.now() - playStartTime;
-    const isCorrect = answer.toUpperCase() === current.correct_block_target.toUpperCase();
+    // Normalize defender labels so aliases (R/Rover = SS, $ = Q, etc.) match
+    const DEFENDER_ALIASES: Record<string, string> = {
+      'R': 'SS', 'ROVER': 'SS', 'ROBBER': 'SS', '$': 'Q', 'STAR': 'Q', 'STUD': 'Q',
+    };
+    const normalizeLabel = (l: string) => { const u = l.toUpperCase(); return DEFENDER_ALIASES[u] || u; };
+    const isCorrect = answer.toUpperCase() === current.correct_block_target.toUpperCase()
+      || normalizeLabel(answer) === normalizeLabel(current.correct_block_target);
 
     const result: PlayResult = {
       scenario: current,
@@ -933,6 +1039,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       if (timerRef.current) clearInterval(timerRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
+      if (callPhaseRef.current) clearTimeout(callPhaseRef.current);
+      if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
       if (preSnapTimeoutRef.current) clearTimeout(preSnapTimeoutRef.current);
       if (preSnapAnimRef.current) clearTimeout(preSnapAnimRef.current);
       if (coverageSlideRef.current) clearTimeout(coverageSlideRef.current);
@@ -941,12 +1049,17 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     };
   }, []);
 
-  // Scroll to top of game container on screen transitions
+  // Scroll game container into view on screen/phase transitions
   useEffect(() => {
     if ((screen === 'playing' || screen === 'feedback') && gameContainerRef.current) {
-      gameContainerRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+      if (playPhase === 'front_id') {
+        // Scroll all the way down so multiple choice buttons are visible
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+      } else {
+        gameContainerRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+      }
     }
-  }, [screen, playIndex]);
+  }, [screen, playIndex, playPhase]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LOADING / AUTH
@@ -1010,7 +1123,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-[#00d4aa] mb-1">Analyzing Playbooks...</h3>
                 <p className="text-sm text-gray-400">
-                  Extracting protection schemes, defensive fronts, and RB assignments from your PDFs.
+                  Extracting protection schemes, defensive fronts, and RB assignments from your playbook files.
                   This typically takes 2-5 minutes.
                 </p>
                 <div className="mt-3 h-1.5 bg-gray-800 rounded-full overflow-hidden">
@@ -1047,20 +1160,22 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           </div>
         )}
 
-        {scenarios.length === 0 && analysisStatus !== 'processing' ? (
+        {scenarios.length === 0 ? (
           /* Empty State */
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Protection Scenarios</h3>
             <p className="text-gray-300 mb-4">
-              Upload your playbook PDFs in <strong>My Notes</strong>, then analyze them to generate protection scenarios.
+              Upload your playbook PDFs or images in <strong>My Notes</strong>, then analyze them to generate protection scenarios.
             </p>
-            <button
-              onClick={startAnalysis}
-              disabled={analyzing}
-              className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
-            >
-              {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
-            </button>
+            {analysisStatus !== 'processing' && (
+              <button
+                onClick={startAnalysis}
+                disabled={analyzing}
+                className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
+              >
+                {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -1164,7 +1279,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     const totalTime = DIFFICULTY_CONFIG[difficulty].time;
     const pct = playPhase === 'pre_snap' ? 100 : (timeRemaining / totalTime) * 100;
     const timerColor = pct > 60 ? '#00d4aa' : pct > 30 ? '#fbbf24' : '#ef4444';
-    const isPreSnap = playPhase === 'pre_snap';
+    const isPreSnap = playPhase === 'pre_snap' || playPhase === 'call' || playPhase === 'front_id';
+    const isCallPhase = playPhase === 'call';
+    const isFrontId = playPhase === 'front_id';
 
     const defenders = Object.entries(scenario.defensive_positions).map(([id, def]) => {
       // Support both old format (just coordinates) and new format (full defender object)
@@ -1261,32 +1378,58 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     return (
       <div ref={gameContainerRef}>
-        {/* Info Bar */}
-        <div className="bg-gray-800 rounded-lg p-4 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <span className="text-[#00d4aa] font-bold">{scenario.protection_type}</span>
-              <span className="text-gray-400 mx-2">vs</span>
-              <span className="text-white font-semibold">{scenario.coverage_name}</span>
-            </div>
-            <div className="text-sm text-gray-400">
-              TB {scenario.call_side?.toUpperCase() || ''}
+        {/* Call Screen — shows protection & front before the field appears */}
+        {isCallPhase && (
+          <div
+            className="relative bg-[#1a3a25] rounded-lg overflow-hidden flex flex-col items-center justify-center"
+            style={{ height: 560 }}
+          >
+            {/* Turf lines for visual consistency */}
+            <div className="absolute inset-0 pointer-events-none" style={{
+              backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 56px)',
+            }} />
+            <div className="relative z-10 text-center px-8">
+              <div className="text-gray-500 text-sm font-semibold uppercase tracking-[0.3em] mb-6">
+                Play {playIndex + 1} of {currentScenarios.length}
+              </div>
+              <div className="text-[#00d4aa] text-5xl sm:text-6xl font-black tracking-wide mb-6">
+                {scenario.protection_type}
+              </div>
+              <div className="text-gray-400 text-lg font-semibold uppercase tracking-widest mb-6">
+                TB {scenario.call_side?.toUpperCase() || ''}
+              </div>
+              {flags.length > 0 && (
+                <div className="flex gap-2 flex-wrap justify-center">
+                  {flags.map(flag => (
+                    <span key={flag} className="text-sm bg-[#00d4aa]/10 text-[#00d4aa] px-3 py-1 rounded-full font-semibold">
+                      {flag}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-          {flags.length > 0 && (
-            <div className="flex gap-2 flex-wrap">
-              {flags.map(flag => (
-                <span key={flag} className="text-xs bg-[#00d4aa]/10 text-[#00d4aa] px-2 py-0.5 rounded font-semibold">
-                  {flag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
 
-        {/* Cadence / Mike callout / post-snap prompt */}
+        {/* Normal playing UI — hidden during call phase */}
+        {!isCallPhase && (<>
+
+        {/* Front ID / Cadence / Mike callout / post-snap prompt */}
         <div className="text-center mb-2">
-          {isPreSnap ? (
+          {isFrontId ? (
+            <div>
+              <span className={`text-lg font-semibold uppercase tracking-widest ${
+                frontIdResult === 'correct' ? 'text-emerald-400' : frontIdResult === 'wrong' ? 'text-red-400' : 'text-[#67e8f9]'
+              }`}>
+                {frontIdResult === 'correct' ? 'Correct!' : frontIdResult === 'wrong' ? `${scenario.coverage_name}` : 'What front is this?'}
+              </span>
+              {!frontIdResult && (
+                <span className="ml-3 text-sm font-mono" style={{ color: frontIdTimer > 2000 ? '#67e8f9' : frontIdTimer > 1000 ? '#fbbf24' : '#ef4444' }}>
+                  {(frontIdTimer / 1000).toFixed(1)}s
+                </span>
+              )}
+            </div>
+          ) : isPreSnap ? (
             mikeCallout && mikeVisible ? (
               <span className="text-lg font-bold text-[#fbbf24] uppercase tracking-widest" style={{ opacity: mikeVisible ? 1 : 0, transition: 'opacity 0.3s ease-out' }}>
                 {defenders.find(d => d.id === mikeCallout)?.label} IS THE MIKE!
@@ -1454,6 +1597,40 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                   }}
                 >
                   <HelmetIcon label={label.replace('L', '').replace('R', '')} fill="#1a2744" stroke="#2a3f66" stripeColor="#2a3f66" stripeOpacity={0.5} maskColor="#4b5563" textColor="#9ca3af" facing="up" />
+                </div>
+              );
+            });
+          })()}
+
+          {/* Slide direction pulsing dots — below OL */}
+          {['full_slide', 'half_slide'].includes(concept) && mikeVisible && !postSnapRushing && (() => {
+            const slidingRight = scenario.call_side === 'right';
+            const isHalf = concept === 'half_slide';
+            const startX = isHalf ? 50 : (slidingRight ? 40 : 60);
+            const dots = [0, 1, 2, 3, 4];
+            const spacing = 5;
+            return dots.map(i => {
+              const offset = slidingRight ? i * spacing : -(i * spacing);
+              return (
+                <div
+                  key={`slide-dot-${i}`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${startX + offset}%`,
+                    top: '69%',
+                    transform: 'translate(-50%, -50%)',
+                    zIndex: 21,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      backgroundColor: '#fbbf24',
+                      animation: `slide-chase 1s ease-out ${i * 0.2}s infinite`,
+                    }}
+                  />
                 </div>
               );
             });
@@ -1677,44 +1854,6 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                         <line x1="44" y1="36" x2="48" y2="36" stroke="#fbbf24" strokeWidth="1.5" opacity="0.5" />
                       </svg>
                     </div>
-                    {/* Slide arrow */}
-                    {['full_slide', 'half_slide'].includes(concept) && mikeVisible && (() => {
-                      const slidingRight = scenario.call_side === 'right';
-                      return (
-                        <div
-                          className={`absolute pointer-events-none ${slidingRight ? 'animate-slide-arrow-right' : 'animate-slide-arrow-left'}`}
-                          style={{
-                            left: slidingRight ? '100%' : 'auto',
-                            right: slidingRight ? 'auto' : '100%',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            zIndex: 50,
-                          }}
-                        >
-                          <svg width="80" height="20" viewBox="0 0 80 20" fill="none">
-                            <line
-                              x1={slidingRight ? 0 : 80}
-                              y1="10"
-                              x2={slidingRight ? 65 : 15}
-                              y2="10"
-                              stroke="#fbbf24"
-                              strokeWidth="2"
-                              opacity="0.5"
-                              strokeDasharray="6 4"
-                            />
-                            <polyline
-                              points={slidingRight ? '58,4 70,10 58,16' : '22,4 10,10 22,16'}
-                              stroke="#fbbf24"
-                              strokeWidth="2.5"
-                              fill="none"
-                              opacity="0.7"
-                              strokeLinejoin="round"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        </div>
-                      );
-                    })()}
                   </>
                 )}
               </button>
@@ -1723,11 +1862,66 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
           </div>{/* end inner positioning wrapper */}
 
+          {/* "IDENTIFY THE FRONT" overlay during front_id phase */}
+          {isFrontId && frontIdOverlay && !frontIdResult && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+              <div className="bg-black/60 backdrop-blur-sm px-10 py-5 rounded-2xl">
+                <div className="text-[#67e8f9] text-3xl sm:text-4xl font-black uppercase tracking-widest text-center animate-pulse">
+                  Identify the Front
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* "MAKE YOUR READ" overlay during pre_snap phase */}
+          {playPhase === 'pre_snap' && makeReadOverlay && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+              <div className="bg-black/60 backdrop-blur-sm px-10 py-5 rounded-2xl">
+                <div className="text-[#fbbf24] text-3xl sm:text-4xl font-black uppercase tracking-widest text-center animate-pulse">
+                  Make Your Read
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Snap flash overlay — brief white flash on snap, then gone */}
           {!isPreSnap && (
             <div key={`snap-flash-${playIndex}`} className="absolute inset-0 animate-snap-flash rounded-lg pointer-events-none" />
           )}
         </div>
+
+        {/* Front ID multiple choice */}
+        {isFrontId && (
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {frontChoices.map(choice => {
+              const isCorrectChoice = choice.toUpperCase() === scenario.coverage_name.toUpperCase();
+              const isPickedChoice = frontIdPicked?.toUpperCase() === choice.toUpperCase();
+              let btnClass = 'bg-gray-800 text-gray-200 border-2 border-gray-600 hover:border-[#67e8f9] hover:bg-gray-700';
+              if (frontIdResult) {
+                if (isCorrectChoice) {
+                  // Always highlight the correct answer in green
+                  btnClass = 'bg-emerald-900/60 text-emerald-300 border-2 border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]';
+                } else if (isPickedChoice && frontIdResult === 'wrong') {
+                  // The wrong pick shows in red
+                  btnClass = 'bg-red-900/60 text-red-300 border-2 border-red-400 shadow-[0_0_12px_rgba(239,68,68,0.3)]';
+                } else {
+                  // Other buttons fade out
+                  btnClass = 'bg-gray-800/40 text-gray-600 border-2 border-gray-700/50';
+                }
+              }
+              return (
+                <button
+                  key={choice}
+                  onClick={() => handleFrontAnswer(choice)}
+                  disabled={!!frontIdResult}
+                  className={`py-3 px-4 rounded-lg font-bold text-sm uppercase tracking-wide transition-all ${btnClass}`}
+                >
+                  {choice}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Legend */}
         <div className="flex justify-center gap-4 text-xs text-gray-400 flex-wrap">
@@ -1777,6 +1971,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             <span>Slide</span>
           </div>
         </div>
+        </>)}
       </div>
     );
   }

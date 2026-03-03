@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useConfirm } from '@/components/ConfirmModal';
 import {
   SideOfBall,
@@ -34,10 +34,98 @@ interface FileUploadScreenProps {
   onBack: () => void;
 }
 
+// Max dimension for uploaded images (keeps file size under Netlify's ~6MB body limit)
+const MAX_IMAGE_DIMENSION = 2048;
+const JPEG_QUALITY = 0.82;
+
+/**
+ * Compresses an image blob via Canvas — resizes to MAX_IMAGE_DIMENSION and
+ * re-encodes as JPEG. Works for any browser-renderable image format.
+ */
+function compressImageBlob(blob: Blob, fileName: string): Promise<File> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      let { naturalWidth: w, naturalHeight: h } = img;
+
+      // Scale down if either dimension exceeds the max
+      if (w > MAX_IMAGE_DIMENSION || h > MAX_IMAGE_DIMENSION) {
+        const scale = MAX_IMAGE_DIMENSION / Math.max(w, h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((out) => {
+        URL.revokeObjectURL(url);
+        if (out) {
+          const newName = fileName.replace(/\.[^.]+$/, '.jpg');
+          resolve(new File([out], newName, { type: 'image/jpeg' }));
+        } else {
+          // Canvas failed — wrap original blob as file
+          resolve(new File([blob], fileName, { type: blob.type }));
+        }
+      }, 'image/jpeg', JPEG_QUALITY);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(new File([blob], fileName, { type: blob.type }));
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * Processes ALL images before upload:
+ *  - HEIC/HEIF → decode with heic2any then compress via Canvas
+ *  - All other images → compress/resize via Canvas (keeps under body limit)
+ *  - PDFs → pass through unchanged
+ */
+async function convertFileIfNeeded(file: File): Promise<File> {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+  // PDFs pass through
+  if (file.type === 'application/pdf' || ext === 'pdf') return file;
+
+  const isHeic = ext === 'heic' || ext === 'heif' ||
+    file.type === 'image/heic' || file.type === 'image/heif';
+
+  // HEIC/HEIF: browsers can't decode natively — convert to JPEG blob first
+  if (isHeic) {
+    try {
+      const heic2any = (await import('heic2any')).default;
+      const jpegBlob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
+      const blob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
+      // Now compress/resize through Canvas
+      return await compressImageBlob(blob, file.name);
+    } catch (err) {
+      console.error('HEIC conversion failed:', err);
+      return file;
+    }
+  }
+
+  // All other image types: compress & resize via Canvas
+  if (file.type.startsWith('image/')) {
+    try {
+      return await compressImageBlob(file, file.name);
+    } catch {
+      return file;
+    }
+  }
+
+  return file;
+}
+
 export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'plays', onUploadComplete, onBack }) => {
   const { confirm } = useConfirm();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [isUploadingAll, setIsUploadingAll] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
@@ -46,36 +134,49 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
 
   const currentFile = currentFileIndex !== null ? uploadedFiles[currentFileIndex] : null;
 
-  const handleFileSelect = async (files: FileList) => {
+  const handleFileSelect = useCallback(async (files: FileList) => {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
 
     try {
-      const filePromises = Array.from(files).map((file) => {
+      const fileArray = Array.from(files);
+      const hasHeic = fileArray.some(f => {
+        const e = f.name.split('.').pop()?.toLowerCase() || '';
+        return e === 'heic' || e === 'heif' || f.type === 'image/heic' || f.type === 'image/heif';
+      });
+      if (hasHeic) {
+        setUploadStatus('Converting HEIC images to JPEG...');
+      }
+
+      const filePromises = fileArray.map(async (file) => {
+        // Convert unsupported formats before reading
+        const converted = await convertFileIfNeeded(file);
+
         return new Promise<UploadedFile>((resolve) => {
           const reader = new FileReader();
           reader.onload = (e) => {
             const result = e.target?.result as string;
             resolve({
               data: result,
-              name: file.name,
-              type: file.type,
+              name: converted.name,
+              type: converted.type,
               preview: result,
               metadata: {
                 position_relevance: ['all'],
                 tags: [],
-                content_type: mode === 'notes' ? 'reference' : 'play', // Set content type based on mode
+                content_type: mode === 'notes' ? 'reference' : 'play',
               },
             });
           };
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(converted);
         });
       });
 
       const newFiles = await Promise.all(filePromises);
       setUploadedFiles(prev => [...prev, ...newFiles]);
       setIsUploading(false);
+      setUploadStatus('');
 
       // Auto-select first file if none selected
       if (currentFileIndex === null && newFiles.length > 0) {
@@ -84,8 +185,9 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
     } catch (error) {
       console.error('Error reading files:', error);
       setIsUploading(false);
+      setUploadStatus('');
     }
-  };
+  }, [currentFileIndex, mode, uploadedFiles.length]);
 
   const handleUpdateMetadata = (updates: Partial<PlaybookMetadataInput>) => {
     if (currentFileIndex === null) return;
@@ -267,17 +369,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                   >
                     {/* Preview */}
                     <div className="w-full h-20 rounded overflow-hidden bg-black mb-2">
-                      {file.type.startsWith('image/') && !file.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                      {file.type.startsWith('image/') ? (
                         <img src={file.preview} alt={file.name} className="w-full h-full object-contain" />
-                      ) : file.name.toLowerCase().match(/\.(heic|heif)$/) ? (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                            <circle cx="8.5" cy="8.5" r="1.5"/>
-                            <polyline points="21 15 16 10 5 21"/>
-                          </svg>
-                          <span className="text-[8px] mt-1">HEIC</span>
-                        </div>
                       ) : file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? (
                         <div className="flex flex-col items-center justify-center h-full text-red-400">
                           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -358,22 +451,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                 <div className="space-y-6">
                   {/* Preview */}
                   <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black">
-                    {currentFile.type.startsWith('image/') && !currentFile.name.toLowerCase().match(/\.(heic|heif)$/) ? (
+                    {currentFile.type.startsWith('image/') ? (
                       <img src={currentFile.preview} alt="Preview" className="w-full h-64 object-contain" />
-                    ) : currentFile.name.toLowerCase().match(/\.(heic|heif)$/) ? (
-                      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                          <circle cx="8.5" cy="8.5" r="1.5"/>
-                          <polyline points="21 15 16 10 5 21"/>
-                        </svg>
-                        <div className="mt-4 text-center">
-                          <p className="font-medium text-white">{currentFile.name}</p>
-                          <p className="text-sm text-slate-500 mt-1">HEIC Image</p>
-                          <p className="text-xs text-slate-600 mt-2">Preview not available</p>
-                          <p className="text-xs text-slate-600">Will be converted to JPEG during upload</p>
-                        </div>
-                      </div>
                     ) : currentFile.type === 'application/pdf' || currentFile.name.toLowerCase().endsWith('.pdf') ? (
                       <div className="w-full h-96">
                         <iframe
@@ -669,7 +748,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
               {isUploading ? (
                 <div className="flex flex-col items-center justify-center gap-4">
                   <div className="w-16 h-16 rounded-full border-4 border-[var(--neon-teal)]/30 border-t-[var(--neon-teal)] animate-spin"></div>
-                  <p className="text-slate-400 text-lg">Processing files...</p>
+                  <p className="text-slate-400 text-lg">{uploadStatus || 'Processing files...'}</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center gap-6">
@@ -684,7 +763,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                   <div className="text-center">
                     <h2 className="text-2xl font-bold text-white mb-2">Drop your playbook files here</h2>
                     <p className="text-slate-400 mb-2">or click to browse files</p>
-                    <p className="text-xs text-slate-500">Supports multiple PDF, JPG, PNG files</p>
+                    <p className="text-xs text-slate-500">Supports PDF, JPG, PNG, HEIC, WebP, and more</p>
                   </div>
 
                   <button

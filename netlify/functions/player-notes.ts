@@ -147,6 +147,104 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     }
   }
 
+  // DELETE - Delete note and all associated data
+  if (httpMethod === 'DELETE') {
+    try {
+      // Extract note ID from path (last segment)
+      const pathParts = event.path.split('/');
+      const noteId = pathParts[pathParts.length - 1];
+
+      if (!noteId || noteId === 'player-notes') {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Note ID is required' }),
+        };
+      }
+
+      console.log(`[Player Notes] Deleting note ${noteId} for user ${user.userId}`);
+
+      // Look up metadata record by ID
+      const { data: metadata, error: metadataError } = await supabase
+        .from('player_playbook_metadata')
+        .select('id, user_id, file_paths')
+        .eq('id', noteId)
+        .single();
+
+      if (metadataError || !metadata) {
+        console.error('[Player Notes] Metadata not found:', metadataError);
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Note not found' }),
+        };
+      }
+
+      // Verify ownership
+      if (metadata.user_id !== user.userId) {
+        return {
+          statusCode: 403,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Unauthorized' }),
+        };
+      }
+
+      // Find all associated plays
+      const { data: plays } = await supabase
+        .from('player_plays')
+        .select('id')
+        .eq('player_playbook_metadata_id', metadata.id);
+
+      const playIds = plays?.map(p => p.id) || [];
+
+      // Delete flashcards for these plays
+      if (playIds.length > 0) {
+        await supabase
+          .from('player_flashcard_templates')
+          .delete()
+          .in('player_play_id', playIds);
+
+        // Delete play records
+        await supabase
+          .from('player_plays')
+          .delete()
+          .in('id', playIds);
+      }
+
+      // Delete files from storage
+      if (metadata.file_paths && metadata.file_paths.length > 0) {
+        await supabase.storage
+          .from('Chalkboard Bucket')
+          .remove(metadata.file_paths);
+      }
+
+      // Delete the metadata record
+      const { error: deleteError } = await supabase
+        .from('player_playbook_metadata')
+        .delete()
+        .eq('id', metadata.id);
+
+      if (deleteError) {
+        return {
+          statusCode: 500,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Failed to delete note', message: deleteError.message }),
+        };
+      }
+
+      console.log(`[Player Notes] Deleted note ${noteId} (${playIds.length} plays, ${metadata.file_paths?.length || 0} files)`);
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true }),
+      };
+    } catch (error: any) {
+      console.error('[Player Notes] Delete error:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
   return {
     statusCode: 405,
     headers: { 'Content-Type': 'application/json' },

@@ -588,7 +588,7 @@ export function FormationTrainerContent({ demoMode = false, demoFormations }: Fo
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Formations Found</h3>
             <p className="text-gray-300 mb-4">
-              Upload your playbook PDFs in the <strong>My Notes</strong> section, then come back here to analyze them.
+              Upload your playbook PDFs or images in the <strong>My Notes</strong> section, then come back here to analyze them.
             </p>
           </div>
         )}

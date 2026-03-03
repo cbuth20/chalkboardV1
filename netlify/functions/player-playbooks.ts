@@ -54,8 +54,8 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
       console.log(`[Player Upload] Starting upload for ${fileName} by user ${user.userId}`);
 
-      // Convert base64 to buffer
-      const base64Data = fileData.replace(/^data:image\/\w+;base64,/, '').replace(/^data:application\/pdf;base64,/, '');
+      // Convert base64 to buffer — strip any data URI prefix
+      const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
       const buffer = Buffer.from(base64Data, 'base64');
 
       // Create unique file path for this user
@@ -63,11 +63,25 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
       const storagePath = `${FOLDER_PATH}/${user.userId}/${timestamp}-${sanitizedFileName}`;
 
+      // Detect content type from file extension
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+      const contentTypeMap: Record<string, string> = {
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        heic: 'image/heic',
+        heif: 'image/heif',
+        gif: 'image/gif',
+        webp: 'image/webp',
+      };
+      const contentType = contentTypeMap[ext] || 'application/octet-stream';
+
       // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from(BUCKET_NAME)
         .upload(storagePath, buffer, {
-          contentType: fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
+          contentType,
           upsert: false,
         });
 

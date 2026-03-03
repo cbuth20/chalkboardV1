@@ -26,7 +26,10 @@
       "WebFetch(domain:upstash.com)",
       "Bash(npx esbuild:*)",
       "Bash(npx netlify:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }

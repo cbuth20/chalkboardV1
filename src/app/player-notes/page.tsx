@@ -13,6 +13,7 @@ type ViewState = 'library' | 'upload' | 'viewer';
 
 interface NoteFile {
   id: string;
+  metadataId: string;
   fileName: string;
   fileType: string;
   filePath: string;
@@ -316,7 +317,7 @@ export default function PlayerNotesPage() {
     if (selectedNoteIds.size === filteredNotes.length) {
       setSelectedNoteIds(new Set());
     } else {
-      setSelectedNoteIds(new Set(filteredNotes.map(n => n.id)));
+      setSelectedNoteIds(new Set(filteredNotes.map(n => n.metadataId)));
     }
   };
 
@@ -636,8 +637,8 @@ export default function PlayerNotesPage() {
                       <td className="px-4 py-4">
                         <input
                           type="checkbox"
-                          checked={selectedNoteIds.has(note.id)}
-                          onChange={() => toggleNoteSelection(note.id)}
+                          checked={selectedNoteIds.has(note.metadataId)}
+                          onChange={() => toggleNoteSelection(note.metadataId)}
                           onClick={(e) => e.stopPropagation()}
                           className="w-4 h-4 rounded border-[#2A2F33] bg-[#0A0A0A] text-[#00F6E5] focus:ring-[#00F6E5]"
                         />
@@ -724,7 +725,7 @@ export default function PlayerNotesPage() {
                             </button>
                           )}
                           <button
-                            onClick={(e) => handleDeleteNote(note.id, note.fileName, e)}
+                            onClick={(e) => handleDeleteNote(note.metadataId, note.fileName, e)}
                             className="px-3 py-1.5 text-xs font-semibold text-red-400 hover:text-red-300 transition-colors"
                           >
                             Delete

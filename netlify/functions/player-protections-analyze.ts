@@ -34,16 +34,20 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       throw new Error(`Failed to fetch files: ${filesError.message}`);
     }
 
-    // Filter for PDFs
-    const pdfs = allFiles?.filter(file =>
-      file.file_paths?.some((path: string) => path.toLowerCase().endsWith('.pdf'))
+    // Filter for PDFs and images (supported by Claude API)
+    const SUPPORTED_EXTENSIONS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']);
+    const analyzableFiles = allFiles?.filter(file =>
+      file.file_paths?.some((path: string) => {
+        const ext = path.split('.').pop()?.toLowerCase() || '';
+        return SUPPORTED_EXTENSIONS.has(ext);
+      })
     ) || [];
 
-    if (pdfs.length === 0) {
-      throw new ValidationError('No PDF files found. Please upload playbook PDFs first.');
+    if (analyzableFiles.length === 0) {
+      throw new ValidationError('No analyzable files found. Please upload playbook PDFs or images first.');
     }
 
-    console.log(`📚 Found ${pdfs.length} PDFs for protection analysis`);
+    console.log(`📚 Found ${analyzableFiles.length} files for protection analysis`);
 
     // Check if there's already a processing analysis
     const { data: existingAnalysis } = await supabase
@@ -63,7 +67,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       .insert({
         user_id: user.userId,
         org_id: user.orgId,
-        pdf_count: pdfs.length,
+        pdf_count: analyzableFiles.length,
         status: 'processing',
         started_at: new Date().toISOString(),
       })
@@ -77,13 +81,13 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     console.log(`🎯 Created analysis record ${analysis.id}`);
 
     // Enqueue job to Redis via BullMQ
-    console.log(`Triggering background protection analysis for ${pdfs.length} PDFs`);
+    console.log(`Triggering background protection analysis for ${analyzableFiles.length} files`);
 
     const jobId = await enqueueProtectionAnalysis({
       analysisId: analysis.id,
       userId: user.userId,
       orgId: user.orgId,
-      pdfIds: pdfs.map(p => p.id),
+      pdfIds: analyzableFiles.map(f => f.id),
     });
 
     console.log(`Enqueued protection analysis job ${jobId}`);
@@ -103,8 +107,8 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         analysisId: analysis.id,
         jobId,
         status: 'processing',
-        pdfCount: pdfs.length,
-        estimatedDuration: `${Math.ceil(pdfs.length * 3)} minutes`,
+        pdfCount: analyzableFiles.length,
+        estimatedDuration: `${Math.ceil(analyzableFiles.length * 3)} minutes`,
         message: 'Protection analysis started. This may take several minutes.',
       }),
     };
