@@ -514,6 +514,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const [screen, setScreen] = useState<Screen>('menu');
   const [scenarios, setScenarios] = useState<ProtectionScenario[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasUploadedFiles, setHasUploadedFiles] = useState<boolean | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
   const [analysisId, setAnalysisId] = useState<string | null>(null);
@@ -610,6 +611,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     setLoading(true);
     try {
+      // Check if user has any uploaded files (for showing/hiding Analyze button)
+      fetch(`/api/player-notes?orgId=${orgId}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        setHasUploadedFiles(data && data.total > 0);
+      }).catch(() => {});
+
       const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -637,6 +645,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           coaching_notes: s.blocking_rules || '',
         }));
         setScenarios(scenarioData);
+
+        // Pick up analysis status if one was running (e.g., page reload during analysis)
+        if (data.analysisStatus === 'processing') {
+          setAnalysisStatus('processing');
+          setAnalyzing(true);
+          startPolling();
+        }
       }
     } catch (error) {
       console.error('Error loading scenarios:', error);
@@ -662,7 +677,14 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'Analysis failed');
+        const msg = err.error || 'Analysis failed';
+        if (msg.includes('No analyzable files')) {
+          setAnalysisStatus('idle');
+          setAnalyzing(false);
+          showToast('No playbook files found. Upload PDFs or images in My Notes first.', 'error');
+          return;
+        }
+        throw new Error(msg);
       }
 
       const data = await response.json();
@@ -693,6 +715,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         if (response.ok) {
           const data = await response.json();
           const newScenarios = data.scenarios || [];
+
+          // Check if analysis failed on the backend
+          if (data.analysisStatus === 'failed') {
+            setAnalysisStatus('failed');
+            setAnalyzing(false);
+            if (pollRef.current) clearInterval(pollRef.current);
+            showToast(data.analysisError || 'Analysis failed. Please try again.', 'error');
+            return;
+          }
 
           // Done when: new IDs appear that weren't in the original set, or count changes from 0 to >0
           const hasNewIds = newScenarios.some((s: any) => !idsAtStart.has(s.id));
@@ -1164,16 +1195,29 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Protection Scenarios</h3>
             <p className="text-gray-300 mb-4">
-              Upload your playbook PDFs or images in <strong>My Notes</strong>, then analyze them to generate protection scenarios.
+              {hasUploadedFiles
+                ? 'Your playbook files are ready. Analyze them to generate protection scenarios.'
+                : 'Upload your playbook PDFs or images in My Notes, then come back here to analyze them.'}
             </p>
             {analysisStatus !== 'processing' && (
-              <button
-                onClick={startAnalysis}
-                disabled={analyzing}
-                className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
-              >
-                {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
-              </button>
+              <div className="flex gap-3">
+                {!hasUploadedFiles ? (
+                  <a
+                    href="/player-notes"
+                    className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition text-center"
+                  >
+                    Go to My Notes
+                  </a>
+                ) : (
+                  <button
+                    onClick={startAnalysis}
+                    disabled={analyzing}
+                    className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
+                  >
+                    {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ) : (
