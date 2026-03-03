@@ -12,6 +12,7 @@ interface ProtectionScenario {
   coverage_name: string;
   coverage_type: string;
   protection_type: string;
+  protection_concept: string;
   call_side: string;
   solid_call: boolean;
   free_release: boolean;
@@ -123,6 +124,7 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
         coverage_name: s.coverage_name,
         coverage_type: s.coverage_type,
         protection_type: s.protection_type,
+        protection_concept: s.protection_concept || 'unknown',
         call_side: s.call_side,
         solid_call: s.solid_call,
         free_release: s.free_release,
@@ -200,14 +202,28 @@ async function analyzeProtectionPDF(
 
 Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL, DIME) with base rushes, single-blitzer pressures, and occasional exotic multi-blitzer packages.
 
-Always use standard numbered protection schemes (360, 361, 64, 65, 350, 351, 433, 50, 51) as the protection_type — never use play concept names from the PDF. Use multiple different protection types across scenarios.
+Extract the team's ACTUAL protection names from the playbook. If they call it "Max", "Fox", "60 Protection", "Half Slide", "BOB", use THAT exact name as protection_type. Do NOT rename protections to standard numbered schemes — preserve the team's terminology.
+
+Classify each protection into a protection_concept value from this taxonomy:
+| Concept       | OL Behavior                      | Examples                                    |
+|---------------|----------------------------------|---------------------------------------------|
+| full_slide    | All 5 OL slide together          | 360, 350, 50, BOB, Slide                    |
+| half_slide    | C+2 slide, 2 man-block           | 64, 65, Half Slide, Combo                   |
+| man_protect   | Each OL mans a gap               | Man blocking schemes                        |
+| max_protect   | 7+ blockers stay in              | Max Protect, 7-man                          |
+| play_action   | PA blocking (aggressive)         | 433, 201, any PA scheme                     |
+| sprint_out    | OL slides to sprint direction    | Boot, Sprint                                |
+| screen        | Let rushers through              | Screen calls                                |
+| draw          | Passive/draw blocking            | Draw calls                                  |
+| unknown       | Fallback                         | Unrecognized schemes                        |
 
 For each scenario, determine:
-1. The protection scheme type (e.g., "360", "64", "350", "433", "50")
-2. The defensive front name
-3. Which defenders are rushing, blitzing, walking up, or in coverage
-4. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
-5. A coaching explanation of why this is the correct read
+1. The protection name (use the team's actual name from the playbook)
+2. The protection_concept (from the taxonomy above)
+3. The defensive front name
+4. Which defenders are rushing, blitzing, walking up, or in coverage
+5. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
+6. A coaching explanation of why this is the correct read
 
 Defender position labels: E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), CB (Cornerback), SS (Strong Safety), FS (Free Safety)
 
@@ -221,7 +237,8 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
     {
       "coverage_name": "OVER",
       "coverage_type": "blitz",
-      "protection_type": "360",
+      "protection_type": "60 Protection",
+      "protection_concept": "full_slide",
       "call_side": "right",
       "solid_call": false,
       "free_release": false,
@@ -251,13 +268,13 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
 }
 
 Important rules:
-- For protections where the TB has an assignment (360, 64, etc.), the correct answer is usually a specific defender
-- For free release protections (350, 50, Scat, Scoot, Hoss), the correct answer is usually "RELEASE"
-- For play action (433, 201), the TB typically fakes then releases or has late check responsibility
+- For protections where the TB has an assignment (full_slide, half_slide concepts), the correct answer is usually a specific defender
+- For free release protections (free_release=true, hoss=true), the correct answer is usually "RELEASE"
+- For play action (play_action concept), the TB typically fakes then releases or has late check responsibility
 - Mark defenders as "blitz": true if they're blitzing from a non-traditional rush position
-- Mark defenders as "hot": true if they're unblocked rushers the QB must deal with
+- Mark defenders as "hot": true ONLY if they are the actual unblocked free runner — the defender NO offensive player picks up. "hot" does NOT mean "first read" or "most dangerous" — it means literally unblocked. In a cross blitz where the center picks up one LB, the OTHER LB who comes free is "hot". The correct_block_target and "hot" defender are usually the same player (the TB blocks the free runner).
 - Mark defenders as "walked_up": true if they've walked up to the LOS from a LB position
-- For 64/65 protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
+- For half_slide protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
 - ALWAYS include the full secondary (2 CBs, SS, FS) in every scenario so the field looks like a real defensive look. Mark their "rushing" as false if they are in coverage. Only mark "blitz": true, "rushing": true if they are actually blitzing.
 - Secondary positioning depth ranges: SS at y: 25-35 (near box), FS at y: 15-25 (deep), CB at y: 42-50 (near LOS, wide at x: 20-30 or x: 70-80 for outside corners, x: 30-38 or x: 62-70 for nickel/slot corners)
 - When a secondary defender blitzes, the TB's read changes — explain this clearly in the coaching explanation

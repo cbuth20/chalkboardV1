@@ -25,7 +25,8 @@ interface ProtectionScenario {
   id: string;
   coverage_name: string;       // front name (e.g., "OVER", "UNDER")
   coverage_type: string;       // zone/man/blitz
-  protection_type: string;     // "360", "64", "350", etc.
+  protection_type: string;     // team's actual protection name
+  protection_concept: string;  // behavioral classification (full_slide, half_slide, etc.)
   call_side: string;           // "left" or "right"
   solid_call: boolean;
   free_release: boolean;
@@ -64,6 +65,20 @@ const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS']);
 const isSecondary = (label: string) => SECONDARY_LABELS.has(label.toUpperCase());
 const LB_LABELS = new Set(['M', 'W', 'S', 'Q']);
 const isLB = (label: string) => LB_LABELS.has(label.toUpperCase());
+
+// Backward-compat bridge: infer protection concept from new field, legacy regex, or boolean flags
+function inferProtectionConcept(scenario: ProtectionScenario): string {
+  if (scenario.protection_concept && scenario.protection_concept !== 'unknown' && scenario.protection_concept !== '') {
+    return scenario.protection_concept;
+  }
+  const pt = scenario.protection_type || '';
+  if (/^3[56]/.test(pt)) return 'full_slide';
+  if (/^6[45]/.test(pt)) return 'half_slide';
+  if (/^(433|432|201|200)$/.test(pt)) return 'play_action';
+  if (/^(50|51)$/.test(pt)) return 'full_slide';
+  if (scenario.play_action) return 'play_action';
+  return 'full_slide';
+}
 
 // WR/TE positions by formation keyword — x/y percentages matching the field coordinate system
 // OL is at y:65%, so WR/TE sit at y:63-65% (on or just behind LOS)
@@ -238,7 +253,7 @@ function computeCoverageRotation(defenders: Defender[]): Record<string, { dx: nu
  */
 function computeOLAssignments(
   defenders: Record<string, Defender>,
-  protectionType: string,
+  protectionConcept: string,
   callSide: string
 ): Record<string, { x: number; y: number }> {
   const OL_BASE = [
@@ -288,8 +303,8 @@ function computeOLAssignments(
   }
 
   // Determine which OL should slide and how much
-  const isFullSlide = /^3[56]/.test(protectionType);  // 360, 361, 350, 351
-  const isHalfSlide = /^6[45]/.test(protectionType);  // 64, 65
+  const isFullSlide = protectionConcept === 'full_slide' || protectionConcept === 'unknown';
+  const isHalfSlide = protectionConcept === 'half_slide';
   const slideAmount = callSide === 'right' ? 2.5 : -2.5;
 
   const slideSideOL = new Set<string>();
@@ -335,7 +350,7 @@ function computeOLAssignments(
 
 function computeMikeDesignation(
   defenders: Record<string, Defender>,
-  protectionType: string,
+  protectionConcept: string,
   callSide: string
 ): string | null {
   const LB_LABELS = new Set(['M', 'W', 'S', 'Q']);
@@ -348,7 +363,7 @@ function computeMikeDesignation(
 
   if (candidates.length === 0) return null;
 
-  const isHalfSlide = /^6[45]/.test(protectionType);
+  const isHalfSlide = protectionConcept === 'half_slide';
 
   // For half-slide: prefer man-side (away from call) candidates
   let pool = candidates;
@@ -589,6 +604,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           coverage_name: s.coverage_name || 'Unknown',
           coverage_type: s.coverage_type || 'all',
           protection_type: s.protection_type || 'unknown',
+          protection_concept: s.protection_concept || '',
           call_side: s.call_side || 'right',
           solid_call: s.solid_call || false,
           free_release: s.free_release || false,
@@ -663,6 +679,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               coverage_name: s.coverage_name || 'Unknown',
               coverage_type: s.coverage_type || 'all',
               protection_type: s.protection_type || 'unknown',
+              protection_concept: s.protection_concept || '',
               call_side: s.call_side || 'right',
               solid_call: s.solid_call || false,
               free_release: s.free_release || false,
@@ -713,20 +730,20 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     return acc;
   }, {} as Record<string, ProtectionScenario[]>);
 
-  // Categorize protection types
-  const categorizeProtection = (type: string): string => {
-    const freeRelease = ['350', '351', '50', '51', 'scat', 'scoot', 'hoss'];
-    const playAction = ['433', '432', '201', '200'];
-    const tbAssignment = ['360', '361', '64', '65'];
-    const lower = type.toLowerCase();
-    if (freeRelease.some(f => lower.includes(f))) return 'TB Free Release';
-    if (playAction.some(f => lower.includes(f))) return 'Play Action';
-    if (tbAssignment.some(f => lower.includes(f))) return 'TB Has Assignment';
-    return 'Other';
+  // Categorize scenarios by concept + boolean flags
+  const categorizeScenario = (scenario: ProtectionScenario): string => {
+    if (scenario.free_release || scenario.hoss) return 'TB Free Release';
+    if (scenario.play_action || scenario.naked) return 'Play Action';
+    const concept = inferProtectionConcept(scenario);
+    if (concept === 'play_action') return 'Play Action';
+    if (concept === 'max_protect') return 'Max Protect';
+    if (concept === 'screen') return 'Screen';
+    if (concept === 'sprint_out') return 'Sprint Out';
+    return 'TB Has Assignment';
   };
 
   const protectionsByCategory = Object.keys(groupedScenarios).reduce((acc, type) => {
-    const cat = categorizeProtection(type);
+    const cat = categorizeScenario(groupedScenarios[type][0]);
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(type);
     return acc;
@@ -790,7 +807,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     mikeCalloutRef.current = setTimeout(() => {
       const mikeId = computeMikeDesignation(
         scenario.defensive_positions,
-        scenario.protection_type,
+        inferProtectionConcept(scenario),
         scenario.call_side
       );
       setMikeCallout(mikeId);
@@ -1158,10 +1175,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     // Compute coverage rotation offsets for post-snap secondary sliding
     const coverageRotation = computeCoverageRotation(defenders);
 
+    const concept = inferProtectionConcept(scenario);
     const skillPositions = getSkillPositions(scenario.offensive_formation);
     const olAssignments = computeOLAssignments(
       scenario.defensive_positions,
-      scenario.protection_type,
+      concept,
       scenario.call_side
     );
     const tbX = scenario.call_side === 'left' ? 38 : 62;
@@ -1173,6 +1191,22 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (scenario.play_action) flags.push('PLAY ACTION');
     if (scenario.naked) flags.push('NAKED');
     if (scenario.hoss) flags.push('HOSS');
+
+    // Detect cross dog blitz — two LBs blitzing near each other, they swap gaps
+    const isCrossDog = /cross|dawg|dog/i.test(scenario.coverage_name);
+    const crossDogOffsets: Record<string, number> = {};
+    if (isCrossDog) {
+      const blitzingLBs = defenders
+        .filter(d => d.blitz && isLB(d.label))
+        .sort((a, b) => a.x - b.x);
+      if (blitzingLBs.length === 2) {
+        const [left, right] = blitzingLBs;
+        const crossDist = Math.max(8, Math.abs(right.x - left.x) + 6);
+        // Left LB crosses right, right LB crosses left
+        crossDogOffsets[left.id] = crossDist / 2;
+        crossDogOffsets[right.id] = -crossDist / 2;
+      }
+    }
 
     // Pre-compute collision nudges so overlapping defenders spread apart
     const defenderNudges: Record<string, number> = (() => {
@@ -1198,7 +1232,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           rushY = -10;
         }
 
-        return { id: def.id, x: def.x + rX, y: def.y + rY + rushY };
+        const crossX = postSnapRushing ? (crossDogOffsets[def.id] || 0) : 0;
+        return { id: def.id, x: def.x + rX + crossX, y: def.y + rY + rushY };
       });
 
       for (let i = 0; i < positions.length; i++) {
@@ -1496,14 +1531,25 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           {/* Defenders */}
           {defenders.map(def => {
             const secondary = isSecondary(def.label);
-            const fillColor = def.rushing ? '#5f1a1a' : 'rgba(55,12,12,0.55)';
-            const strokeColor = def.walked_up ? '#e5e7eb'
-              : def.blitz ? '#facc15'
-              : def.rushing ? '#c45050'
-              : 'rgba(140,45,45,0.45)';
-            const textColor = def.rushing ? '#dba8a8' : 'rgba(200,140,140,0.6)';
-            const stripeColor = def.rushing ? '#c45050' : 'rgba(140,45,45,0.45)';
-            const maskColor = def.rushing ? '#6b7280' : '#4b5563';
+            const isChill = difficulty === 'chill';
+            const fillColor = isChill
+              ? (def.rushing ? '#5f1a1a' : 'rgba(55,12,12,0.55)')
+              : '#5f1a1a';
+            const strokeColor = isChill
+              ? (def.blitz ? '#facc15'
+                : def.walked_up ? '#e5e7eb'
+                : def.rushing ? '#c45050'
+                : 'rgba(140,45,45,0.45)')
+              : '#c45050';
+            const textColor = isChill
+              ? (def.rushing ? '#dba8a8' : 'rgba(200,140,140,0.6)')
+              : '#dba8a8';
+            const stripeColor = isChill
+              ? (def.rushing ? '#c45050' : 'rgba(140,45,45,0.45)')
+              : '#c45050';
+            const maskColor = isChill
+              ? (def.rushing ? '#6b7280' : '#4b5563')
+              : '#6b7280';
 
             // Compute pre-snap margin offset in pixels (field height = 560px)
             const FIELD_H = 560;
@@ -1556,6 +1602,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               // Non-rushing secondary drifts upfield with receivers
               rushOffsetY = -10;
               rushDuration = 3;
+            } else if (postSnapRushing && !def.rushing && !secondary && def.y > 50) {
+              // DL dropping into coverage (fire zone) — drop back into zone
+              rushOffsetY = -(def.y - 42);
+              rushDuration = 2.0;
             }
 
             return (
@@ -1567,7 +1617,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                   isPreSnap ? 'cursor-default' : 'cursor-pointer animate-defender-idle hover:brightness-125'
                 }`}
                 style={{
-                  left: `${def.x + rotX + (defenderNudges[def.id] || 0)}%`,
+                  left: `${def.x + rotX + (defenderNudges[def.id] || 0) + (postSnapRushing ? (crossDogOffsets[def.id] || 0) : 0)}%`,
                   top: `${def.y + rotY + rushOffsetY}%`,
                   transform: `translate(-50%, -50%) scale(${
                     postSnapBreakthrough && def.hot ? 1.14
@@ -1592,13 +1642,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               >
                 <HelmetIcon label={def.label} fill={fillColor} stroke={strokeColor} stripeColor={stripeColor} maskColor={maskColor} textColor={textColor} facing="down" />
 
-                {/* Badges */}
-                {def.tb_read && (
+                {/* Badges — only shown in chill mode */}
+                {isChill && def.tb_read && (
                   <span className="absolute -top-2 -right-0.5 text-[10px] bg-gray-900 text-[#00d4aa] rounded-full w-4 h-4 flex items-center justify-center border border-[#00d4aa]/50">
                     {def.tb_read}
                   </span>
                 )}
-                {def.hot && (
+                {isChill && def.hot && (
                   <span className="absolute -top-2 -left-0.5 text-[10px]">🔥</span>
                 )}
 
@@ -1628,7 +1678,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                       </svg>
                     </div>
                     {/* Slide arrow */}
-                    {/^(3[56]|6[45])/.test(scenario.protection_type) && mikeVisible && (() => {
+                    {['full_slide', 'half_slide'].includes(concept) && mikeVisible && (() => {
                       const slidingRight = scenario.call_side === 'right';
                       return (
                         <div
@@ -1681,30 +1731,34 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
         {/* Legend */}
         <div className="flex justify-center gap-4 text-xs text-gray-400 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <svg viewBox="0 0 16 18" width="14" height="16">
-              <ellipse cx="8" cy="9" rx="7" ry="8" fill="#5f1a1a" stroke="#c45050" strokeWidth="1.5" />
-              <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="#c45050" opacity="0.4" />
-            </svg>
-            <span>Rushing</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <svg viewBox="0 0 16 18" width="14" height="16">
-              <ellipse cx="8" cy="9" rx="7" ry="8" fill="rgba(55,12,12,0.55)" stroke="rgba(140,45,45,0.45)" strokeWidth="1.5" />
-              <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="rgba(140,45,45,0.45)" opacity="0.4" />
-            </svg>
-            <span>Coverage</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <svg viewBox="0 0 16 18" width="14" height="16" className="drop-shadow-[0_0_4px_rgba(234,179,8,0.5)]">
-              <ellipse cx="8" cy="9" rx="7" ry="8" fill="#5f1a1a" stroke="#facc15" strokeWidth="1.5" />
-            </svg>
-            <span>Blitz</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span>🔥</span>
-            <span>Hot</span>
-          </div>
+          {difficulty === 'chill' && (
+            <>
+              <div className="flex items-center gap-1.5">
+                <svg viewBox="0 0 16 18" width="14" height="16">
+                  <ellipse cx="8" cy="9" rx="7" ry="8" fill="#5f1a1a" stroke="#c45050" strokeWidth="1.5" />
+                  <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="#c45050" opacity="0.4" />
+                </svg>
+                <span>Rushing</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg viewBox="0 0 16 18" width="14" height="16">
+                  <ellipse cx="8" cy="9" rx="7" ry="8" fill="rgba(55,12,12,0.55)" stroke="rgba(140,45,45,0.45)" strokeWidth="1.5" />
+                  <rect x="6.5" y="2" width="3" height="12" rx="1.5" fill="rgba(140,45,45,0.45)" opacity="0.4" />
+                </svg>
+                <span>Coverage</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg viewBox="0 0 16 18" width="14" height="16" className="drop-shadow-[0_0_4px_rgba(234,179,8,0.5)]">
+                  <ellipse cx="8" cy="9" rx="7" ry="8" fill="#5f1a1a" stroke="#facc15" strokeWidth="1.5" />
+                </svg>
+                <span>Blitz</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span>🔥</span>
+                <span>Hot</span>
+              </div>
+            </>
+          )}
           <div className="flex items-center gap-1.5">
             <svg viewBox="0 0 18 18" width="16" height="16">
               <circle cx="9" cy="9" r="8" fill="none" stroke="#fbbf24" strokeWidth="1.5" opacity="0.6" />

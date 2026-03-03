@@ -29,6 +29,7 @@ export interface DemoProtectionScenario {
   coverage_name: string;
   coverage_type: string;
   protection_type: string;
+  protection_concept: string;
   call_side: string;
   solid_call: boolean;
   free_release: boolean;
@@ -234,6 +235,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "OVER",
     coverage_type: "zone",
     protection_type: "360",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
@@ -258,6 +260,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "UNDER",
     coverage_type: "zone",
     protection_type: "360",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
@@ -282,6 +285,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "OVER",
     coverage_type: "zone",
     protection_type: "350",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: true,
@@ -306,6 +310,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "BEAR",
     coverage_type: "man",
     protection_type: "64",
+    protection_concept: "half_slide",
     call_side: "right",
     solid_call: true,
     free_release: false,
@@ -330,6 +335,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "3-3 STACK",
     coverage_type: "zone",
     protection_type: "360",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
@@ -353,6 +359,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "OVER",
     coverage_type: "blitz",
     protection_type: "350",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: true,
@@ -376,6 +383,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "OVER",
     coverage_type: "man",
     protection_type: "64",
+    protection_concept: "half_slide",
     call_side: "left",
     solid_call: false,
     free_release: false,
@@ -400,6 +408,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "UNDER",
     coverage_type: "blitz",
     protection_type: "360",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
@@ -423,6 +432,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "OVER",
     coverage_type: "zone",
     protection_type: "360",
+    protection_concept: "full_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
@@ -447,6 +457,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     coverage_name: "3-3 STACK",
     coverage_type: "blitz",
     protection_type: "64",
+    protection_concept: "half_slide",
     call_side: "right",
     solid_call: false,
     free_release: false,
