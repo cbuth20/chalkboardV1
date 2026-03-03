@@ -11,6 +11,7 @@ import { withOrgAuth, getAuthenticatedUser } from './shared/auth';
 import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, NotFoundError, ValidationError } from './shared/errors';
 import { validateUUID } from './shared/validators';
+import { enqueueQuestionRegeneration } from './shared/queue-jobs';
 
 const handler: Handler = withOrgAuth('coach')(async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -48,27 +49,23 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
 
     console.log(`[Questions] Triggering background regeneration for play: ${play.name}`);
 
-    // Construct background function URL
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/questions-regenerate-background`;
-
-    // Fire-and-forget call to background function
-    fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        playId,
-        orgId: user.orgId,
-        userId: user.userId,
-        questionCount,
-        deactivateOld,
-      }),
-    }).catch((error) => {
-      console.error('[Questions] Failed to trigger background function:', error);
+    // Enqueue job to Redis via BullMQ
+    const jobId = await enqueueQuestionRegeneration({
+      playId,
+      orgId: user.orgId,
+      userId: user.userId,
+      questionCount,
+      deactivateOld,
     });
 
-    console.log(`✅ [Questions] Background job triggered for play ${playId}`);
+    console.log(`[Questions] Enqueued question regeneration job ${jobId} for play ${playId}`);
+
+    // Ping the worker to ensure it's running
+    const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
+    const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
+    fetch(workerUrl, { method: 'POST' }).catch(() => {
+      // Worker may already be running — that's fine
+    });
 
     return {
       statusCode: 202, // Accepted
@@ -76,6 +73,7 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       body: JSON.stringify({
         success: true,
         playId,
+        jobId,
         playName: play.name,
         status: 'processing',
         message: 'Question generation started. This may take 1-2 minutes. Refresh the page to see results.',

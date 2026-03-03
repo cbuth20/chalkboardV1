@@ -66,7 +66,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                   sideOfBall === 'offense'
                     ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                    : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                    : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                 }`}
               >
                 Offense
@@ -76,7 +76,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                   sideOfBall === 'defense'
                     ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                    : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                    : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                 }`}
               >
                 Defense
@@ -100,7 +100,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                 onFormationChange(e.target.value);
               }}
               disabled={viewOnly}
-              className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+              className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
             >
               <option value="">Select Formation</option>
               {formations
@@ -126,7 +126,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                   onOffensiveFormationChange(e.target.value);
                 }}
                 disabled={viewOnly}
-                className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+                className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
               >
                 {Object.keys(OFFENSIVE_FORMATIONS).map(formation => (
                   <option key={formation} value={formation}>
@@ -147,7 +147,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                   onDefensiveFormationChange(e.target.value);
                 }}
                 disabled={viewOnly}
-                className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+                className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
               >
                 {Object.keys(DEFENSIVE_FORMATIONS).map(formation => (
                   <option key={formation} value={formation}>
@@ -169,7 +169,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
               value={lineOfScrimmage}
               onChange={(e) => onLineOfScrimmageChange(Number(e.target.value))}
               disabled={viewOnly}
-              className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+              className="w-full max-w-xs rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
             >
               {LOS_OPTIONS.map(option => (
                 <option key={option.value} value={option.value}>
@@ -199,7 +199,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                         playMode === 'pass'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       Pass
@@ -212,7 +212,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                         playMode === 'run'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       Run
@@ -225,7 +225,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                         structuredPlayType === 'rpo'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       RPO
@@ -241,7 +241,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
                         structuredPlayType === 'coverage'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       Coverage
@@ -254,7 +254,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
                         structuredPlayType === 'pressure'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       Pressure
@@ -267,7 +267,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                       className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
                         structuredPlayType === 'run_defense'
                           ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                          : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                          : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                       }`}
                     >
                       Run D
@@ -283,7 +283,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                     playMode === 'pass'
                       ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                      : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                   }`}
                 >
                   Pass
@@ -293,7 +293,7 @@ const FormationBarComponent: React.FC<FormationBarProps> = ({
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                     playMode === 'run'
                       ? 'bg-[#00F6E5]/10 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                      : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                   }`}
                 >
                   Run

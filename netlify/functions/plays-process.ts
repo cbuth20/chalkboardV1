@@ -9,6 +9,7 @@ import { withOrgAuth, getAuthenticatedUser } from './shared/auth';
 import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, NotFoundError, ForbiddenError, ValidationError } from './shared/errors';
 import { validateUUID } from './shared/validators';
+import { enqueuePlayProcessing } from './shared/queue-jobs';
 
 interface ProcessPlayRequest {
   generateInsights?: boolean;
@@ -95,33 +96,25 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       throw new Error(`Failed to update play status: ${updateError.message}`);
     }
 
-    // Call background processing function
-    // Note: In production, this would be an async invocation
-    // For now, we'll make a direct HTTP call to the background function
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-play-content-background`;
+    // Enqueue job to Redis via BullMQ
+    console.log(`Triggering background processing for play ${playId}`);
 
-    console.log(`🚀 Triggering background processing for play ${playId}`);
-    console.log(`📷 Image URL: ${imageUrl}`);
-
-    // Fire-and-forget call to background function
-    fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        playId,
-        imageUrl,
-        generateInsights,
-        generateAssignments,
-        generateKnowledge,
-      }),
-    }).catch((error) => {
-      console.error('Failed to trigger background function:', error);
-      // Don't throw - we already updated the status
+    const jobId = await enqueuePlayProcessing({
+      playId,
+      imageUrl,
+      generateInsights,
+      generateAssignments,
+      generateKnowledge,
     });
 
-    console.log(`✅ Background processing triggered for play ${playId}`);
+    console.log(`Enqueued play processing job ${jobId} for play ${playId}`);
+
+    // Ping the worker to ensure it's running
+    const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
+    const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
+    fetch(workerUrl, { method: 'POST' }).catch(() => {
+      // Worker may already be running — that's fine
+    });
 
     return {
       statusCode: 202, // Accepted
@@ -129,8 +122,9 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
       body: JSON.stringify({
         success: true,
         playId,
+        jobId,
         status: 'generating',
-        message: 'Background processing started. Check play status for completion.',
+        message: 'Processing queued. You will be notified when complete.',
       }),
     };
   } catch (error) {

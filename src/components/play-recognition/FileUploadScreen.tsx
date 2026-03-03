@@ -433,7 +433,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                         <select
                           value={currentFile.metadata.note_type || ''}
                           onChange={(e) => handleUpdateMetadata({ note_type: e.target.value as NoteType })}
-                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                          className="w-full px-3 py-2 bg-[#1B1E20] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
                         >
                           <option value="">Select Note Type...</option>
                           {(Object.entries(NOTE_TYPE_LABELS) as [NoteType, string][]).map(([value, label]) => (
@@ -450,7 +450,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                         <select
                           value={currentFile.metadata.file_category || ''}
                           onChange={(e) => handleUpdateMetadata({ file_category: e.target.value as FileCategory })}
-                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                          className="w-full px-3 py-2 bg-[#1B1E20] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
                         >
                           <option value="">Select Category...</option>
                           {(Object.entries(FILE_CATEGORY_LABELS) as [FileCategory, string][]).map(([value, label]) => (
@@ -488,7 +488,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                           <select
                             value={currentFile.metadata.unit || ''}
                             onChange={(e) => handleUnitChange(e.target.value as Unit)}
-                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                            className="w-full px-3 py-2 bg-[#1B1E20] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
                           >
                             <option value="">Select Unit...</option>
                             {(Object.entries(UNIT_LABELS) as [Unit, string][]).map(([value, label]) => (
@@ -505,7 +505,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                             <select
                               value={currentFile.metadata.play_type || ''}
                               onChange={(e) => handleUpdateMetadata({ play_type: e.target.value as 'PASS' | 'RUN' | 'RPO' | 'SCREEN' })}
-                              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                              className="w-full px-3 py-2 bg-[#1B1E20] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
                             >
                               <option value="">Select Type...</option>
                               {(Object.entries(PLAY_TYPE_LABELS) as [keyof typeof PLAY_TYPE_LABELS, string][]).map(([value, label]) => (
@@ -546,7 +546,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({ mode = 'play
                           <select
                             value={currentFile.metadata.primary_classification || ''}
                             onChange={(e) => handleUpdateMetadata({ primary_classification: e.target.value })}
-                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
+                            className="w-full px-3 py-2 bg-[#1B1E20] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-[var(--neon-teal)] transition-colors"
                           >
                             <option value="">Select Classification...</option>
                             {getPrimaryClassificationsForUnit(currentFile.metadata.unit).map(classification => (

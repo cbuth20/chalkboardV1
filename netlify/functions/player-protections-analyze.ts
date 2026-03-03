@@ -8,6 +8,7 @@ import { Handler } from '@netlify/functions';
 import { withOrgAuth, getAuthenticatedUser } from './shared/auth';
 import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse, ValidationError } from './shared/errors';
+import { enqueueProtectionAnalysis } from './shared/queue-jobs';
 
 const handler: Handler = withOrgAuth('player')(async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -75,28 +76,23 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
     console.log(`🎯 Created analysis record ${analysis.id}`);
 
-    // Call background processing function
-    const backgroundFunctionUrl = `${event.headers.host?.includes('localhost') ? 'http' : 'https'}://${event.headers.host}/.netlify/functions/process-protection-analysis-background`;
+    // Enqueue job to Redis via BullMQ
+    console.log(`Triggering background protection analysis for ${pdfs.length} PDFs`);
 
-    console.log(`🚀 Triggering background protection analysis for ${pdfs.length} PDFs`);
+    const jobId = await enqueueProtectionAnalysis({
+      analysisId: analysis.id,
+      userId: user.userId,
+      orgId: user.orgId,
+      pdfIds: pdfs.map(p => p.id),
+    });
 
-    // Fire-and-forget call to background function
-    fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        analysisId: analysis.id,
-        userId: user.userId,
-        orgId: user.orgId,
-        pdfIds: pdfs.map(p => p.id),
-      }),
-    }).catch((error) => {
-      console.error('Failed to trigger background function:', error);
-      supabase
-        .from('player_playbook_analysis')
-        .update({ status: 'failed', error_message: 'Failed to start background processing' })
-        .eq('id', analysis.id)
-        .then(() => console.log('Updated analysis status to failed'));
+    console.log(`Enqueued protection analysis job ${jobId}`);
+
+    // Ping the worker to ensure it's running
+    const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
+    const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
+    fetch(workerUrl, { method: 'POST' }).catch(() => {
+      // Worker may already be running — that's fine
     });
 
     return {
@@ -105,6 +101,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       body: JSON.stringify({
         success: true,
         analysisId: analysis.id,
+        jobId,
         status: 'processing',
         pdfCount: pdfs.length,
         estimatedDuration: `${Math.ceil(pdfs.length * 3)} minutes`,

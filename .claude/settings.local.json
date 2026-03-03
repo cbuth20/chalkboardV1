@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(netlify:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(echo:*)",
+      "WebSearch",
+      "WebFetch(domain:itch.io)",
+      "WebFetch(domain:www.spriters-resource.com)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(export:*)",
+      "Bash(wc:*)",
+      "Bash(npm run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr:*)",
+      "Bash(/c/Users/ribby/repos/chalkboardv1/.env.local:*)",
+      "WebFetch(domain:upstash.com)",
+      "Bash(npx esbuild:*)",
+      "Bash(npx netlify:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

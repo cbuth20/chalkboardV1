@@ -95,7 +95,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
           value={playName}
           onChange={(e) => onPlayNameChange(e.target.value)}
           disabled={viewOnly}
-          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
           placeholder="e.g., 'Y-Sail Combo'"
         />
       </div>
@@ -110,7 +110,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
           value={formation}
           onChange={(e) => onFormationChange(e.target.value)}
           disabled={viewOnly}
-          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
           placeholder="e.g., 'Trips Right'"
         />
       </div>
@@ -134,7 +134,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                       isSelected
                         ? 'bg-[#00F6E5]/20 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                        : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                        : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                     } disabled:opacity-50`}
                   >
                     {tag.name}
@@ -162,7 +162,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     isSelected
                       ? 'bg-[#00F6E5]/20 text-[#00F6E5] ring-1 ring-[#00F6E5]/30'
-                      : 'bg-[#1B1E20]/50 text-slate-400 hover:bg-[#1B1E20]'
+                      : 'bg-[#1B1E20] text-slate-400 hover:bg-[#1B1E20]'
                   } disabled:opacity-50`}
                 >
                   {tag.name}
@@ -183,7 +183,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
           value={concept}
           onChange={(e) => onConceptChange(e.target.value)}
           disabled={viewOnly}
-          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
           placeholder="e.g., 'Levels Concept'"
         />
       </div>
@@ -197,7 +197,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
           value={playType}
           onChange={(e) => onPlayTypeChange(e.target.value)}
           disabled={viewOnly}
-          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
         >
           <option value="PASS">Pass</option>
           <option value="RUN">Run</option>
@@ -215,7 +215,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
             value={strength}
             onChange={(e) => onStrengthChange(e.target.value)}
             disabled={viewOnly}
-            className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
           >
             <option value="Right">Right</option>
             <option value="Left">Left</option>
@@ -230,7 +230,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
             value={personnel}
             onChange={(e) => onPersonnelChange(e.target.value)}
             disabled={viewOnly}
-            className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
             placeholder="11"
           />
         </div>
@@ -254,7 +254,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
               value={installPhase}
               onChange={(e) => onInstallPhaseChange(e.target.value)}
               disabled={viewOnly}
-              className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
               placeholder="e.g., 'Week 1'"
             />
           </div>
@@ -269,7 +269,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
                 value={defensiveLook}
                 onChange={(e) => onDefensiveLookChange(e.target.value)}
                 disabled={viewOnly}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
                 placeholder="e.g., 'Cover 2'"
               />
             </div>
@@ -285,7 +285,7 @@ export const PlayMetadataPanel: React.FC<PlayMetadataPanelProps> = ({
                 value={offensiveLook}
                 onChange={(e) => onOffensiveLookChange(e.target.value)}
                 disabled={viewOnly}
-                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20]/50 px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
+                className="w-full rounded-lg border border-[#1B1E20] bg-[#1B1E20] px-3 py-2 text-sm text-white focus:border-[#00F6E5]/50 focus:outline-none disabled:opacity-50"
                 placeholder="e.g., '11 Personnel'"
               />
             </div>
