@@ -53,6 +53,7 @@ export default function PlayerNotesPage() {
 
   // Track IDs that were generating so we can detect completion
   const generatingIdsRef = useRef<Set<string>>(new Set());
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadNotes = async () => {
     if (!session?.access_token || !orgId) return;
@@ -82,16 +83,12 @@ export default function PlayerNotesPage() {
     }
   };
 
-  // Poll for progress updates when any note is generating
+  // Detect completion of generating notes
   useEffect(() => {
-    const hasGenerating = notes.some(n => n.contentStatus === 'generating');
-
-    // Track which notes are currently generating
     const currentGeneratingIds = new Set(
       notes.filter(n => n.contentStatus === 'generating').map(n => n.id)
     );
 
-    // Detect completions: was generating before, now approved
     generatingIdsRef.current.forEach(id => {
       if (!currentGeneratingIds.has(id)) {
         const note = notes.find(n => n.id === id);
@@ -101,30 +98,44 @@ export default function PlayerNotesPage() {
       }
     });
 
-    // Update the ref
     generatingIdsRef.current = currentGeneratingIds;
 
-    if (!hasGenerating) return;
+    // Start or stop polling based on whether any notes are generating
+    const hasGenerating = currentGeneratingIds.size > 0;
 
-    const interval = setInterval(async () => {
-      if (!session?.access_token || !orgId) return;
+    if (hasGenerating && !pollingRef.current) {
+      pollingRef.current = setInterval(async () => {
+        if (!session?.access_token || !orgId) return;
 
-      const baseURL = window.location.hostname === 'localhost'
-        ? 'http://localhost:8888/.netlify/functions'
-        : '/.netlify/functions';
-      try {
-        const response = await fetch(`${baseURL}/player-notes?orgId=${orgId}`, {
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setNotes(data.notes || []);
-        }
-      } catch {}
-    }, 5000);
+        const baseURL = window.location.hostname === 'localhost'
+          ? 'http://localhost:8888/.netlify/functions'
+          : '/.netlify/functions';
+        try {
+          const response = await fetch(`${baseURL}/player-notes?orgId=${orgId}`, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setNotes(data.notes || []);
+          }
+        } catch {}
+      }, 5000);
+    } else if (!hasGenerating && pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes]);
 
-    return () => clearInterval(interval);
-  }, [notes, orgId, session]);
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
 
   // Filter and sort notes
   const filteredNotes = useMemo(() => {

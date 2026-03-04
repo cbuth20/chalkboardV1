@@ -257,7 +257,7 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
             .delete()
             .in('id', batch);
           if (deleteError) {
-            console.error(`Failed to delete old scenario batch: ${deleteError.message}`);
+            throw new Error(`Failed to delete old scenario batch: ${deleteError.message}`);
           }
         }
         console.log(`Deleted ${oldScenarioIds.length} old scenarios`);
@@ -280,7 +280,7 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
       .eq('id', analysisId);
 
     if (updateError) {
-      console.error('Failed to update analysis record:', updateError);
+      throw new Error(`Failed to update analysis record: ${updateError.message}`);
     }
 
     console.log(`Protection analysis complete in ${processingTime}s`);

@@ -49,6 +49,13 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
 
     console.log(`📚 Found ${analyzableFiles.length} files for protection analysis`);
 
+    // Auto-fail any analysis stuck processing for > 15 minutes (stale cleanup)
+    await supabase.from('player_playbook_analysis')
+      .update({ status: 'failed', error_message: 'Analysis timed out.', completed_at: new Date().toISOString() })
+      .eq('user_id', user.userId)
+      .eq('status', 'processing')
+      .lt('started_at', new Date(Date.now() - 15 * 60 * 1000).toISOString());
+
     // Check if there's already a processing analysis
     const { data: existingAnalysis } = await supabase
       .from('player_playbook_analysis')
@@ -84,12 +91,19 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     // Enqueue job to Redis via BullMQ
     console.log(`Triggering background protection analysis for ${analyzableFiles.length} files`);
 
-    const jobId = await enqueueProtectionAnalysis({
-      analysisId: analysis.id,
-      userId: user.userId,
-      orgId: user.orgId,
-      pdfIds: analyzableFiles.map(f => f.id),
-    });
+    let jobId: string;
+    try {
+      jobId = await enqueueProtectionAnalysis({
+        analysisId: analysis.id,
+        userId: user.userId,
+        orgId: user.orgId,
+        pdfIds: analyzableFiles.map(f => f.id),
+      });
+    } catch (enqueueError) {
+      // Rollback: delete the analysis record so user can retry
+      await supabase.from('player_playbook_analysis').delete().eq('id', analysis.id);
+      throw new Error('Failed to queue analysis job. Please try again.');
+    }
 
     console.log(`Enqueued protection analysis job ${jobId}`);
 
