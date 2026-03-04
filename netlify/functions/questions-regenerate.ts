@@ -63,9 +63,12 @@ const handler: Handler = withOrgAuth('coach')(async (event, context) => {
     // Ping the worker to ensure it's running
     const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
     const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
-    fetch(workerUrl, { method: 'POST' }).catch((err) => {
+    try {
+      await fetch(workerUrl, { method: 'POST', signal: AbortSignal.timeout(5000) });
+      console.log('Queue worker pinged successfully');
+    } catch (err: any) {
       console.error('Failed to ping queue worker:', err.message || err);
-    });
+    }
 
     return {
       statusCode: 202, // Accepted
