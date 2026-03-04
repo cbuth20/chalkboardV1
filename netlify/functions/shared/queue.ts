@@ -87,13 +87,21 @@ export interface QuestionRegenerationJobData {
 // ----- Queue Factories -----
 
 /**
- * Get or create a queue instance.
- * Queues are cheap to create — BullMQ handles connection pooling.
+ * Shared Redis connection for enqueue operations within a single function invocation.
+ * Avoids creating/closing a connection per enqueue call.
  */
+let sharedQueueConnection: Redis | null = null;
+
+function getSharedConnection(): Redis {
+  if (!sharedQueueConnection || sharedQueueConnection.status === 'end') {
+    sharedQueueConnection = createRedisConnection();
+  }
+  return sharedQueueConnection;
+}
+
 export function getQueue(queueName: string): Queue {
-  const connection = createRedisConnection();
   return new Queue(queueName, {
-    connection: connection as any,
+    connection: getSharedConnection() as any,
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -136,16 +144,12 @@ export async function enqueueJob<T>(
 ): Promise<string> {
   const queue = getQueue(queueName);
 
-  try {
-    const job = await queue.add(jobName, data, {
-      priority: options?.priority ?? JOB_PRIORITY.DEFAULT,
-      delay: options?.delay,
-      jobId: options?.jobId,
-    });
+  const job = await queue.add(jobName, data, {
+    priority: options?.priority ?? JOB_PRIORITY.DEFAULT,
+    delay: options?.delay,
+    jobId: options?.jobId,
+  });
 
-    console.log(`Job enqueued: ${queueName}/${jobName} (ID: ${job.id})`);
-    return job.id!;
-  } finally {
-    await queue.close();
-  }
+  console.log(`Job enqueued: ${queueName}/${jobName} (ID: ${job.id})`);
+  return job.id!;
 }

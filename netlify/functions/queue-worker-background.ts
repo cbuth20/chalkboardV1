@@ -19,7 +19,7 @@ import { analyzeFormations } from './workers/formations-analysis-worker';
 import { regenerateQuestions } from './workers/question-regeneration-worker';
 
 const WORKER_TIMEOUT_MS = 14 * 60 * 1000; // 14 minutes hard cap
-const IDLE_TIMEOUT_MS = 30 * 1000; // Exit after 30s with no job activity
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // Exit after 5 min with no job activity
 
 export const handler: Handler = async (event) => {
   const startTime = Date.now();
@@ -113,7 +113,22 @@ export const handler: Handler = async (event) => {
       worker.on('failed', (job, err) => {
         console.error(`Job ${job?.id} failed:`, err.message);
       });
+      worker.on('error', (err) => {
+        console.error(`Worker error (${worker.name}):`, err.message);
+      });
+      worker.on('stalled', (jobId) => {
+        console.warn(`Job ${jobId} stalled in ${worker.name}`);
+      });
     }
+
+    // Wait for all workers to be ready before starting idle check
+    await Promise.all(workers.map(w =>
+      w.waitUntilReady().catch(err => {
+        console.error(`Worker ${w.name} failed to start:`, err.message);
+      })
+    ));
+    console.log(`All ${workers.length} workers ready`);
+    lastActivityTime = Date.now(); // Reset so idle timer starts from "ready"
 
     // Run until idle or timeout
     await new Promise<void>((resolve) => {
@@ -125,14 +140,8 @@ export const handler: Handler = async (event) => {
           console.log('Approaching timeout, shutting down...');
           clearInterval(checkInterval);
           resolve();
-        } else if (idleTime >= IDLE_TIMEOUT_MS && jobsProcessed > 0) {
-          // Only idle-exit after processing at least 1 job (avoids exiting before first job arrives)
+        } else if (idleTime >= IDLE_TIMEOUT_MS) {
           console.log(`Idle for ${Math.round(idleTime / 1000)}s after ${jobsProcessed} jobs, shutting down...`);
-          clearInterval(checkInterval);
-          resolve();
-        } else if (idleTime >= IDLE_TIMEOUT_MS * 2) {
-          // If we've been idle for 60s and never processed a job, exit anyway
-          console.log('No jobs found, shutting down...');
           clearInterval(checkInterval);
           resolve();
         }
