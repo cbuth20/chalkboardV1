@@ -112,13 +112,22 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       console.log(`Image URL: ${imageUrl}`);
     }
 
-    const jobId = await enqueuePlayerPlayProcessing({
-      playId,
-      imageUrl: imageUrl || undefined,
-      generateInsights,
-      generateAssignments,
-      generateKnowledge,
-    });
+    let jobId: string;
+    try {
+      jobId = await enqueuePlayerPlayProcessing({
+        playId,
+        imageUrl: imageUrl || undefined,
+        generateInsights,
+        generateAssignments,
+        generateKnowledge,
+      });
+    } catch (enqueueError) {
+      // Rollback status so the user can retry
+      await supabase.from('player_plays')
+        .update({ content_status: play.content_status, ai_insights: null })
+        .eq('id', playId);
+      throw new Error('Failed to queue processing job. Please try again.');
+    }
 
     console.log(`Enqueued player play processing job ${jobId} for play ${playId}`);
 

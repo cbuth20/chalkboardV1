@@ -41,10 +41,14 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
   const startTime = Date.now();
 
   const updateProgress = async (message: string) => {
-    await supabase
-      .from('player_plays')
-      .update({ ai_insights: message })
-      .eq('id', playId);
+    try {
+      await supabase
+        .from('player_plays')
+        .update({ ai_insights: message })
+        .eq('id', playId);
+    } catch (err) {
+      console.error('Failed to update progress (non-critical):', err);
+    }
   };
 
   try {
@@ -241,7 +245,7 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
           .eq('player_play_id', playId);
 
         if (deleteError) {
-          console.error('Warning: Failed to delete existing assignments:', deleteError);
+          throw new Error(`Failed to delete existing assignments: ${deleteError.message}`);
         }
 
         const { data: assignments, error: assignmentError } = await supabase
@@ -318,7 +322,7 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
         .eq('player_play_id', playId);
 
       if (deleteFlashcardsError) {
-        console.error('Warning: Failed to delete existing flashcards:', deleteFlashcardsError);
+        throw new Error(`Failed to delete existing flashcards: ${deleteFlashcardsError.message}`);
       }
 
       const { data: flashcards, error: flashcardError } = await supabase
