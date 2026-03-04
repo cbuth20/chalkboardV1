@@ -25,6 +25,7 @@ interface ProtectionScenario {
   id: string;
   coverage_name: string;       // front name (e.g., "OVER", "UNDER")
   coverage_type: string;       // zone/man/blitz
+  front_family?: string;       // "Odd", "Even", or "5 Down"
   protection_type: string;     // team's actual protection name
   protection_concept: string;  // behavioral classification (full_slide, half_slide, etc.)
   call_side: string;           // "left" or "right"
@@ -61,12 +62,13 @@ type Difficulty = 'chill' | 'normal' | 'fast' | 'elite';
 type Screen = 'menu' | 'playing' | 'feedback' | 'results' | 'stats';
 type PlayPhase = 'call' | 'front_id' | 'pre_snap' | 'snapped';
 
-// Common defensive fronts for generating wrong answers
-const COMMON_FRONTS = [
-  'OVER', 'UNDER', '4-3', '3-4', 'BEAR', 'NICKEL', 'DIME',
-  '4-3 OVER', '4-3 UNDER', '3-4 EAGLE', '46', 'ODD', 'EVEN',
-  'NICKEL OVER', 'NICKEL UNDER', '3-3-5', '4-2-5',
-];
+// Front family categories — every defensive front is one of these three
+const FRONT_FAMILIES = ['Odd', 'Even', '5 Down'] as const;
+
+/** Get the front family from scenario data (AI-classified) */
+function getScenarioFrontFamily(scenario: ProtectionScenario): string {
+  return scenario.front_family || 'Even'; // fallback for old scenarios without front_family
+}
 
 const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS']);
 const isSecondary = (label: string) => SECONDARY_LABELS.has(label.toUpperCase());
@@ -624,6 +626,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           id: s.id,
           coverage_name: s.coverage_name || 'Unknown',
           coverage_type: s.coverage_type || 'all',
+          front_family: s.front_family || undefined,
           protection_type: s.protection_type || 'unknown',
           protection_concept: s.protection_concept || '',
           call_side: s.call_side || 'right',
@@ -639,11 +642,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           coaching_notes: s.blocking_rules || '',
         }));
         setScenarios(scenarioData);
-        console.log('[RBProtection] coverages response:', { hasAnalyzableFiles: data.hasAnalyzableFiles, analysisStatus: data.analysisStatus, scenarioCount: scenarioData.length });
         setHasUploadedFiles(data.hasAnalyzableFiles ?? false);
 
         // Pick up analysis status if one was running (e.g., page reload during analysis)
-        // Only resume if the analysis started within the last 15 minutes (not a stale record)
+        // Only resume if the analysis started within the last 10 minutes (not a stale record)
         if (data.analysisStatus === 'processing' && data.analysisStartedAt) {
           const startedAt = new Date(data.analysisStartedAt).getTime();
           const ageMinutes = (Date.now() - startedAt) / 60000;
@@ -651,7 +653,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             setAnalysisStatus('processing');
             setAnalyzing(true);
             if (data.analysisError) setAnalysisProgress(data.analysisError);
-            startPolling();
+            setAnalysisId(data.analysisId || null);
+            startPolling(data.analysisId);
           }
         }
       }
@@ -692,8 +695,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       const data = await response.json();
       setAnalysisId(data.analysisId);
 
-      // Start polling for completion
-      startPolling();
+      // Start polling for completion — pass the specific analysis ID
+      startPolling(data.analysisId);
     } catch (error) {
       setAnalysisStatus('failed');
       setAnalyzing(false);
@@ -701,16 +704,43 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     }
   };
 
-  const startPolling = () => {
+  const handleClearScenarios = async () => {
+    if (!(await confirm({ message: 'Clear all protection scenarios? You will need to re-analyze your playbooks to generate new ones.', variant: 'destructive', confirmLabel: 'Clear All' }))) return;
+    if (!session?.access_token || !orgId) return;
+
+    try {
+      const baseURL = window.location.hostname === 'localhost'
+        ? 'http://localhost:8888/.netlify/functions'
+        : '/.netlify/functions';
+      const response = await fetch(`${baseURL}/player-block-coverages?orgId=${orgId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+
+      if (!response.ok) throw new Error('Failed to clear scenarios');
+
+      setScenarios([]);
+      setAnalysisStatus('idle');
+      showToast('All scenarios cleared.', 'success');
+    } catch (error) {
+      showToast(`Failed to clear scenarios: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const startPolling = (trackAnalysisId?: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
 
     // Snapshot current scenario IDs so we can detect when new ones replace them
     const idsAtStart = new Set(scenarios.map(s => s.id));
     const countAtStart = scenarios.length;
+    // Use the specific analysis ID if provided (from startAnalysis or page-load resume)
+    const pollAnalysisId = trackAnalysisId || analysisId;
 
     pollRef.current = setInterval(async () => {
       try {
-        const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
+        let pollUrl = `/api/player-block-coverages?orgId=${orgId}`;
+        if (pollAnalysisId) pollUrl += `&analysisId=${pollAnalysisId}`;
+        const response = await fetch(pollUrl, {
           headers: { Authorization: `Bearer ${session!.access_token}` },
         });
 
@@ -744,6 +774,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               id: s.id,
               coverage_name: s.coverage_name || 'Unknown',
               coverage_type: s.coverage_type || 'all',
+              front_family: s.front_family || undefined,
               protection_type: s.protection_type || 'unknown',
               protection_concept: s.protection_concept || '',
               call_side: s.call_side || 'right',
@@ -867,15 +898,12 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     setMikeVisible(false);
     setFrontIdResult(null);
     setFrontIdPicked(null);
-    setFrontIdTimer(5000);
+    setFrontIdTimer(DIFFICULTY_CONFIG[difficulty].time);
     setFrontIdOverlay(false);
     frontIdOverlayVisible.current = false;
 
-    // Generate front ID multiple choice options
-    const correctFront = scenario.coverage_name;
-    const otherFronts = COMMON_FRONTS.filter(f => f.toUpperCase() !== correctFront.toUpperCase());
-    const shuffledWrong = shuffleArray(otherFronts).slice(0, 3);
-    setFrontChoices(shuffleArray([correctFront, ...shuffledWrong]));
+    // Generate front ID multiple choice options (always all 3 families)
+    setFrontChoices(shuffleArray([...FRONT_FAMILIES]));
 
     // Phase 1: Show the call screen (protection name + TB side)
     setPlayPhase('call');
@@ -893,14 +921,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       frontIdOverlayVisible.current = true;
       setFrontIdOverlay(true);
 
-      // After 1s, hide overlay and start the 5-second countdown
+      // After 1s, hide overlay and start the front ID countdown
+      const frontIdTime = DIFFICULTY_CONFIG[difficulty].time;
       setTimeout(() => {
         setFrontIdOverlay(false);
 
         const startMs = Date.now();
         frontIdTimerRef.current = setInterval(() => {
           const elapsed = Date.now() - startMs;
-          const remaining = Math.max(0, 5000 - elapsed);
+          const remaining = Math.max(0, frontIdTime - elapsed);
           setFrontIdTimer(remaining);
           if (remaining <= 0) {
             if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
@@ -976,7 +1005,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     frontIdOverlayVisible.current = false;
     setFrontIdOverlay(false);
 
-    const correct = choice.toUpperCase() === scenario.coverage_name.toUpperCase();
+    const correctFamily = getScenarioFrontFamily(scenario);
+    const correct = choice === correctFamily;
     setFrontIdResult(correct ? 'correct' : 'wrong');
     setFrontIdPicked(choice);
 
@@ -992,7 +1022,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     const current = scenario || currentScenarios[playIndex];
     if (!current) return;
 
-    const responseTime = Date.now() - playStartTime;
+    const rawResponseTime = Date.now() - playStartTime;
+    // Cap at 30s to prevent corrupted data from bad playStartTime
+    const responseTime = rawResponseTime > 0 && rawResponseTime < 30000 ? rawResponseTime : DIFFICULTY_CONFIG[difficulty].time;
     // Normalize defender labels so aliases (R/Rover = SS, $ = Q, etc.) match
     const DEFENDER_ALIASES: Record<string, string> = {
       'R': 'SS', 'ROVER': 'SS', 'ROBBER': 'SS', '$': 'Q', 'STAR': 'Q', 'STUD': 'Q',
@@ -1033,7 +1065,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (isCorrect) newStats.byProtection[pType].correct++;
     newStats.byProtection[pType].totalTime += responseTime;
 
-    const front = current.coverage_name || 'unknown';
+    const front = getScenarioFrontFamily(current);
     if (!newStats.byFront[front]) newStats.byFront[front] = { reps: 0, correct: 0, totalTime: 0 };
     newStats.byFront[front].reps++;
     if (isCorrect) newStats.byFront[front].correct++;
@@ -1166,7 +1198,21 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                   {analysisProgress || 'Extracting protection schemes, defensive fronts, and RB assignments from your playbook files.'}
                 </p>
                 <div className="mt-3 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#00d4aa]/60 rounded-full animate-pulse" style={{ width: '60%' }} />
+                  <div
+                    className="h-full bg-[#00d4aa]/60 rounded-full transition-all duration-700 ease-out"
+                    style={{ width: `${(() => {
+                      if (!analysisProgress) return 5;
+                      if (analysisProgress.startsWith('Preparing')) return 10;
+                      const fileMatch = analysisProgress.match(/Analyzing file (\d+) of (\d+)/);
+                      if (fileMatch) {
+                        const current = parseInt(fileMatch[1]);
+                        const total = parseInt(fileMatch[2]);
+                        return 10 + Math.round((current / total) * 75);
+                      }
+                      if (analysisProgress.startsWith('Saving')) return 90;
+                      return 50;
+                    })()}%` }}
+                  />
                 </div>
               </div>
             </div>
@@ -1199,7 +1245,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           </div>
         )}
 
-        {scenarios.length === 0 ? (
+        {scenarios.length === 0 && analysisStatus === 'processing' ? (
+          /* Analysis in progress with no scenarios yet — just show the banner above, nothing else */
+          null
+        ) : scenarios.length === 0 ? (
           /* Empty State */
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Protection Scenarios</h3>
@@ -1208,26 +1257,24 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                 ? 'Your playbook files are ready. Analyze them to generate protection scenarios.'
                 : 'Upload your playbook PDFs or images in My Notes, then come back here to analyze them.'}
             </p>
-            {analysisStatus !== 'processing' && (
-              <div className="flex gap-3">
-                {!hasUploadedFiles ? (
-                  <a
-                    href="/player-notes"
-                    className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition text-center"
-                  >
-                    Go to My Notes
-                  </a>
-                ) : (
-                  <button
-                    onClick={startAnalysis}
-                    disabled={analyzing}
-                    className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
-                  >
-                    {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="flex gap-3">
+              {!hasUploadedFiles ? (
+                <a
+                  href="/player-notes"
+                  className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition text-center"
+                >
+                  Go to My Notes
+                </a>
+              ) : (
+                <button
+                  onClick={startAnalysis}
+                  disabled={analyzing}
+                  className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
+                >
+                  {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -1289,9 +1336,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             {/* Start Button */}
             <button
               onClick={startTraining}
-              className="w-full py-4 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold text-lg rounded-lg transition mb-4"
+              disabled={analysisStatus === 'processing'}
+              className="w-full py-4 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed text-black font-bold text-lg rounded-lg transition mb-4"
             >
-              START TRAINING →
+              {analysisStatus === 'processing' ? 'Analysis in progress...' : 'START TRAINING →'}
             </button>
 
             {/* View Stats */}
@@ -1302,16 +1350,25 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               View Stats ({sessionStats.totalReps} total reps)
             </button>
 
-            {/* Re-analyze */}
+            {/* Re-analyze & Clear */}
             {!demoMode && (
-              <div className="mt-6 text-center">
+              <div className="mt-4 flex justify-center gap-3">
                 <button
                   onClick={startAnalysis}
                   disabled={analyzing}
-                  className="text-sm text-gray-500 hover:text-[#00d4aa] transition"
+                  className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-[#00d4aa]/50 hover:text-[#00d4aa] disabled:opacity-40 transition"
                 >
                   {analyzing ? 'Analyzing...' : 'Re-analyze Playbooks'}
                 </button>
+                {scenarios.length > 0 && (
+                  <button
+                    onClick={handleClearScenarios}
+                    disabled={analyzing}
+                    className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-red-500/50 hover:text-red-400 disabled:opacity-40 transition"
+                  >
+                    Clear All Scenarios
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -1473,10 +1530,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               <span className={`text-lg font-semibold uppercase tracking-widest ${
                 frontIdResult === 'correct' ? 'text-emerald-400' : frontIdResult === 'wrong' ? 'text-red-400' : 'text-[#67e8f9]'
               }`}>
-                {frontIdResult === 'correct' ? 'Correct!' : frontIdResult === 'wrong' ? `${scenario.coverage_name}` : 'What front is this?'}
+                {frontIdResult === 'correct' ? 'Correct!' : frontIdResult === 'wrong' ? `${getScenarioFrontFamily(scenario)}` : 'What front is this?'}
               </span>
               {!frontIdResult && (
-                <span className="ml-3 text-sm font-mono" style={{ color: frontIdTimer > 2000 ? '#67e8f9' : frontIdTimer > 1000 ? '#fbbf24' : '#ef4444' }}>
+                <span className="ml-3 text-sm font-mono" style={{ color: frontIdTimer > DIFFICULTY_CONFIG[difficulty].time * 0.4 ? '#67e8f9' : frontIdTimer > DIFFICULTY_CONFIG[difficulty].time * 0.2 ? '#fbbf24' : '#ef4444' }}>
                   {(frontIdTimer / 1000).toFixed(1)}s
                 </span>
               )}
@@ -1944,10 +2001,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
         {/* Front ID multiple choice */}
         {isFrontId && (
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-3 gap-3 mb-4">
             {frontChoices.map(choice => {
-              const isCorrectChoice = choice.toUpperCase() === scenario.coverage_name.toUpperCase();
-              const isPickedChoice = frontIdPicked?.toUpperCase() === choice.toUpperCase();
+              const correctFamily = getScenarioFrontFamily(scenario);
+              const isCorrectChoice = choice === correctFamily;
+              const isPickedChoice = frontIdPicked === choice;
               let btnClass = 'bg-gray-800 text-gray-200 border-2 border-gray-600 hover:border-[#67e8f9] hover:bg-gray-700';
               if (frontIdResult) {
                 if (isCorrectChoice) {

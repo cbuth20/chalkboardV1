@@ -61,7 +61,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       throw new ValidationError('An analysis is already in progress. Please wait for it to complete.');
     }
 
-    // Create analysis record
+    // Create analysis record with initial progress message
     const { data: analysis, error: analysisError } = await supabase
       .from('player_playbook_analysis')
       .insert({
@@ -70,6 +70,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         pdf_count: analyzableFiles.length,
         status: 'processing',
         started_at: new Date().toISOString(),
+        error_message: `Preparing to analyze ${analyzableFiles.length} file${analyzableFiles.length === 1 ? '' : 's'}...`,
       })
       .select()
       .single();

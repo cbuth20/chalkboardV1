@@ -97,7 +97,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     // Update play status to generating
     const { error: updateError } = await supabase
       .from('player_plays')
-      .update({ content_status: 'generating' })
+      .update({ content_status: 'generating', ai_insights: 'Queued for processing...' })
       .eq('id', playId);
 
     if (updateError) {

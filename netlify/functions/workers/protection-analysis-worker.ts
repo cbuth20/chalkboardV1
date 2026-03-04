@@ -15,6 +15,7 @@ const CLAUDE_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/
 interface ProtectionScenario {
   coverage_name: string;
   coverage_type: string;
+  front_family: string;
   protection_type: string;
   protection_concept: string;
   call_side: string;
@@ -217,6 +218,7 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
         org_id: orgId,
         coverage_name: s.coverage_name,
         coverage_type: s.coverage_type,
+        front_family: s.front_family || null,
         protection_type: s.protection_type,
         protection_concept: s.protection_concept || 'unknown',
         call_side: s.call_side,
@@ -317,6 +319,12 @@ async function analyzeProtectionFile(
 
 Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL, DIME) with base rushes, single-blitzer pressures, and occasional exotic multi-blitzer packages.
 
+For EVERY scenario, you MUST classify the defensive front into a "front_family" using these rules:
+- "Odd": The center is COVERED (a defender is head-up on the center in a 0-technique or shaded). Guards are typically uncovered. Examples: 3-4, ODD, 3-3-5.
+- "Even": The center is UNCOVERED. Defenders are aligned over or between the guards (3-technique, 1-technique). Examples: OVER, UNDER, 4-3, NICKEL, DIME, 4-2-5.
+- "5 Down": The center AND both guards are all COVERED. Five defenders have their hands in the dirt on the line. Examples: BEAR, 46, GOAL LINE, Double Eagle.
+IMPORTANT: If an OLB walks down and puts a hand in the dirt, that effectively changes the front family for blocking rules (e.g., a 3-4 ODD front with a walked-up OLB becomes an EVEN front).
+
 Extract the team's ACTUAL protection names from the playbook. If they call it "Max", "Fox", "60 Protection", "Half Slide", "BOB", use THAT exact name as protection_type. Do NOT rename protections to standard numbered schemes — preserve the team's terminology.
 
 Classify each protection into a protection_concept value from this taxonomy:
@@ -355,6 +363,7 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
     {
       "coverage_name": "OVER",
       "coverage_type": "blitz",
+      "front_family": "Even",
       "protection_type": "60 Protection",
       "protection_concept": "full_slide",
       "call_side": "right",  // The direction the OL slides. "right" = OL slides right.

@@ -10,6 +10,33 @@ import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse } from './shared/errors';
 
 const handler: Handler = withOrgAuth('player')(async (event, context) => {
+  // DELETE - Clear all scenarios for the user
+  if (event.httpMethod === 'DELETE') {
+    try {
+      const user = getAuthenticatedUser(event);
+      const supabase = getSupabaseAdmin();
+
+      const { error } = await supabase
+        .from('player_block_coverages')
+        .delete()
+        .eq('user_id', user.userId)
+        .eq('org_id', user.orgId);
+
+      if (error) {
+        throw new Error(`Failed to delete scenarios: ${error.message}`);
+      }
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true }),
+      };
+    } catch (error) {
+      console.error('Error deleting block coverages:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
   if (event.httpMethod !== 'GET') {
     return {
       statusCode: 405,
@@ -31,14 +58,30 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
       throw new Error(`Failed to fetch coverages: ${error.message}`);
     }
 
-    // Fetch latest analysis status so frontend can detect failures
-    const { data: latestAnalysis } = await supabase
-      .from('player_playbook_analysis')
-      .select('id, status, error_message, started_at')
-      .eq('user_id', user.userId)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
+    // Fetch analysis status — use specific ID if provided, otherwise latest
+    const params = new URLSearchParams(event.rawQuery || '');
+    const requestedAnalysisId = params.get('analysisId');
+
+    let latestAnalysis: any = null;
+    if (requestedAnalysisId) {
+      // Frontend is tracking a specific analysis — query it directly
+      const { data } = await supabase
+        .from('player_playbook_analysis')
+        .select('id, status, error_message, started_at')
+        .eq('id', requestedAnalysisId)
+        .single();
+      latestAnalysis = data;
+    } else {
+      // No specific ID — fall back to latest by started_at
+      const { data } = await supabase
+        .from('player_playbook_analysis')
+        .select('id, status, error_message, started_at')
+        .eq('user_id', user.userId)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+      latestAnalysis = data;
+    }
 
     // Check if user has any analyzable files (PDFs/images)
     const SUPPORTED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
@@ -74,6 +117,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
         success: true,
         scenarios: coverages || [],
         total: coverages?.length || 0,
+        analysisId: latestAnalysis?.id || null,
         analysisStatus: latestAnalysis?.status || null,
         analysisError: latestAnalysis?.error_message || null,
         analysisStartedAt: latestAnalysis?.started_at || null,

@@ -69,6 +69,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
           player_playbook_metadata_id,
           name,
           content_status,
+          ai_insights,
           created_at
         `)
         .in('player_playbook_metadata_id', metadataIds);
@@ -120,6 +121,7 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
           processedAt: play?.content_status === 'approved' ? meta.updated_at : null,
           flashcardCount: play ? (flashcardCounts[play.id] || 0) : 0,
           contentStatus: play?.content_status || 'draft',
+          progressMessage: play?.content_status === 'generating' ? (play.ai_insights || 'Processing...') : null,
         };
       });
 
