@@ -102,8 +102,8 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     // Ping the worker to ensure it's running
     const protocol = event.headers.host?.includes('localhost') ? 'http' : 'https';
     const workerUrl = `${protocol}://${event.headers.host}/.netlify/functions/queue-worker-background`;
-    fetch(workerUrl, { method: 'POST' }).catch(() => {
-      // Worker may already be running — that's fine
+    fetch(workerUrl, { method: 'POST' }).catch((err) => {
+      console.error('Failed to ping queue worker:', err.message || err);
     });
 
     return {
