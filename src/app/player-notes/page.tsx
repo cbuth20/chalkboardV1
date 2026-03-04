@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/SidebarLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +23,7 @@ interface NoteFile {
   processedAt?: string;
   flashcardCount: number;
   contentStatus: 'draft' | 'generating' | 'approved' | 'rejected';
+  progressMessage?: string;
 }
 
 export default function PlayerNotesPage() {
@@ -41,6 +42,7 @@ export default function PlayerNotesPage() {
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'status' | 'type'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [processingNoteId, setProcessingNoteId] = useState<string | null>(null);
 
   // Load notes from API
   useEffect(() => {
@@ -48,6 +50,9 @@ export default function PlayerNotesPage() {
       loadNotes();
     }
   }, [session, orgId]);
+
+  // Track IDs that were generating so we can detect completion
+  const generatingIdsRef = useRef<Set<string>>(new Set());
 
   const loadNotes = async () => {
     if (!session?.access_token || !orgId) return;
@@ -76,6 +81,50 @@ export default function PlayerNotesPage() {
       setLoading(false);
     }
   };
+
+  // Poll for progress updates when any note is generating
+  useEffect(() => {
+    const hasGenerating = notes.some(n => n.contentStatus === 'generating');
+
+    // Track which notes are currently generating
+    const currentGeneratingIds = new Set(
+      notes.filter(n => n.contentStatus === 'generating').map(n => n.id)
+    );
+
+    // Detect completions: was generating before, now approved
+    generatingIdsRef.current.forEach(id => {
+      if (!currentGeneratingIds.has(id)) {
+        const note = notes.find(n => n.id === id);
+        if (note && note.contentStatus === 'approved') {
+          showToast(`Processing complete for ${note.fileName}!`, 'success');
+        }
+      }
+    });
+
+    // Update the ref
+    generatingIdsRef.current = currentGeneratingIds;
+
+    if (!hasGenerating) return;
+
+    const interval = setInterval(async () => {
+      if (!session?.access_token || !orgId) return;
+
+      const baseURL = window.location.hostname === 'localhost'
+        ? 'http://localhost:8888/.netlify/functions'
+        : '/.netlify/functions';
+      try {
+        const response = await fetch(`${baseURL}/player-notes?orgId=${orgId}`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setNotes(data.notes || []);
+        }
+      } catch {}
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [notes, orgId, session]);
 
   // Filter and sort notes
   const filteredNotes = useMemo(() => {
@@ -226,6 +275,7 @@ export default function PlayerNotesPage() {
       return;
     }
 
+    setProcessingNoteId(noteId);
     try {
       const baseURL = window.location.hostname === 'localhost'
         ? 'http://localhost:8888/.netlify/functions'
@@ -248,11 +298,13 @@ export default function PlayerNotesPage() {
         throw new Error('Failed to start processing');
       }
 
-      showToast('Processing started! Check back in a few minutes.', 'info');
+      showToast('Processing started!', 'info');
       await loadNotes();
     } catch (error) {
       console.error('Error processing note:', error);
       showToast('Failed to start processing. Please try again.', 'error');
+    } finally {
+      setProcessingNoteId(null);
     }
   };
 
@@ -677,22 +729,24 @@ export default function PlayerNotesPage() {
                         )}
                       </td>
                       <td className="px-4 py-4">
-                        <span
-                          className={`px-2 py-1 text-xs rounded font-medium ${
-                            note.contentStatus === 'approved'
-                              ? 'bg-green-900/30 text-green-400'
-                              : note.contentStatus === 'generating'
-                              ? 'bg-yellow-900/30 text-yellow-400'
-                              : note.contentStatus === 'rejected'
-                              ? 'bg-red-900/30 text-red-400'
-                              : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {note.contentStatus === 'generating' && (
-                            <span className="inline-block mr-1">⏳</span>
-                          )}
-                          {note.contentStatus === 'rejected' ? '❌ Failed' : note.contentStatus}
-                        </span>
+                        {note.contentStatus === 'generating' ? (
+                          <span className="px-2 py-1 text-xs rounded font-medium bg-yellow-900/30 text-yellow-400">
+                            <span className="inline-block mr-1 animate-spin">&#9203;</span>
+                            {note.progressMessage || 'Processing...'}
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2 py-1 text-xs rounded font-medium ${
+                              note.contentStatus === 'approved'
+                                ? 'bg-green-900/30 text-green-400'
+                                : note.contentStatus === 'rejected'
+                                ? 'bg-red-900/30 text-red-400'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            {note.contentStatus === 'rejected' ? 'Failed' : note.contentStatus}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-4">
                         {note.flashcardCount > 0 ? (
@@ -711,17 +765,19 @@ export default function PlayerNotesPage() {
                           {note.contentStatus === 'draft' && (
                             <button
                               onClick={(e) => handleProcessNote(note.id, e)}
-                              className="px-3 py-1.5 text-xs font-semibold bg-[#00F6E5] text-black rounded-lg hover:bg-[#00F6E5]/90 transition-colors"
+                              disabled={processingNoteId === note.id}
+                              className="px-3 py-1.5 text-xs font-semibold bg-[#00F6E5] text-black rounded-lg hover:bg-[#00F6E5]/90 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
                             >
-                              Process
+                              {processingNoteId === note.id ? 'Starting...' : 'Process'}
                             </button>
                           )}
                           {note.contentStatus === 'rejected' && (
                             <button
                               onClick={(e) => handleProcessNote(note.id, e)}
-                              className="px-3 py-1.5 text-xs font-semibold bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors"
+                              disabled={processingNoteId === note.id}
+                              className="px-3 py-1.5 text-xs font-semibold bg-orange-600 text-white rounded-lg hover:bg-orange-500 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
                             >
-                              🔄 Retry
+                              {processingNoteId === note.id ? 'Starting...' : 'Retry'}
                             </button>
                           )}
                           <button

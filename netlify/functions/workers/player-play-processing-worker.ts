@@ -40,6 +40,13 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
 
   const startTime = Date.now();
 
+  const updateProgress = async (message: string) => {
+    await supabase
+      .from('player_plays')
+      .update({ ai_insights: message })
+      .eq('id', playId);
+  };
+
   try {
     console.log('Processing player play:', playId);
     console.log('Using structured data:', useStructuredData);
@@ -65,9 +72,13 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
     const metadata = (play as any).player_playbook_metadata;
     console.log('Player play and metadata found:', play.name);
 
+    await updateProgress('Preparing to analyze play...');
+
     // Build metadata context
     const metadataContext = buildMetadataContext(metadata);
     console.log('Starting AI generation...');
+
+    await updateProgress('Analyzing play with AI...');
 
     let playAnalysis = null;
 
@@ -141,6 +152,7 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
     // Generate insights
     let insights = null;
     if (generateInsights && playAnalysis) {
+      await updateProgress('Generating coaching insights...');
       console.log('Generating insights...');
       insights = await generatePlayInsights(openai, metadata, playAnalysis);
       console.log('Insights generated');
@@ -149,12 +161,14 @@ export async function processPlayerPlay(data: PlayerPlayProcessingJobData): Prom
     // Generate knowledge cards
     let knowledgeCards: any[] = [];
     if (generateKnowledge && playAnalysis) {
+      await updateProgress('Generating study flashcards...');
       console.log('Generating knowledge cards...');
       knowledgeCards = await generateKnowledgeCards(openai, playAnalysis, metadata);
       console.log('Generated', knowledgeCards.length, 'knowledge cards');
     }
 
     // Update player play
+    await updateProgress('Saving results...');
     console.log('Updating player play...');
     const validPlayTypes = ['PASS', 'RUN', 'RPO', 'SCREEN'];
     let playType = playAnalysis?.playType?.toUpperCase() || 'PASS';

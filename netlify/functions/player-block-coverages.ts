@@ -10,6 +10,33 @@ import { getSupabaseAdmin } from './shared/supabase';
 import { formatErrorResponse } from './shared/errors';
 
 const handler: Handler = withOrgAuth('player')(async (event, context) => {
+  // DELETE - Clear all scenarios for the user
+  if (event.httpMethod === 'DELETE') {
+    try {
+      const user = getAuthenticatedUser(event);
+      const supabase = getSupabaseAdmin();
+
+      const { error } = await supabase
+        .from('player_block_coverages')
+        .delete()
+        .eq('user_id', user.userId)
+        .eq('org_id', user.orgId);
+
+      if (error) {
+        throw new Error(`Failed to delete scenarios: ${error.message}`);
+      }
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true }),
+      };
+    } catch (error) {
+      console.error('Error deleting block coverages:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
   if (event.httpMethod !== 'GET') {
     return {
       statusCode: 405,

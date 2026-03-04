@@ -28,6 +28,7 @@ export interface DemoProtectionScenario {
   id: string;
   coverage_name: string;
   coverage_type: string;
+  front_family?: string;
   protection_type: string;
   protection_concept: string;
   call_side: string;
@@ -234,6 +235,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-360-over",
     coverage_name: "OVER",
     coverage_type: "zone",
+    front_family: "Even",
     protection_type: "360",
     protection_concept: "full_slide",
     call_side: "right",
@@ -259,6 +261,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-360-under",
     coverage_name: "UNDER",
     coverage_type: "zone",
+    front_family: "Even",
     protection_type: "360",
     protection_concept: "full_slide",
     call_side: "right",
@@ -284,6 +287,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-350-over",
     coverage_name: "OVER",
     coverage_type: "zone",
+    front_family: "Even",
     protection_type: "350",
     protection_concept: "full_slide",
     call_side: "right",
@@ -309,6 +313,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-64-bear",
     coverage_name: "BEAR",
     coverage_type: "man",
+    front_family: "5 Down",
     protection_type: "64",
     protection_concept: "half_slide",
     call_side: "right",
@@ -334,6 +339,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-360-33-stack",
     coverage_name: "3-3 STACK",
     coverage_type: "zone",
+    front_family: "Odd",
     protection_type: "360",
     protection_concept: "full_slide",
     call_side: "right",
@@ -358,6 +364,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-350-over-blitz",
     coverage_name: "OVER",
     coverage_type: "blitz",
+    front_family: "Even",
     protection_type: "350",
     protection_concept: "full_slide",
     call_side: "right",
@@ -382,6 +389,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-64-over-edge",
     coverage_name: "OVER",
     coverage_type: "man",
+    front_family: "Even",
     protection_type: "64",
     protection_concept: "half_slide",
     call_side: "left",
@@ -407,6 +415,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-360-under-double",
     coverage_name: "UNDER",
     coverage_type: "blitz",
+    front_family: "Even",
     protection_type: "360",
     protection_concept: "full_slide",
     call_side: "right",
@@ -431,6 +440,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-hoss-over",
     coverage_name: "OVER",
     coverage_type: "zone",
+    front_family: "Even",
     protection_type: "360",
     protection_concept: "full_slide",
     call_side: "right",
@@ -456,6 +466,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     id: "demo-64-33-sam-blitz",
     coverage_name: "3-3 STACK",
     coverage_type: "blitz",
+    front_family: "Odd",
     protection_type: "64",
     protection_concept: "half_slide",
     call_side: "right",
