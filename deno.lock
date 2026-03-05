@@ -25,6 +25,7 @@
         "npm:eslint-config-next@16.0.5",
         "npm:eslint@9",
         "npm:heic-convert@^2.1.0",
+        "npm:heic2any@^0.0.4",
         "npm:html-to-image@^1.11.13",
         "npm:ioredis@^5.10.0",
         "npm:lucide-react@0.562",

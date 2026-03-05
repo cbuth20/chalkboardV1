@@ -29,7 +29,18 @@
       "Bash(grep:*)",
       "Bash(cat:*)",
       "Bash(netstat:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(npx supabase:*)",
+      "Bash(__NEW_LINE_1d5a33c1f3f93c45__ curl:*)",
+      "Bash(npm audit:*)",
+      "Bash(gh api:*)",
+      "Bash(while read file)",
+      "Bash(do)",
+      "Bash(if grep -q \"\\\\.catch\\\\|\\\\.then\\\\|fetch\\(\" \"$file\")",
+      "Bash(! grep -q \"await\\\\|Promise\\\\.all\\\\|Promise\\\\.race\" \"$file\")",
+      "Bash(then)",
+      "Bash(fi)",
+      "Bash(done)"
     ]
   }
 }
