@@ -46,8 +46,6 @@ interface ProtectionScenario {
   down_distance?: string;
 }
 
-let allScenarios: ProtectionScenario[] = [];
-
 const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
@@ -55,7 +53,7 @@ const handler: Handler = async (event) => {
 
   const startTime = Date.now();
   let tokenCount = 0;
-  allScenarios = [];
+  let allScenarios: ProtectionScenario[] = [];
 
   try {
     const request: AnalysisRequest = JSON.parse(event.body || '{}');

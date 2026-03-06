@@ -73,7 +73,7 @@ function getScenarioFrontFamily(scenario: ProtectionScenario): string {
   return scenario.front_family || 'Even'; // fallback for old scenarios without front_family
 }
 
-const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS']);
+const SECONDARY_LABELS = new Set(['CB', 'SS', 'FS', 'R']);
 const isSecondary = (label: string) => SECONDARY_LABELS.has(label.toUpperCase());
 const LB_LABELS = new Set(['M', 'W', 'S', 'Q']);
 const isLB = (label: string) => LB_LABELS.has(label.toUpperCase());
@@ -205,10 +205,17 @@ function computeCoverageRotation(defenders: Defender[]): Record<string, { dx: nu
   for (const blitzer of blitzingSecondary) {
     const isCBBlitz = blitzer.label.toUpperCase() === 'CB';
 
-    // CB blitz → only safeties can rotate; SS/FS blitz → only other safeties rotate (CBs must cover their man)
+    // CB blitz → nearest safety rotates to cover
+    // SS/FS blitz → other safeties first, then CBs if no safety available
+    const isSafety = (l: string) => { const u = l.toUpperCase(); return u === 'SS' || u === 'FS' || u === 'R'; };
     const candidates = isCBBlitz
-      ? defenders.filter(d => (d.label.toUpperCase() === 'SS' || d.label.toUpperCase() === 'FS') && !d.rushing && !assigned.has(d.id))
-      : defenders.filter(d => (d.label.toUpperCase() === 'SS' || d.label.toUpperCase() === 'FS') && !d.rushing && !assigned.has(d.id));
+      ? defenders.filter(d => isSafety(d.label) && !d.rushing && !assigned.has(d.id))
+      : (() => {
+          const safeties = defenders.filter(d => isSafety(d.label) && !d.rushing && !assigned.has(d.id));
+          return safeties.length > 0
+            ? safeties
+            : defenders.filter(d => d.label.toUpperCase() === 'CB' && !d.rushing && !assigned.has(d.id));
+        })();
 
     let bestId = '';
     let bestDist = Infinity;
@@ -372,7 +379,7 @@ function computeMikeDesignation(
   const all = Object.entries(defenders).map(([key, d]) => ({ ...d, id: d.id || key }));
   const candidates = all.filter(d =>
     LB_LABELS.has(d.label.toUpperCase()) ||
-    (d.walked_up && ['SS', 'FS'].includes(d.label.toUpperCase()))
+    (d.walked_up && ['SS', 'FS', 'R'].includes(d.label.toUpperCase()))
   );
 
   if (candidates.length === 0) return null;
@@ -447,6 +454,7 @@ function HelmetIcon({
   // Elongated helmet: 48 wide x 56 tall viewBox
   // Facemask end is narrower (egg shape via path, not ellipse)
   const cy = down ? 24 : 32;
+  const glossId = `gloss-${facing}-${label}`;
 
   return (
     <svg viewBox="0 0 48 56" width="100%" height="100%" style={{ filter: 'drop-shadow(0 3px 5px rgba(0,0,0,0.7)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))' }}>
@@ -460,14 +468,14 @@ function HelmetIcon({
       )}
       {/* Gloss reflection */}
       <defs>
-        <radialGradient id={`gloss-${facing}`} cx="50%" cy="30%" rx="50%" ry="40%">
+        <radialGradient id={glossId} cx="50%" cy="30%" rx="50%" ry="40%">
           <stop offset="0%" stopColor="white" stopOpacity={0.18} />
           <stop offset="60%" stopColor="white" stopOpacity={0.06} />
           <stop offset="100%" stopColor="white" stopOpacity={0} />
         </radialGradient>
       </defs>
       {/* Broad soft glow */}
-      <ellipse cx={24} cy={cy - 6} rx={14} ry={8} fill={`url(#gloss-${facing})`} />
+      <ellipse cx={24} cy={cy - 6} rx={14} ry={8} fill={`url(#${glossId})`} />
       {/* Tight specular highlight */}
       <ellipse cx={20} cy={cy - 10} rx={5} ry={2.5} fill="white" opacity={0.14} />
       {/* Double center stripe */}
@@ -732,10 +740,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (!session?.access_token || !orgId) return;
 
     try {
-      const baseURL = window.location.hostname === 'localhost'
-        ? 'http://localhost:8888/.netlify/functions'
-        : '/.netlify/functions';
-      const response = await fetch(`${baseURL}/player-block-coverages?orgId=${orgId}`, {
+      const response = await fetch(`/api/player-block-coverages?orgId=${orgId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -759,6 +764,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     // Use the specific analysis ID if provided (from startAnalysis or page-load resume)
     const pollAnalysisId = trackAnalysisId || analysisId;
 
+    let pollTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const stopPolling = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      if (pollTimeout) clearTimeout(pollTimeout);
+      pollTimeout = null;
+    };
+
     pollRef.current = setInterval(async () => {
       try {
         let pollUrl = `/api/player-block-coverages?orgId=${orgId}`;
@@ -781,7 +795,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             setAnalysisStatus('failed');
             setAnalysisProgress(null);
             setAnalyzing(false);
-            if (pollRef.current) clearInterval(pollRef.current);
+            stopPolling();
             showToast(data.analysisError || 'Analysis failed. Please try again.', 'error');
             return;
           }
@@ -816,7 +830,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             setAnalysisStatus('completed');
             setAnalysisProgress(null);
             setAnalyzing(false);
-            if (pollRef.current) clearInterval(pollRef.current);
+            stopPolling();
           }
         }
       } catch {
@@ -825,13 +839,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     }, 8000); // Poll every 8 seconds
 
     // Stop polling after 10 minutes
-    setTimeout(() => {
+    pollTimeout = setTimeout(() => {
       if (pollRef.current) {
-        clearInterval(pollRef.current);
-        if (analysisStatus === 'processing') {
-          setAnalysisStatus('failed');
-          setAnalyzing(false);
-        }
+        stopPolling();
+        setAnalysisStatus('failed');
+        setAnalyzing(false);
       }
     }, 10 * 60 * 1000);
   };
@@ -1139,19 +1151,16 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     saveSessionStats(newStats);
 
     setScreen('feedback');
-  }, [currentScenarios, playIndex, playStartTime, sessionStats, frontIdResult, frontIdPicked]);
+  }, [currentScenarios, playIndex, playStartTime, sessionStats, frontIdResult, frontIdPicked, difficulty]);
 
   const nextPlay = () => {
     const nextIdx = playIndex + 1;
     if (nextIdx >= currentScenarios.length) {
-      // Save session to history
-      const correctCount = results.length > 0
-        ? results.filter(r => r.correct).length + (lastResult?.correct ? 1 : 0)
-        : (lastResult?.correct ? 1 : 0);
-      const totalTimeMs = results.reduce((s, r) => s + r.responseTime, 0) + (lastResult?.responseTime || 0);
-      const total = results.length + (lastResult ? 1 : 0);
-
-      const allResultsForSession = [...results, ...(lastResult && !results.includes(lastResult) ? [lastResult] : [])];
+      // Save session to history — results already contains all plays including the last one
+      const allResultsForSession = results;
+      const correctCount = allResultsForSession.filter(r => r.correct).length;
+      const totalTimeMs = allResultsForSession.reduce((s, r) => s + r.responseTime, 0);
+      const total = allResultsForSession.length;
       const frontCorrectCount = allResultsForSession.filter(r => r.frontCorrect).length;
       const newStats = { ...sessionStats };
       newStats.sessions.push({
@@ -1512,16 +1521,19 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         const engY = 58 + edge * 4;
         let rushY = 0;
 
-        if (postSnapRushing && def.rushing) {
-          if (postSnapBreakthrough && def.hot) {
-            rushY = Math.max(0, 70 - def.y - rY);
-          } else if (def.blitz) {
-            rushY = Math.max(0, 74 - def.y - rY);
+        const isTarget = def.id === scenario.correct_block_target;
+        const effRush = def.rushing || isTarget;
+        if (postSnapRushing && effRush) {
+          if (def.hot || def.blitz || isTarget) {
+            rushY = Math.max(0, 76 - def.y - rY);
           } else {
             rushY = Math.max(0, engY - def.y - rY);
           }
-        } else if (postSnapRushing && !def.rushing && isSecondary(def.label)) {
-          rushY = -10;
+        } else if (postSnapRushing && !effRush) {
+          const uLabel = def.label.toUpperCase();
+          const covDepth = uLabel === 'FS' ? 18 : (uLabel === 'SS' || uLabel === 'R') ? 28 : uLabel === 'CB' ? 42 : (!isSecondary(def.label) && !isLB(def.label)) ? 42 : 36;
+          const bail = (def.y + rY) - covDepth;
+          rushY = bail > 4 ? -bail : -(isSecondary(def.label) ? 5 : 3);
         }
 
         const crossX = postSnapRushing ? (crossDogOffsets[def.id] || 0) : 0;
@@ -1943,16 +1955,26 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               : '#6b7280';
 
             // Compute pre-snap margin offset in pixels (field height = 560px)
+            // Walked-up defenders start at their natural coverage depth and animate
+            // forward to their data y position. Blitzers get a smaller disguise offset.
             const FIELD_H = 560;
+            const upperLabel = def.label.toUpperCase();
+            const naturalDepth =
+              upperLabel === 'FS' ? 18 :
+              (upperLabel === 'SS' || upperLabel === 'R') ? 28 :
+              upperLabel === 'CB' ? 42 :
+              dl ? def.y :  // DL don't walk up
+              36;           // LBs
             let offsetY = 0;
             if (preSnapAnimating && def.walked_up) {
-              offsetY = secondary
-                ? -(18 / 100) * FIELD_H   // -100.8px — deep secondary depth
-                : -(12 / 100) * FIELD_H;  // -67.2px — natural LB depth
+              // Start at natural coverage depth, animate to walked-up position
+              const walkDistance = Math.max(0, def.y - naturalDepth);
+              offsetY = -(walkDistance / 100) * FIELD_H;
             } else if (preSnapAnimating && def.blitz) {
+              // Smaller disguise offset — just slightly deeper than data position
               offsetY = secondary
-                ? -(8 / 100) * FIELD_H    // -44.8px — deeper disguise
-                : -(5 / 100) * FIELD_H;   // -28px — LB disguise depth
+                ? -(8 / 100) * FIELD_H
+                : -(5 / 100) * FIELD_H;
             }
 
             // Coverage rotation: non-blitzing secondary slides pre-snap after walk-up
@@ -1987,14 +2009,28 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                 rushOffsetY = Math.max(0, rushOffsetY);
                 rushDuration = Math.max(0.8, rushOffsetY / speed);
               }
-            } else if (postSnapRushing && !def.rushing && secondary) {
-              // Non-rushing secondary drifts upfield with receivers
-              rushOffsetY = -10;
-              rushDuration = 3;
-            } else if (postSnapRushing && !def.rushing && !secondary && def.y > 50) {
-              // DL dropping into coverage (fire zone) — drop back into zone
-              rushOffsetY = -(def.y - 42);
-              rushDuration = 2.0;
+            } else if (postSnapRushing && !effectiveRushing) {
+              // Non-rushing defender: bail to natural coverage depth or drift deeper
+              const upperLabel = def.label.toUpperCase();
+              const coverageDepth =
+                upperLabel === 'FS' ? 18 :
+                (upperLabel === 'SS' || upperLabel === 'R') ? 28 :
+                upperLabel === 'CB' ? 42 :
+                dl ? 42 :   // DL dropping into zone (fire zone)
+                36;         // LBs (M, W, S, Q)
+
+              const currentY = def.y + rotY;
+              const bailDistance = currentY - coverageDepth;
+
+              if (bailDistance > 4) {
+                // Defender is notably shallower than natural depth — bail out
+                rushOffsetY = -bailDistance;
+                rushDuration = Math.max(0.8, bailDistance / 12);
+              } else {
+                // At or near natural depth — gentle drift deeper into coverage
+                rushOffsetY = -(secondary ? 5 : 3);
+                rushDuration = 3;
+              }
             }
 
             return (
@@ -2024,15 +2060,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                     : def.rushing ? 22
                     : 21,
                   marginTop: offsetY,
-                  transition: `left 1.4s ease-in-out, top ${rushDuration > 0 ? rushDuration : 1.4}s ${
-                    postSnapBreakthrough && def.hot
-                      ? 'cubic-bezier(0.45, 0, 0.55, 1)'
-                      : def.blitz && rushDuration > 0
-                        ? 'cubic-bezier(0.4, 0, 0.2, 1)'
-                        : rushDuration > 0
-                          ? 'cubic-bezier(0.22, 1, 0.36, 1)'
-                          : 'ease-in-out'
-                  }, margin-top 1.6s ease-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)`,
+                  transition: `left 1.4s ease-in-out, top ${rushDuration > 0 ? rushDuration : 1.4}s cubic-bezier(0.25, 0.6, 0.35, 1), margin-top 1.6s ease-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)`,
                 }}
               >
                 <HelmetIcon label={def.label} fill={fillColor} stroke={strokeColor} stripeColor={stripeColor} maskColor={maskColor} textColor={textColor} facing="down" />
@@ -2336,7 +2364,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (screen === 'results') {
-    const allResults = [...results, ...(lastResult && !results.find(r => r === lastResult) ? [lastResult] : [])];
+    const allResults = results;
     const blockCorrectCount = allResults.filter(r => r.correct).length;
     const frontCorrectCount = allResults.filter(r => r.frontCorrect).length;
     const total = allResults.length;

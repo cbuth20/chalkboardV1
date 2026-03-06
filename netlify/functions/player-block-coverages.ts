@@ -52,7 +52,8 @@ const handler: Handler = withOrgAuth('player')(async (event, context) => {
     const { data: coverages, error } = await supabase
       .from('player_block_coverages')
       .select('*')
-      .eq('user_id', user.userId);
+      .eq('user_id', user.userId)
+      .eq('org_id', user.orgId);
 
     if (error) {
       throw new Error(`Failed to fetch coverages: ${error.message}`);

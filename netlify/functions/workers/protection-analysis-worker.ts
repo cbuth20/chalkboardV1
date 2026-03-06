@@ -315,110 +315,83 @@ async function analyzeProtectionFile(
   fileType: 'pdf' | 'image',
   mediaType: string
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
-  const systemPrompt = `You are an expert football coach analyzing playbook pages to extract RB (running back) protection assignments.
+  const systemPrompt = `You are an expert football coach analyzing playbook pages to extract RB pass protection training scenarios.
 
-Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL, DIME) with base rushes, single-blitzer pressures, and occasional exotic multi-blitzer packages.
+Identify the team's protections from the playbook and generate scenarios pairing each protection against varied defensive looks.
 
-For EVERY scenario, you MUST classify the defensive front into a "front_family" using these rules:
-- "Odd": The center is COVERED (a defender is head-up on the center in a 0-technique or shaded). Guards are typically uncovered. Examples: 3-4, ODD, 3-3-5.
-- "Even": The center is UNCOVERED. Defenders are aligned over or between the guards (3-technique, 1-technique). Examples: OVER, UNDER, 4-3, NICKEL, DIME, 4-2-5.
-- "5 Down": The center AND both guards are all COVERED. Five defenders have their hands in the dirt on the line. Examples: BEAR, 46, GOAL LINE, Double Eagle.
-IMPORTANT: If an OLB walks down and puts a hand in the dirt, that effectively changes the front family for blocking rules (e.g., a 3-4 ODD front with a walked-up OLB becomes an EVEN front).
+## Schema
 
-Extract the team's ACTUAL protection names from the playbook. If they call it "Max", "Fox", "60 Protection", "Half Slide", "BOB", use THAT exact name as protection_type. Do NOT rename protections to standard numbered schemes — preserve the team's terminology.
-
-Classify each protection into a protection_concept value from this taxonomy:
-| Concept       | OL Behavior                      | Examples                                    |
-|---------------|----------------------------------|---------------------------------------------|
-| full_slide    | All 5 OL slide together          | 360, 350, 50, BOB, Slide                    |
-| half_slide    | C+2 slide, 2 man-block           | 64, 65, Half Slide, Combo                   |
-| man_protect   | Each OL mans a gap               | Man blocking schemes                        |
-| max_protect   | 7+ blockers stay in              | Max Protect, 7-man                          |
-| play_action   | PA blocking (aggressive)         | 433, 201, any PA scheme                     |
-| sprint_out    | OL slides to sprint direction    | Boot, Sprint                                |
-| screen        | Let rushers through              | Screen calls                                |
-| draw          | Passive/draw blocking            | Draw calls                                  |
-| unknown       | Fallback                         | Unrecognized schemes                        |
-
-For each scenario, determine:
-1. The protection name (use the team's actual name from the playbook)
-2. The protection_concept (from the taxonomy above)
-3. The defensive front name
-4. The call_side: the direction the OL slides ("left" or "right"). This determines slide direction only — the TB's alignment depends on the formation.
-4. Which defenders are rushing, blitzing, walking up, or in coverage
-5. The correct RB assignment: either block a specific defender (by label) or "RELEASE"
-6. A coaching explanation of why this is the correct read
-
-Defender position labels — use ONLY these labels (keys and label field). Do NOT invent other labels:
-E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/OLB), CB (Cornerback), SS (Strong Safety / Rover), FS (Free Safety)
-If the playbook calls a defender "Rover", "R", "Robber", "Star", or "$" — map it to SS. If "Star" or "Stud" refers to a nickel LB, map to Q.
-
-Defender coordinates use a percentage-based system for positioning on the field diagram:
-- x: 0-100 (left to right). DL should align over the offensive line (x: 35-65 range). Other defenders position naturally based on their alignment.
-- y: 0-100 (top=deep, bottom=offense). LOS is at y: 55. DL should be at y: 53-58 (right at the LOS). Position all other defenders based on their actual depth relative to the LOS. The offensive line is rendered at y: 65.
-
-Return a JSON object with a "scenarios" array. Each scenario should look like this:
+Return JSON: { "scenarios": [ ... ] }. Each scenario:
 {
-  "scenarios": [
-    {
-      "coverage_name": "OVER",
-      "coverage_type": "blitz",
-      "front_family": "Even",
-      "protection_type": "60 Protection",
-      "protection_concept": "full_slide",
-      "call_side": "right",  // The direction the OL slides. "right" = OL slides right.
-      "solid_call": false,
-      "free_release": false,
-      "play_action": false,
-      "naked": false,
-      "hoss": false,
-      "scat_release": null,
-      "defensive_positions": {
-        "E1": {"x": 38, "y": 56, "label": "E", "rushing": true},
-        "T1": {"x": 45, "y": 56, "label": "T", "rushing": true},
-        "N": {"x": 52, "y": 56, "label": "N", "rushing": true},
-        "E2": {"x": 62, "y": 56, "label": "E", "rushing": true},
-        "M": {"x": 50, "y": 40, "label": "M", "rushing": false},
-        "W": {"x": 40, "y": 40, "label": "W", "rushing": false},
-        "S": {"x": 63, "y": 42, "label": "S", "rushing": true, "blitz": true, "hot": true},
-        "CB1": {"x": 22, "y": 45, "label": "CB", "rushing": false},
-        "CB2": {"x": 78, "y": 45, "label": "CB", "rushing": false},
-        "SS": {"x": 58, "y": 30, "label": "SS", "rushing": false},
-        "FS": {"x": 50, "y": 20, "label": "FS", "rushing": false}
-      },
-      "correct_block_target": "S",
-      "explanation": "Sam is the first LB off the ball to the call side — block him.",
-      "offensive_formation": "POSSE 2x2",
-      "down_distance": "2nd & 7"
-    }
-  ]
+  "coverage_name": "OVER",           // defensive front name
+  "coverage_type": "blitz",          // "base", "blitz", or "zone"
+  "front_family": "Even",            // "Odd" (center covered), "Even" (center uncovered), or "5 Down" (center + both guards covered)
+  "protection_type": "60 Protection",// team's ACTUAL name from the playbook — preserve their terminology
+  "protection_concept": "full_slide",// see taxonomy below
+  "call_side": "right",              // OL slide direction — vary left/right roughly evenly
+  "solid_call": false,
+  "free_release": false,
+  "play_action": false,
+  "naked": false,
+  "hoss": false,
+  "scat_release": null,
+  "defensive_positions": {
+    "E1": {"x": 38, "y": 56, "label": "E", "rushing": true},
+    "S":  {"x": 63, "y": 42, "label": "S", "rushing": true, "blitz": true, "hot": true},
+    "M":  {"x": 50, "y": 50, "label": "M", "rushing": false, "walked_up": true},
+    "SS": {"x": 58, "y": 30, "label": "SS", "rushing": false}
+  },
+  "correct_block_target": "S",       // defender key or "RELEASE"
+  "explanation": "2-4 sentence coaching explanation",
+  "offensive_formation": "POSSE 2x2",
+  "down_distance": "2nd & 7"
 }
 
-Important rules:
-- For protections where the TB has an assignment (full_slide, half_slide concepts), the correct answer is usually a specific defender
-- For free release protections (free_release=true, hoss=true), the correct answer is usually "RELEASE"
-- For play action (play_action concept), the TB typically fakes then releases or has late check responsibility
-- Mark defenders as "blitz": true if they're blitzing from a non-traditional rush position
-- Mark defenders as "hot": true ONLY if they are the actual unblocked free runner — the defender NO offensive player picks up. "hot" does NOT mean "first read" or "most dangerous" — it means literally unblocked. In a cross blitz where the center picks up one LB, the OTHER LB who comes free is "hot". The correct_block_target and "hot" defender are usually the same player (the TB blocks the free runner).
-- Mark defenders as "walked_up": true if they've walked up to the LOS from a LB position
-- For half_slide protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
-- ALWAYS include the full secondary (2 CBs, SS, FS) in every scenario so the field looks like a real defensive look. Mark their "rushing" as false if they are in coverage. Only mark "blitz": true, "rushing": true if they are actually blitzing.
-- Secondary positioning depth ranges: SS at y: 25-35 (near box), FS at y: 15-25 (deep), CB at y: 42-50 (near LOS, wide at x: 20-30 or x: 70-80 for outside corners, x: 30-38 or x: 62-70 for nickel/slot corners)
-- When a secondary defender blitzes, the TB's read changes — explain this clearly in the coaching explanation
+Protection concepts: full_slide | half_slide | man_protect | max_protect | play_action | sprint_out | screen | draw | unknown
 
-Pressure package distribution — even thirds:
-- ~1/3 of scenarios should be base 4-man rush with standard fronts
-- ~1/3 of scenarios should include a single LB or DB blitz (5-man pressure)
-- ~1/3 of scenarios should feature exotic pressure packages with multiple blitzers. Examples:
-  - COVER 0: All-out man coverage, no deep safety, 6-7 man pressure. SS and/or FS blitz. Both safeties should be walked up near the box (y: 40-48). Mark all blitzing DBs with "blitz": true, "rushing": true, "walked_up": true.
-  - CROSS DOG (Dawg): Two LBs cross-blitz through opposite gaps. E.g., Mike goes weak A-gap (x near 47) while Will loops strong B-gap (x near 57). Position them close together pre-snap (both near x: 48-52, y: 40-44) to show the cross action.
-  - OVERLOAD: Bring an extra rusher to one side — e.g., Sam + SS both blitz off the same edge. Stack them vertically (same x, different y) so the overload is visible.
-  - FIRE ZONE: 5-man pressure with 3-deep/3-under zone behind it. One LB or DB blitzes while a DL drops into coverage (mark that DL as "rushing": false). The dropping DL is unusual — explain it in coaching notes.
-  - SAFETY BLITZ: SS or FS walks down and comes off the edge or through a gap. Mark "walked_up": true so the pre-snap animation shows the walk-up.
-- For exotic pressures, there is almost always a "hot" unblocked rusher — make sure to mark at least one defender as "hot": true
-- In the coaching explanation for pressure scenarios, describe WHO is coming, WHERE the free runner is, and what the TB's job is (block the most dangerous threat vs. release because OL has it handled)
+The RB's read changes by concept — reflect this in explanations:
+- **full_slide**: RB reads opposite edge for leakers
+- **half_slide**: RB reads the man side, use tb_read 1/2/3 for read progression
+- **man_protect**: RB picks up the free runner inside-out
 
-Return ONLY the JSON object, no other text.`;
+## Defender flags
+
+- "rushing": true if they rush the passer
+- "blitz": true if rushing from a non-traditional position (LB, DB)
+- "hot": true ONLY for the literal unblocked free runner — the one NO offensive player picks up. Usually the same as correct_block_target.
+- "walked_up": true if they creep toward the LOS pre-snap (any position). Combined with "rushing": false = mug/simulated pressure (they bail out post-snap).
+- "tb_read": 1/2/3 for half_slide read progression
+
+Labels (use ONLY these): E, T, N, M, W, S, Q, CB, SS, FS. NEVER use "R", "Rover", "$", "NB" — map Rover/$→SS, Star/Stud/Nickel→Q.
+
+## Coordinates
+
+x: 0-100 (left to right). y: 0-100 (top=deep, bottom=offense). LOS at y:55, OL at y:65. DL at y:53-58. Position LBs, DBs at realistic depths. Always include full secondary (2 CBs, SS, FS).
+
+## Front family rules
+
+- Odd: center covered (0-tech). Examples: 3-4, 3-3-5.
+- Even: center uncovered, guards covered. Examples: OVER, UNDER, 4-3, NICKEL.
+- 5 Down: center + both guards covered. Examples: BEAR, 46, GOAL LINE.
+- A walked-up OLB with hand in dirt changes the front family (e.g., 3-4 with walked-up OLB → Even).
+
+## Scenario distribution
+
+Weight the mix toward what the playbook emphasizes. If the playbook is heavy on half-slide protections, generate more single-blitz and exotic looks that test half-slide reads. Use these categories as a guide, not rigid quotas:
+
+1. **Base rush** — 4-man DL rush, standard fronts. TB usually releases or has a late check.
+
+2. **Single blitz** — One extra rusher (LB or DB). 5-man pressure. TB blocks the free runner.
+
+3. **Exotic pressure** — Multiple blitzers, 6+ rushers. Use your football knowledge — examples include cover 0, cross dogs, overloads, fire zones (DL drops to coverage — mark rushing: false), delayed blitzes, green dogs, zone dogs, nickel/dime pressures. Be creative and varied. Mark the unblocked free runner as "hot": true.
+
+4. **Simulated pressure / mug** — Defenders show blitz pre-snap but bail at the snap. Use walked_up: true + rushing: false. Any position can mug — ILBs in A-gaps, safeties crowding the box, edge players showing rush. Can combine with a real blitz from elsewhere (e.g., LB mugs while CB comes free). Position mugging defenders at y:46-52. Correct answer is usually RELEASE or block the real blitzer if one exists.
+
+## Explanation quality
+
+Write 2-4 sentences per scenario covering: (a) what the OL slide handles, (b) why this defender is or isn't the TB's job, (c) the pre-snap key to read — e.g., "count the box", "read inside-out from the A-gap", "watch his feet not his alignment."
+
+Return ONLY the JSON object.`;
 
   try {
     // Build the file content block — PDFs use 'document', images use 'image'
@@ -472,9 +445,55 @@ Return ONLY the JSON object, no other text.`;
     }
 
     const parsed = JSON.parse(jsonStr);
-    const scenarios = parsed.scenarios || [];
+    const rawScenarios = parsed.scenarios || [];
 
-    console.log(`Claude returned ${scenarios.length} protection scenarios (${tokenCount} tokens)`);
+    // Normalize and validate each scenario
+    const VALID_LABELS = new Set(['E', 'T', 'N', 'M', 'W', 'S', 'Q', 'CB', 'SS', 'FS']);
+    const LABEL_ALIASES: Record<string, string> = { 'R': 'SS', 'ROVER': 'SS', '$': 'SS', 'STAR': 'Q', 'STUD': 'Q', 'NB': 'Q' };
+    const VALID_COVERAGE_TYPES = new Set(['base', 'blitz', 'zone']);
+
+    const scenarios = rawScenarios
+      .map((s: any) => {
+        if (!s.defensive_positions || typeof s.defensive_positions !== 'object') return null;
+        if (!s.correct_block_target || typeof s.correct_block_target !== 'string') return null;
+        if (!s.coverage_name || !s.protection_type) return null;
+
+        // Normalize defender labels (R → SS, $ → SS, etc.)
+        for (const [key, def] of Object.entries(s.defensive_positions as Record<string, any>)) {
+          const upper = (def.label || '').toUpperCase();
+          if (LABEL_ALIASES[upper]) {
+            def.label = LABEL_ALIASES[upper];
+          }
+          if (!VALID_LABELS.has(def.label)) {
+            console.warn(`Removing defender ${key} with invalid label "${def.label}"`);
+            delete s.defensive_positions[key];
+          }
+        }
+
+        // Normalize coverage_type
+        if (!VALID_COVERAGE_TYPES.has(s.coverage_type)) {
+          // Map common AI-generated variants
+          const lower = (s.coverage_type || '').toLowerCase();
+          if (lower === 'exotic' || lower === 'pressure') s.coverage_type = 'blitz';
+          else if (lower === 'standard' || lower === 'shell') s.coverage_type = 'base';
+          else s.coverage_type = 'blitz';
+        }
+
+        // Verify correct_block_target still valid after normalization
+        if (s.correct_block_target !== 'RELEASE' && !s.defensive_positions[s.correct_block_target]) return null;
+
+        // Check secondary completeness — must have at least FS + SS + 1 CB
+        const labels = Object.values(s.defensive_positions as Record<string, any>).map((d: any) => d.label);
+        if (!labels.includes('FS') || !labels.includes('SS') || !labels.includes('CB')) {
+          console.warn(`Scenario "${s.coverage_name}" missing secondary (labels: ${labels.join(',')}), skipping`);
+          return null;
+        }
+
+        return s;
+      })
+      .filter(Boolean);
+
+    console.log(`Claude returned ${rawScenarios.length} scenarios, ${scenarios.length} valid (${tokenCount} tokens)`);
 
     return { scenarios, tokenCount };
   } catch (error) {
