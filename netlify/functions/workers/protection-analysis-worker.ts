@@ -319,9 +319,18 @@ async function analyzeProtectionFile(
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
   const systemPrompt = `You are an expert football coach analyzing playbook pages to extract RB pass protection training scenarios.
 
-Identify the team's protections from the playbook and generate scenarios pairing each protection against varied defensive looks.
+## Content gate — EVALUATE FIRST
+
+Before generating anything, assess whether this page contains football pass protection content. Valid content includes: protection schemes, blocking assignments, play diagrams with offensive/defensive alignments, or formation/personnel info relevant to pass protection.
+
+If the page is NOT valid football protection material (e.g., random notes, non-football content, illegible scans, roster lists, workout plans, run-game-only plays with no pass protection), return:
+{ "scenarios": [], "skipped_reason": "Brief explanation of why this page was skipped" }
+
+If the page IS valid, proceed with scenario generation below.
 
 ## Schema
+
+Identify the team's protections from the playbook and generate scenarios pairing each protection against varied defensive looks.
 
 Return JSON: { "scenarios": [ ... ] }. Each scenario:
 {
@@ -339,10 +348,17 @@ Return JSON: { "scenarios": [ ... ] }. Each scenario:
   "hoss": false,
   "scat_release": null,
   "defensive_positions": {
-    "E1": {"x": 38, "y": 56, "label": "E", "rushing": true},
+    "E1": {"x": 35, "y": 56, "label": "E", "rushing": true},
+    "T1": {"x": 43, "y": 57, "label": "T", "rushing": true},
+    "T2": {"x": 57, "y": 57, "label": "T", "rushing": true},
+    "E2": {"x": 65, "y": 56, "label": "E", "rushing": true},
+    "M":  {"x": 50, "y": 48, "label": "M", "rushing": false},
+    "W":  {"x": 58, "y": 48, "label": "W", "rushing": false},
     "S":  {"x": 63, "y": 42, "label": "S", "rushing": true, "blitz": true, "hot": true},
-    "M":  {"x": 50, "y": 50, "label": "M", "rushing": false, "walked_up": true},
-    "SS": {"x": 58, "y": 30, "label": "SS", "rushing": false}
+    "SS": {"x": 58, "y": 30, "label": "SS", "rushing": false},
+    "FS": {"x": 50, "y": 22, "label": "FS", "rushing": false},
+    "CB1": {"x": 15, "y": 35, "label": "CB", "rushing": false},
+    "CB2": {"x": 85, "y": 35, "label": "CB", "rushing": false}
   },
   "correct_block_target": "S",       // defender key or "RELEASE"
   "explanation": "2-4 sentence coaching explanation",
@@ -369,7 +385,19 @@ Labels (use ONLY these): E, T, N, M, W, S, Q, CB, SS, FS. NEVER use "R", "Rover"
 
 ## Coordinates
 
-x: 0-100 (left to right). y: 0-100 (top=deep, bottom=offense). LOS at y:55, OL at y:65. DL at y:53-58. Position LBs, DBs at realistic depths. Always include full secondary (2 CBs, SS, FS).
+x: 0-100 (left to right). y: 0-100 (top=deep, bottom=offense). LOS at y:55, OL spans x:40-60 at y:65.
+
+**Strict x-ranges by position (MUST follow — these align with the OL):**
+- DEs (E): x: 33-37 (left) or x: 63-67 (right). They align ON or just outside the OT.
+- DTs (T): x: 40-47 (left) or x: 53-60 (right). They align on the guards/tackles.
+- NT (N): x: 48-52 (over center). Only in Odd/5-Down fronts.
+- LBs (M, W, S): x: 35-65, y: 42-52. Inside the box.
+- CBs: x: 10-22 (left) or x: 78-90 (right), y: 30-42. Wide, off the line.
+- SS: x: 35-70, y: 25-38. In the box or over a slot.
+- FS: x: 40-60, y: 15-28. Deep middle.
+- Nickel/Q: x: 25-40 or x: 60-75, y: 38-48. Slot area.
+
+DL at y: 53-58. Always include full secondary (2 CBs, SS, FS). Never place a DE wider than x:33 or x:67 — they must be near the offensive tackles, not out by the receivers.
 
 ## Front family rules
 
@@ -448,6 +476,13 @@ Return ONLY the JSON object.`;
     }
 
     const parsed = JSON.parse(jsonStr);
+
+    // Check if the page was skipped by the content gate
+    if (parsed.skipped_reason) {
+      console.log(`Page skipped by content gate: ${parsed.skipped_reason}`);
+      return { scenarios: [], tokenCount };
+    }
+
     const rawScenarios = parsed.scenarios || [];
 
     // Normalize and validate each scenario
@@ -484,6 +519,52 @@ Return ONLY the JSON object.`;
 
         // Verify correct_block_target still valid after normalization
         if (s.correct_block_target !== 'RELEASE' && !s.defensive_positions[s.correct_block_target]) return null;
+
+        // Clamp defender coordinates to realistic ranges per position
+        // OL spans x:40-60. DEs must be near the tackles, not out by receivers.
+        const POSITION_X_RANGES: Record<string, [number, number]> = {
+          'E':  [32, 68],
+          'T':  [38, 62],
+          'N':  [46, 54],
+          'M':  [35, 65],
+          'W':  [35, 65],
+          'S':  [30, 70],
+          'Q':  [22, 78],
+          'CB': [8, 92],
+          'SS': [30, 72],
+          'FS': [35, 65],
+        };
+        const POSITION_Y_RANGES: Record<string, [number, number]> = {
+          'E':  [53, 58],
+          'T':  [53, 58],
+          'N':  [53, 58],
+          'M':  [42, 52],
+          'W':  [42, 52],
+          'S':  [42, 52],
+          'Q':  [38, 50],
+          'CB': [28, 45],
+          'SS': [22, 40],
+          'FS': [15, 30],
+        };
+
+        for (const [key, def] of Object.entries(s.defensive_positions as Record<string, any>)) {
+          const xRange = POSITION_X_RANGES[def.label];
+          const yRange = POSITION_Y_RANGES[def.label];
+          if (xRange) {
+            const oldX = def.x;
+            def.x = Math.max(xRange[0], Math.min(xRange[1], def.x));
+            if (oldX !== def.x) {
+              console.warn(`Clamped ${key} (${def.label}) x: ${oldX} → ${def.x}`);
+            }
+          }
+          if (yRange) {
+            const oldY = def.y;
+            def.y = Math.max(yRange[0], Math.min(yRange[1], def.y));
+            if (oldY !== def.y) {
+              console.warn(`Clamped ${key} (${def.label}) y: ${oldY} → ${def.y}`);
+            }
+          }
+        }
 
         // Check secondary completeness — must have at least FS + SS + 1 CB
         const labels = Object.values(s.defensive_positions as Record<string, any>).map((d: any) => d.label);

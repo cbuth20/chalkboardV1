@@ -345,6 +345,15 @@ async function analyzeProtectionFile(
 ): Promise<{ scenarios: ProtectionScenario[]; tokenCount: number }> {
   const systemPrompt = `You are an expert football coach analyzing playbook PDFs to extract RB (running back) protection assignments.
 
+## Content gate — EVALUATE FIRST
+
+Before generating anything, assess whether this page contains football pass protection content. Valid content includes: protection schemes, blocking assignments, play diagrams with offensive/defensive alignments, or formation/personnel info relevant to pass protection.
+
+If the page is NOT valid football protection material (e.g., random notes, non-football content, illegible scans, roster lists, workout plans, run-game-only plays with no pass protection), return:
+{ "scenarios": [], "skipped_reason": "Brief explanation of why this page was skipped" }
+
+If the page IS valid, proceed with scenario generation below.
+
 Your task is to identify the formation(s) in the playbook and generate training scenarios for running backs to practice their pass protection reads against common defensive fronts (OVER, UNDER, 4-3, 3-4, BEAR, NICKEL) with both base and blitz variations.
 
 Extract the team's ACTUAL protection names from the playbook. If they call it "Max", "Fox", "60 Protection", "Half Slide", "BOB", use THAT exact name as protection_type. Do NOT rename protections to standard numbered schemes — preserve the team's terminology.
@@ -376,8 +385,19 @@ E (End), T (Tackle), N (Nose), M (Mike LB), W (Will LB), S (Sam LB), Q (Quarter/
 If the playbook calls a defender "Rover", "R", "Robber", "Star", or "$" — map it to SS. If "Star" or "Stud" refers to a nickel LB, map to Q.
 
 Defender coordinates use a percentage-based system for positioning on the field diagram:
-- x: 0-100 (left to right). DL should align over the offensive line (x: 35-65 range). Other defenders position naturally based on their alignment.
-- y: 0-100 (top=deep, bottom=offense). LOS is at y: 55. DL should be at y: 53-58 (right at the LOS). Position all other defenders based on their actual depth relative to the LOS. The offensive line is rendered at y: 65.
+- x: 0-100 (left to right). y: 0-100 (top=deep, bottom=offense). LOS at y:55, OL spans x:40-60 at y:65.
+
+**Strict x-ranges by position (MUST follow — these align with the OL):**
+- DEs (E): x: 33-37 (left) or x: 63-67 (right). They align ON or just outside the OT.
+- DTs (T): x: 40-47 (left) or x: 53-60 (right). They align on the guards/tackles.
+- NT (N): x: 48-52 (over center). Only in Odd/5-Down fronts.
+- LBs (M, W, S): x: 35-65, y: 42-52. Inside the box.
+- CBs: x: 10-22 (left) or x: 78-90 (right), y: 30-42. Wide, off the line.
+- SS: x: 35-70, y: 25-38. In the box or over a slot.
+- FS: x: 40-60, y: 15-28. Deep middle.
+- Nickel/Q: x: 25-40 or x: 60-75, y: 38-48. Slot area.
+
+DL at y: 53-58. Never place a DE wider than x:33 or x:67 — they must be near the offensive tackles, not out by the receivers.
 
 Return a JSON object with a "scenarios" array. Each scenario should look like this:
 {
@@ -481,16 +501,87 @@ Return ONLY the JSON object, no other text.`;
     }
 
     const parsed = JSON.parse(jsonStr);
-    const scenarios = parsed.scenarios || [];
 
-    console.log(`📊 Claude returned ${scenarios.length} protection scenarios (${tokenCount} tokens)`);
-    console.log(`📝 PROMPT (first 500 chars):\n${systemPrompt.slice(0, 500)}...`);
-    console.log(`📨 RAW RESPONSE:\n${textBlock.text}`);
-    console.log(`🔍 PARSED SCENARIOS:`);
-    scenarios.forEach((s: ProtectionScenario, i: number) => {
+    // Check if the page was skipped by the content gate
+    if (parsed.skipped_reason) {
+      console.log(`Page skipped by content gate: ${parsed.skipped_reason}`);
+      return { scenarios: [], tokenCount };
+    }
+
+    const rawScenarios = parsed.scenarios || [];
+
+    // Normalize and validate each scenario
+    const VALID_LABELS = new Set(['E', 'T', 'N', 'M', 'W', 'S', 'Q', 'CB', 'SS', 'FS']);
+    const LABEL_ALIASES: Record<string, string> = { 'R': 'SS', 'ROVER': 'SS', '$': 'SS', 'STAR': 'Q', 'STUD': 'Q', 'NB': 'Q' };
+    const VALID_COVERAGE_TYPES = new Set(['base', 'blitz', 'zone']);
+
+    const POSITION_X_RANGES: Record<string, [number, number]> = {
+      'E': [32, 68], 'T': [38, 62], 'N': [46, 54],
+      'M': [35, 65], 'W': [35, 65], 'S': [30, 70], 'Q': [22, 78],
+      'CB': [8, 92], 'SS': [30, 72], 'FS': [35, 65],
+    };
+    const POSITION_Y_RANGES: Record<string, [number, number]> = {
+      'E': [53, 58], 'T': [53, 58], 'N': [53, 58],
+      'M': [42, 52], 'W': [42, 52], 'S': [42, 52], 'Q': [38, 50],
+      'CB': [28, 45], 'SS': [22, 40], 'FS': [15, 30],
+    };
+
+    const scenarios = rawScenarios.map((s: any) => {
+      if (!s.defensive_positions || typeof s.defensive_positions !== 'object') return null;
+      if (!s.correct_block_target || typeof s.correct_block_target !== 'string') return null;
+      if (!s.coverage_name || !s.protection_type) return null;
+
+      // Normalize defender labels
+      for (const [key, def] of Object.entries(s.defensive_positions as Record<string, any>)) {
+        const upper = (def.label || '').toUpperCase();
+        if (LABEL_ALIASES[upper]) def.label = LABEL_ALIASES[upper];
+        if (!VALID_LABELS.has(def.label)) {
+          console.warn(`Removing defender ${key} with invalid label "${def.label}"`);
+          delete s.defensive_positions[key];
+        }
+      }
+
+      // Normalize coverage_type
+      if (!VALID_COVERAGE_TYPES.has(s.coverage_type)) {
+        const lower = (s.coverage_type || '').toLowerCase();
+        if (lower === 'exotic' || lower === 'pressure') s.coverage_type = 'blitz';
+        else if (lower === 'standard' || lower === 'shell') s.coverage_type = 'base';
+        else s.coverage_type = 'blitz';
+      }
+
+      if (s.correct_block_target !== 'RELEASE' && !s.defensive_positions[s.correct_block_target]) return null;
+
+      // Clamp defender coordinates to realistic ranges
+      for (const [key, def] of Object.entries(s.defensive_positions as Record<string, any>)) {
+        const xRange = POSITION_X_RANGES[def.label];
+        const yRange = POSITION_Y_RANGES[def.label];
+        if (xRange) {
+          const oldX = def.x;
+          def.x = Math.max(xRange[0], Math.min(xRange[1], def.x));
+          if (oldX !== def.x) console.warn(`Clamped ${key} (${def.label}) x: ${oldX} -> ${def.x}`);
+        }
+        if (yRange) {
+          const oldY = def.y;
+          def.y = Math.max(yRange[0], Math.min(yRange[1], def.y));
+          if (oldY !== def.y) console.warn(`Clamped ${key} (${def.label}) y: ${oldY} -> ${def.y}`);
+        }
+      }
+
+      // Check secondary completeness
+      const labels = Object.values(s.defensive_positions as Record<string, any>).map((d: any) => d.label);
+      if (!labels.includes('FS') || !labels.includes('SS') || !labels.includes('CB')) {
+        console.warn(`Scenario "${s.coverage_name}" missing secondary, skipping`);
+        return null;
+      }
+
+      return s;
+    }).filter(Boolean);
+
+    console.log(`Claude returned ${rawScenarios.length} scenarios, ${scenarios.length} valid (${tokenCount} tokens)`);
+    scenarios.forEach((s: any, i: number) => {
       const defCount = Object.keys(s.defensive_positions).length;
-      const blitzers = Object.values(s.defensive_positions).filter((d) => d.blitz).map((d) => d.label);
-      console.log(`  ${i + 1}. ${s.protection_type} vs ${s.coverage_name} (${s.coverage_type}) → ${s.correct_block_target} | ${defCount} defenders | blitzers: [${blitzers.join(', ')}] | formation: ${s.offensive_formation || 'none'}`);
+      const blitzers = Object.values(s.defensive_positions as Record<string, any>).filter((d: any) => d.blitz).map((d: any) => d.label);
+      console.log(`  ${i + 1}. ${s.protection_type} vs ${s.coverage_name} (${s.coverage_type}) -> ${s.correct_block_target} | ${defCount} defenders | blitzers: [${blitzers.join(', ')}] | formation: ${s.offensive_formation || 'none'}`);
     });
 
     return { scenarios, tokenCount };
