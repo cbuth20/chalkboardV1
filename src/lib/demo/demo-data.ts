@@ -35,6 +35,7 @@ export interface DemoProtectionScenario {
   solid_call: boolean;
   free_release: boolean;
   play_action: boolean;
+  boot: boolean;
   naked: boolean;
   hoss: boolean;
   scat_release: string | null;
@@ -242,6 +243,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -268,6 +270,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -294,6 +297,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: true,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -320,6 +324,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: true,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -346,6 +351,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -371,6 +377,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: true,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -396,6 +403,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -422,6 +430,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,
@@ -447,6 +456,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: true,
     scat_release: null,
@@ -473,6 +483,7 @@ export const DEMO_PROTECTION_SCENARIOS: DemoProtectionScenario[] = [
     solid_call: false,
     free_release: false,
     play_action: false,
+    boot: false,
     naked: false,
     hoss: false,
     scat_release: null,

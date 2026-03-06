@@ -1753,8 +1753,8 @@ body {
 
 /* Front ID button bounce-in + glow pulse */
 @keyframes front-btn-enter {
-  0% { opacity: 0; transform: scale(0.5); }
-  60% { opacity: 1; transform: scale(1.08); }
+  0% { opacity: 0; transform: scale(0.7); }
+  70% { opacity: 1; transform: scale(1.04); }
   100% { opacity: 1; transform: scale(1); }
 }
 @keyframes front-btn-pulse {
@@ -1815,8 +1815,8 @@ body {
   animation: front-arrow-bounce 0.8s ease-in-out infinite;
 }
 .animate-front-btn-active {
-  animation: front-btn-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both,
-             front-btn-pulse 1.4s ease-in-out 0.35s infinite;
+  animation: front-btn-enter 0.7s cubic-bezier(0.22, 1, 0.36, 1) both,
+             front-btn-pulse 1.4s ease-in-out 0.7s infinite;
 }
 
 /* Release button idle pulse */
@@ -1828,3 +1828,4 @@ body {
 .animate-release-idle {
   animation: release-idle 2s ease-in-out infinite;
 }
+

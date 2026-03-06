@@ -22,6 +22,7 @@ interface ProtectionScenario {
   solid_call: boolean;
   free_release: boolean;
   play_action: boolean;
+  boot: boolean;
   naked: boolean;
   hoss: boolean;
   scat_release: string | null;
@@ -225,6 +226,7 @@ export async function analyzeProtections(data: ProtectionAnalysisJobData): Promi
         solid_call: s.solid_call,
         free_release: s.free_release,
         play_action: s.play_action,
+        boot: s.boot ?? false,
         naked: s.naked,
         hoss: s.hoss,
         scat_release: s.scat_release,
@@ -332,6 +334,7 @@ Return JSON: { "scenarios": [ ... ] }. Each scenario:
   "solid_call": false,
   "free_release": false,
   "play_action": false,
+  "boot": false,                     // true if QB rolls out (bootleg); play_action without boot = pocket PA
   "naked": false,
   "hoss": false,
   "scat_release": null,
