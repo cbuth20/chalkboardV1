@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/Toast';
 import { useConfirm } from '@/components/ConfirmModal';
+import { STOCK_SCENARIOS } from '@/data/stock-protection-scenarios';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -32,6 +33,7 @@ interface ProtectionScenario {
   solid_call: boolean;
   free_release: boolean;
   play_action: boolean;
+  boot: boolean;
   naked: boolean;
   hoss: boolean;
   scat_release: string | null;
@@ -46,9 +48,10 @@ interface PlayResult {
   scenario: ProtectionScenario;
   userAnswer: string;
   correct: boolean;          // block read correct
-  responseTime: number;
+  responseTime: number;      // block read response time (snap → click)
   frontCorrect: boolean;     // front ID correct
   frontPicked: string | null; // what user picked (null = timeout)
+  frontResponseTime: number; // front ID response time
 }
 
 interface SessionStats {
@@ -274,7 +277,9 @@ function computeOLAssignments(
   defenders: Record<string, Defender>,
   protectionConcept: string,
   callSide: string,
-  correctBlockTarget?: string
+  correctBlockTarget?: string,
+  boot?: boolean,
+  naked?: boolean
 ): Record<string, { x: number; y: number }> {
   const OL_BASE = [
     { label: 'LT', x: 40 },
@@ -360,6 +365,15 @@ function computeOLAssignments(
         y: 66 + pocketDepth[ol.label],
       };
     }
+  }
+
+  // Pulling guard on non-naked boot: backside guard pulls to lead-block for QB
+  // QB boots OPPOSITE call_side, so backside guard is ON the call_side
+  if (boot && !naked) {
+    const pullGuard = callSide === 'right' ? 'RG' : 'LG';
+    // Pull to the boot side, leading the QB
+    const pullX = callSide === 'right' ? 38 : 62;
+    result[pullGuard] = { x: pullX, y: 80 };
   }
 
   return result;
@@ -539,12 +553,18 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   // Menu state
   const [selectedProtection, setSelectedProtection] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const [useStockScenarios, setUseStockScenarios] = useState(false);
+
+  // Active scenarios: stock or user's custom
+  const activeScenarios = useStockScenarios ? (STOCK_SCENARIOS as unknown as ProtectionScenario[]) : scenarios;
 
   // Playing state
   const [currentScenarios, setCurrentScenarios] = useState<ProtectionScenario[]>([]);
   const [playIndex, setPlayIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(0);
-  const [playStartTime, setPlayStartTime] = useState(0);
+  const playStartTimeRef = useRef(0);
+  const frontIdStartTimeRef = useRef(0);
+  const frontResponseTimeRef = useRef(0);
   const [results, setResults] = useState<PlayResult[]>([]);
   const [bestStreak, setBestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
@@ -555,6 +575,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const [coverageSliding, setCoverageSliding] = useState(false);
   const [postSnapRushing, setPostSnapRushing] = useState(false);
   const [postSnapBreakthrough, setPostSnapBreakthrough] = useState(false);
+  const [qbBootPhase, setQbBootPhase] = useState(0); // 0=pre, 1=fake, 2=loop back, 3=boot out
   const [mikeCallout, setMikeCallout] = useState<string | null>(null);
   const [mikeVisible, setMikeVisible] = useState(false);
   const [mikeAnnouncement, setMikeAnnouncement] = useState(false);
@@ -567,6 +588,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const preSnapAnimRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coverageSlideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const breakthroughRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bootPhase3Ref = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mikeCalloutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Front ID phase state
@@ -597,10 +619,12 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const animFrameRef = useRef<number | null>(null);
   const gameContainerRef = useRef<HTMLDivElement | null>(null);
 
+  const statsKey = useStockScenarios ? 'rbProtectionStats_practice' : 'rbProtectionStats';
+
   // Load stats from localStorage (with backward compat for old data missing front ID fields)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('rbProtectionStats');
+      const saved = localStorage.getItem(statsKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.totalFrontCorrect === undefined) parsed.totalFrontCorrect = 0;
@@ -611,15 +635,17 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           }));
         }
         setSessionStats(parsed);
+      } else {
+        setSessionStats({ totalReps: 0, totalCorrect: 0, totalFrontCorrect: 0, totalTime: 0, byProtection: {}, byFront: {}, sessions: [] });
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [statsKey]);
 
   const saveSessionStats = (newStats: SessionStats) => {
     setSessionStats(newStats);
-    localStorage.setItem('rbProtectionStats', JSON.stringify(newStats));
+    localStorage.setItem(statsKey, JSON.stringify(newStats));
   };
 
   // Load scenarios on mount
@@ -856,7 +882,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   }, []);
 
   // Group scenarios by protection type
-  const groupedScenarios = scenarios.reduce((acc, s) => {
+  const groupedScenarios = activeScenarios.reduce((acc, s) => {
     const type = s.protection_type || 'unknown';
     if (!acc[type]) acc[type] = [];
     acc[type].push(s);
@@ -889,9 +915,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   const startTraining = () => {
     let pool: ProtectionScenario[];
     if (selectedProtection === 'mix' || selectedProtection === null) {
-      pool = [...scenarios];
+      pool = [...activeScenarios];
     } else {
-      pool = scenarios.filter(s => s.protection_type === selectedProtection);
+      pool = activeScenarios.filter(s => s.protection_type === selectedProtection);
     }
 
     if (pool.length === 0) {
@@ -921,6 +947,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (preSnapAnimRef.current) clearTimeout(preSnapAnimRef.current);
     if (coverageSlideRef.current) clearTimeout(coverageSlideRef.current);
     if (breakthroughRef.current) clearTimeout(breakthroughRef.current);
+    if (bootPhase3Ref.current) clearTimeout(bootPhase3Ref.current);
     if (mikeCalloutRef.current) clearTimeout(mikeCalloutRef.current);
     if (callTextTimerRef.current) clearTimeout(callTextTimerRef.current);
     if (playersVisibleTimerRef.current) clearTimeout(playersVisibleTimerRef.current);
@@ -931,6 +958,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     setCoverageSliding(false);
     setPostSnapRushing(false);
     setPostSnapBreakthrough(false);
+    setQbBootPhase(0);
     setDefendersHighlight(false);
     setSnapCountdown(null);
     if (snapCountdownRef.current) clearInterval(snapCountdownRef.current);
@@ -952,27 +980,24 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     setPlayPhase('call');
 
     // Players fade in while call text is still showing
-    playersVisibleTimerRef.current = setTimeout(() => setPlayersVisible(true), 800);
+    playersVisibleTimerRef.current = setTimeout(() => setPlayersVisible(true), 1200);
     // Call text fades out
-    callTextTimerRef.current = setTimeout(() => setCallTextVisible(false), 1200);
+    callTextTimerRef.current = setTimeout(() => setCallTextVisible(false), 1600);
 
-    // Phase 2: After 1.5s, show field and ask user to ID the front
+    // Phase 2: After 2.2s, show field and ask user to ID the front
     callPhaseRef.current = setTimeout(() => {
       setPlayPhase('front_id');
-
-      // Start defender walk-up animation
-      preSnapAnimRef.current = setTimeout(() => {
-        setPreSnapAnimating(false);
-      }, 60);
+      frontResponseTimeRef.current = 0;
 
       // Show "IDENTIFY THE FRONT" overlay immediately
       frontIdOverlayVisible.current = true;
       setFrontIdOverlay(true);
 
-      // After 1.8s, hide overlay and start the front ID countdown
+      // After 0.8s, hide overlay and start the front ID countdown
       const frontIdTime = DIFFICULTY_CONFIG[difficulty].time;
       setTimeout(() => {
         setFrontIdOverlay(false);
+        frontIdStartTimeRef.current = Date.now();
 
         const startMs = Date.now();
         frontIdTimerRef.current = setInterval(() => {
@@ -983,19 +1008,21 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
             if (!frontIdOverlayVisible.current) return; // already answered
             frontIdOverlayVisible.current = false;
+            frontResponseTimeRef.current = Date.now() - frontIdStartTimeRef.current;
             setFrontIdResult('wrong');
             setFrontIdPicked(null);
             setTimeout(() => beginPreSnap(scenario), 1200);
           }
         }, 50);
-      }, 1800);
-    }, 1500);
+      }, 800);
+    }, 2200);
   };
 
   /** Runs the pre-snap → snap sequence after the user identifies the front */
   const beginPreSnap = (scenario: ProtectionScenario) => {
     const totalTime = DIFFICULTY_CONFIG[difficulty].time;
     setPlayPhase('pre_snap');
+    setPreSnapAnimating(false);
 
     // 3-second countdown with overlays:
     // 0–1s: Mike announcement (countdown 3→2)
@@ -1049,10 +1076,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     preSnapTimeoutRef.current = setTimeout(() => {
       setPlayPhase('snapped');
       setPostSnapRushing(true);
-      setPlayStartTime(Date.now());
+      playStartTimeRef.current = Date.now();
+      setQbBootPhase(1);
 
       breakthroughRef.current = setTimeout(() => {
         setPostSnapBreakthrough(true);
+        setQbBootPhase(2);
+        bootPhase3Ref.current = setTimeout(() => setQbBootPhase(3), 900);
       }, 1000);
 
       const startMs = Date.now();
@@ -1078,6 +1108,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (frontIdTimerRef.current) clearInterval(frontIdTimerRef.current);
     frontIdOverlayVisible.current = false;
     setFrontIdOverlay(false);
+    frontResponseTimeRef.current = Date.now() - frontIdStartTimeRef.current;
 
     const correctFamily = getScenarioFrontFamily(scenario);
     const correct = choice === correctFamily;
@@ -1096,7 +1127,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     const current = scenario || currentScenarios[playIndex];
     if (!current) return;
 
-    const rawResponseTime = Date.now() - playStartTime;
+    const rawResponseTime = Date.now() - playStartTimeRef.current;
     // Cap at 30s to prevent corrupted data from bad playStartTime
     const responseTime = rawResponseTime > 0 && rawResponseTime < 30000 ? rawResponseTime : DIFFICULTY_CONFIG[difficulty].time;
     // Normalize defender labels so aliases (R/Rover = SS, $ = Q, etc.) match
@@ -1114,6 +1145,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       responseTime,
       frontCorrect: frontIdResult === 'correct',
       frontPicked: frontIdPicked,
+      frontResponseTime: frontResponseTimeRef.current,
     };
 
     setLastResult(result);
@@ -1151,7 +1183,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     saveSessionStats(newStats);
 
     setScreen('feedback');
-  }, [currentScenarios, playIndex, playStartTime, sessionStats, frontIdResult, frontIdPicked, difficulty]);
+  }, [currentScenarios, playIndex, sessionStats, frontIdResult, frontIdPicked, difficulty]);
 
   const nextPlay = () => {
     const nextIdx = playIndex + 1;
@@ -1204,6 +1236,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
   useEffect(() => {
     if ((screen === 'playing' || screen === 'feedback') && gameContainerRef.current) {
       gameContainerRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+    }
+    if (screen === 'results') {
+      setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
     }
   }, [screen, playIndex, playPhase]);
 
@@ -1322,129 +1357,173 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         {scenarios.length === 0 && analysisStatus === 'processing' ? (
           /* Analysis in progress with no scenarios yet — just show the banner above, nothing else */
           null
-        ) : scenarios.length === 0 ? (
-          /* Empty State */
-          <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Protection Scenarios</h3>
-            <p className="text-gray-300 mb-4">
-              {hasUploadedFiles
-                ? 'Your playbook files are ready. Analyze them to generate protection scenarios.'
-                : 'Upload your playbook PDFs or images in My Notes, then come back here to analyze them.'}
-            </p>
-            <div className="flex gap-3">
-              {!hasUploadedFiles ? (
-                <a
-                  href="/player-notes"
-                  className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition text-center"
-                >
-                  Go to My Notes
-                </a>
-              ) : (
-                <button
-                  onClick={startAnalysis}
-                  disabled={analyzing}
-                  className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
-                >
-                  {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
-                </button>
-              )}
-            </div>
-          </div>
         ) : (
           <>
-            {/* Protection Selection */}
-            {Object.entries(protectionsByCategory).map(([category, types]) => (
-              <div key={category} className="mb-6">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{category}</h3>
-                <div className="flex flex-wrap gap-2">
-                  {types.map(type => (
-                    <button
-                      key={type}
-                      onClick={() => setSelectedProtection(selectedProtection === type ? null : type)}
-                      className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                        selectedProtection === type
-                          ? 'bg-[#00d4aa] text-black'
-                          : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
-                      }`}
-                    >
-                      {type} <span className="text-xs opacity-70">({groupedScenarios[type].length})</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {/* Mix All Button */}
-            <button
-              onClick={() => setSelectedProtection(selectedProtection === 'mix' ? null : 'mix')}
-              className={`w-full py-3 rounded-lg font-bold text-sm transition mb-8 ${
-                selectedProtection === 'mix'
-                  ? 'bg-[#00d4aa] text-black'
-                  : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
-              }`}
-            >
-              Mix All Protections ({scenarios.length} scenarios)
-            </button>
-
-            {/* Difficulty Selector */}
-            <div className="mb-8">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Difficulty</h3>
-              <div className="grid grid-cols-4 gap-2">
-                {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map(d => (
-                  <button
-                    key={d}
-                    onClick={() => setDifficulty(d)}
-                    className={`py-3 rounded-lg text-sm font-semibold transition ${
-                      difficulty === d
-                        ? 'bg-[#00d4aa] text-black'
-                        : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
-                    }`}
-                  >
-                    {DIFFICULTY_CONFIG[d].label}
-                    <div className="text-xs opacity-70">{DIFFICULTY_CONFIG[d].time / 1000}s</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <button
-              onClick={startTraining}
-              disabled={analysisStatus === 'processing'}
-              className="w-full py-4 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed text-black font-bold text-lg rounded-lg transition mb-4"
-            >
-              {analysisStatus === 'processing' ? 'Analysis in progress...' : 'START TRAINING →'}
-            </button>
-
-            {/* View Stats */}
-            <button
-              onClick={() => setScreen('stats')}
-              className="w-full py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] text-gray-300 hover:text-[#00d4aa] font-semibold rounded-lg transition"
-            >
-              View Stats ({sessionStats.totalReps} total reps)
-            </button>
-
-            {/* Re-analyze & Clear */}
+            {/* Mode Toggle — My Playbook vs Practice Mode */}
             {!demoMode && (
-              <div className="mt-4 flex justify-center gap-3">
+              <div className="flex rounded-lg overflow-hidden border border-gray-700 mb-6">
                 <button
-                  onClick={startAnalysis}
-                  disabled={analyzing}
-                  className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-[#00d4aa]/50 hover:text-[#00d4aa] disabled:opacity-40 transition"
+                  onClick={() => { setUseStockScenarios(false); setSelectedProtection(null); }}
+                  className={`flex-1 py-3 text-sm font-semibold transition ${
+                    !useStockScenarios
+                      ? 'bg-[#00d4aa] text-black'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                  }`}
                 >
-                  {analyzing ? 'Analyzing...' : 'Re-analyze Playbooks'}
+                  My Playbook
+                  {scenarios.length > 0 && <span className="ml-1 text-xs opacity-70">({scenarios.length})</span>}
                 </button>
-                {scenarios.length > 0 && (
-                  <button
-                    onClick={handleClearScenarios}
-                    disabled={analyzing}
-                    className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-red-500/50 hover:text-red-400 disabled:opacity-40 transition"
-                  >
-                    Clear All Scenarios
-                  </button>
-                )}
+                <button
+                  onClick={() => { setUseStockScenarios(true); setSelectedProtection(null); }}
+                  className={`flex-1 py-3 text-sm font-semibold transition ${
+                    useStockScenarios
+                      ? 'bg-[#00d4aa] text-black'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Practice Mode
+                </button>
               </div>
             )}
+
+            {/* Empty state for My Playbook tab */}
+            {!useStockScenarios && scenarios.length === 0 && !demoMode ? (
+              <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-6 mb-8">
+                <h3 className="text-lg font-semibold text-yellow-400 mb-2">No Playbook Scenarios</h3>
+                <p className="text-gray-300 mb-4">
+                  {hasUploadedFiles
+                    ? 'Your playbook files are ready. Analyze them to generate protection scenarios.'
+                    : 'Upload your playbook PDFs or images in My Notes, then come back here to analyze them.'}
+                </p>
+                <div className="flex gap-3">
+                  {!hasUploadedFiles ? (
+                    <a
+                      href="/player-notes"
+                      className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] text-black font-bold rounded-lg transition text-center"
+                    >
+                      Go to My Notes
+                    </a>
+                  ) : (
+                    <button
+                      onClick={startAnalysis}
+                      disabled={analyzing}
+                      className="px-6 py-3 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold rounded-lg transition"
+                    >
+                      {analyzing ? 'Starting Analysis...' : 'Analyze Playbooks'}
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 mt-4">
+                  Or switch to <button onClick={() => { setUseStockScenarios(true); setSelectedProtection(null); }} className="text-[#00d4aa] hover:underline font-medium">Practice Mode</button> to train with general scenarios.
+                </p>
+              </div>
+            ) : activeScenarios.length > 0 ? (
+              <>
+                {/* Practice mode banner */}
+                {useStockScenarios && (
+                  <div className="bg-blue-500/5 border border-blue-500/30 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-blue-300">
+                      General practice scenarios covering slide, man, and exotic protections.
+                      {scenarios.length === 0 && ' Upload your playbook for drills tailored to your team.'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Protection Selection */}
+                {Object.entries(protectionsByCategory).map(([category, types]) => (
+                  <div key={category} className="mb-6">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{category}</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {types.map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setSelectedProtection(selectedProtection === type ? null : type)}
+                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                            selectedProtection === type
+                              ? 'bg-[#00d4aa] text-black'
+                              : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
+                          }`}
+                        >
+                          {type} <span className="text-xs opacity-70">({groupedScenarios[type].length})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Mix All Button */}
+                <button
+                  onClick={() => setSelectedProtection(selectedProtection === 'mix' ? null : 'mix')}
+                  className={`w-full py-3 rounded-lg font-bold text-sm transition mb-8 ${
+                    selectedProtection === 'mix'
+                      ? 'bg-[#00d4aa] text-black'
+                      : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
+                  }`}
+                >
+                  Mix All Protections ({activeScenarios.length} scenarios)
+                </button>
+
+                {/* Difficulty Selector */}
+                <div className="mb-8">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Difficulty</h3>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setDifficulty(d)}
+                        className={`py-3 rounded-lg text-sm font-semibold transition ${
+                          difficulty === d
+                            ? 'bg-[#00d4aa] text-black'
+                            : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-[#00d4aa]'
+                        }`}
+                      >
+                        {DIFFICULTY_CONFIG[d].label}
+                        <div className="text-xs opacity-70">{DIFFICULTY_CONFIG[d].time / 1000}s</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Start Button */}
+                <button
+                  onClick={startTraining}
+                  disabled={analysisStatus === 'processing' && !useStockScenarios}
+                  className="w-full py-4 bg-[#00d4aa] hover:bg-[#00bfa0] disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed text-black font-bold text-lg rounded-lg transition mb-4"
+                >
+                  {analysisStatus === 'processing' && !useStockScenarios ? 'Analysis in progress...' : 'START TRAINING →'}
+                </button>
+
+                {/* View Stats */}
+                <button
+                  onClick={() => setScreen('stats')}
+                  className="w-full py-3 bg-transparent border border-gray-700 hover:border-[#00d4aa] text-gray-300 hover:text-[#00d4aa] font-semibold rounded-lg transition"
+                >
+                  View Stats ({sessionStats.totalReps} total reps)
+                </button>
+
+                {/* Re-analyze & Clear — only show on My Playbook tab */}
+                {!demoMode && !useStockScenarios && (
+                  <div className="mt-4 flex justify-center gap-3">
+                    <button
+                      onClick={startAnalysis}
+                      disabled={analyzing}
+                      className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-[#00d4aa]/50 hover:text-[#00d4aa] disabled:opacity-40 transition"
+                    >
+                      {analyzing ? 'Analyzing...' : 'Re-analyze Playbooks'}
+                    </button>
+                    {scenarios.length > 0 && (
+                      <button
+                        onClick={handleClearScenarios}
+                        disabled={analyzing}
+                        className="px-4 py-2 text-sm font-medium text-gray-400 border border-gray-700/60 rounded-lg hover:border-red-500/50 hover:text-red-400 disabled:opacity-40 transition"
+                      >
+                        Clear All Scenarios
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
           </>
         )}
       </div>
@@ -1474,6 +1553,51 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
     // Compute coverage rotation offsets for post-snap secondary sliding
     const coverageRotation = computeCoverageRotation(defenders);
+    const disguised = difficulty === 'elite' || difficulty === 'fast';
+
+    // Pre-snap noise: 0-2 defenders make realistic fake movements
+    // so real walk-ups, rotations, and blitz tells don't stand out.
+    // Skip noise on heavy blitz looks (cover 0, overloads) — no spare defenders.
+    const preSnapNoise: Record<string, { dx: number; dy: number }> = {};
+    if (disguised) {
+      const seed = playIndex * 7 + 13;
+      const rushCount = defenders.filter(d => d.rushing).length;
+      const rotCount = Object.keys(coverageRotation).length;
+      // Skip noise if too many are already moving (cover 0, overload, etc.)
+      const toobusy = rushCount >= 6 || rotCount >= 3;
+
+      if (!toobusy) {
+        const noiseCandidates = defenders.filter(d =>
+          !coverageRotation[d.id] && !d.rushing && !d.walked_up && !d.blitz
+          && (isSecondary(d.label) || isLB(d.label))
+        );
+        // 0, 1, or 2 noise defenders (deterministic from seed)
+        const maxNoise = Math.min(seed % 3, noiseCandidates.length); // 0, 1, or 2
+        const shuffled = [...noiseCandidates].sort((a, b) =>
+          ((a.x * 31 + seed) % 97) - ((b.x * 31 + seed) % 97)
+        );
+        for (let i = 0; i < maxNoise; i++) {
+          const d = shuffled[i];
+          const hash = (d.x * 17 + seed * 3 + i * 41) % 5;
+          const ul = d.label.toUpperCase();
+
+          if (ul === 'CB') {
+            // Fake CB blitz show: press forward 8-12%, angle inside 3-5%
+            const forward = 8 + (hash % 5);
+            const inside = d.x < 50 ? (3 + hash % 3) : -(3 + hash % 3);
+            preSnapNoise[d.id] = { dx: inside, dy: forward };
+          } else if (ul === 'SS' || ul === 'FS' || ul === 'R') {
+            // Fake safety rotation: slide 6-12% laterally, creep forward 3-5%
+            const dir = d.x < 50 ? 1 : -1;
+            preSnapNoise[d.id] = { dx: dir * (6 + (hash % 7)), dy: (3 + hash % 3) };
+          } else {
+            // Fake LB walk-up: creep toward LOS 6-10%, slight lateral 2-3%
+            const lateral = d.x < 50 ? (2 + hash % 2) : -(2 + hash % 2);
+            preSnapNoise[d.id] = { dx: lateral, dy: 6 + (hash % 5) };
+          }
+        }
+      }
+    }
 
     const concept = inferProtectionConcept(scenario);
     const skillPositions = getSkillPositions(scenario.offensive_formation);
@@ -1481,7 +1605,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
       scenario.defensive_positions,
       concept,
       scenario.call_side,
-      scenario.correct_block_target
+      scenario.correct_block_target,
+      scenario.boot,
+      scenario.naked
     );
     const tbX = scenario.call_side === 'left' ? 38 : 62;
 
@@ -1490,6 +1616,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     if (scenario.solid_call) flags.push('SOLID');
     if (scenario.free_release) flags.push('FREE RELEASE');
     if (scenario.play_action) flags.push('PLAY ACTION');
+    if (scenario.boot) flags.push('BOOT');
     if (scenario.naked) flags.push('NAKED');
     if (scenario.hoss) flags.push('HOSS');
 
@@ -1523,9 +1650,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
         const isTarget = def.id === scenario.correct_block_target;
         const effRush = def.rushing || isTarget;
+        let rushX = 0;
         if (postSnapRushing && effRush) {
           if (def.hot || def.blitz || isTarget) {
             rushY = Math.max(0, 76 - def.y - rY);
+            // Mirror wide blitzer angle toward pocket edge
+            const dist = def.x + rX - 50;
+            if (Math.abs(dist) > 18) {
+              rushX = (dist > 0 ? 65 : 35) - (def.x + rX);
+            }
           } else {
             rushY = Math.max(0, engY - def.y - rY);
           }
@@ -1537,7 +1670,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         }
 
         const crossX = postSnapRushing ? (crossDogOffsets[def.id] || 0) : 0;
-        return { id: def.id, x: def.x + rX + crossX, y: def.y + rY + rushY };
+        return { id: def.id, x: def.x + rX + crossX + rushX, y: def.y + rY + rushY };
       });
 
       for (let i = 0; i < positions.length; i++) {
@@ -1575,18 +1708,11 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         {/* Front ID / Cadence / Mike callout / post-snap prompt */}
         <div className="text-center mb-2">
           {isFrontId ? (
-            <div>
-              <span className={`text-lg font-semibold uppercase tracking-widest ${
-                frontIdResult === 'correct' ? 'text-emerald-400' : frontIdResult === 'wrong' ? 'text-red-400' : 'text-[#67e8f9]'
-              }`}>
-                {frontIdResult === 'correct' ? 'Correct!' : frontIdResult === 'wrong' ? `${getScenarioFrontFamily(scenario)}` : 'What front is this?'}
-              </span>
-              {!frontIdResult && (
-                <span className="ml-3 text-sm font-mono" style={{ color: frontIdTimer > DIFFICULTY_CONFIG[difficulty].time * 0.4 ? '#67e8f9' : frontIdTimer > DIFFICULTY_CONFIG[difficulty].time * 0.2 ? '#fbbf24' : '#ef4444' }}>
-                  {(frontIdTimer / 1000).toFixed(1)}s
-                </span>
-              )}
-            </div>
+            <span className={`text-lg font-semibold uppercase tracking-widest ${
+              frontIdResult === 'correct' ? 'text-emerald-400' : frontIdResult === 'wrong' ? 'text-red-400' : 'text-[#67e8f9]'
+            }`}>
+              {frontIdResult === 'correct' ? 'Correct!' : frontIdResult === 'wrong' ? `${getScenarioFrontFamily(scenario)}` : 'What front is this?'}
+            </span>
           ) : isPreSnap ? (
             <span className="text-lg font-semibold text-gray-400 uppercase tracking-widest animate-cadence">
               Reading defense...
@@ -1600,10 +1726,15 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
         {/* Progress dots + timer */}
         <div className="mb-4">
-          <div className="flex justify-between items-baseline text-gray-400 mb-1.5">
-            <span className="text-sm font-semibold">Play {playIndex + 1} of {currentScenarios.length}</span>
-            <span className="text-2xl font-bold font-mono tabular-nums" style={{ color: isPreSnap ? '#64748b' : timerColor }}>
-              {isPreSnap ? 'PRE-SNAP' : `${(timeRemaining / 1000).toFixed(1)}s`}
+          <div className="flex items-baseline" style={{ marginBottom: '-2px' }}>
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#67e8f9]/60 border border-[#67e8f9]/20 rounded px-2 py-0.5" style={{ fontFamily: 'var(--font-rajdhani)' }}>{DIFFICULTY_CONFIG[difficulty].label} Mode</span>
+            <span className="text-2xl font-bold font-mono tabular-nums uppercase tracking-wide ml-auto" style={{
+              color: isFrontId && !frontIdResult
+                ? (frontIdTimer / DIFFICULTY_CONFIG[difficulty].time > 0.6 ? '#67e8f9' : frontIdTimer / DIFFICULTY_CONFIG[difficulty].time > 0.3 ? '#fbbf24' : '#ef4444')
+                : isPreSnap ? '#64748b' : timerColor
+            }}>
+              {isFrontId ? (!frontIdResult ? `${(frontIdTimer / 1000).toFixed(1)}s` : 'FRONT ID')
+                : isPreSnap ? 'PRE-SNAP' : `${(timeRemaining / 1000).toFixed(1)}s`}
             </span>
           </div>
           <div className="flex items-center gap-1.5 justify-center">
@@ -1802,9 +1933,13 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
 
           {/* OL */}
           {(() => {
+            const pullingGuard = scenario.boot && !scenario.naked
+              ? (scenario.call_side === 'right' ? 'RG' : 'LG')
+              : null;
             return ['LT', 'LG', 'C', 'RG', 'RT'].map((label, i) => {
               const baseX = 40 + i * 5;
               const target = olAssignments[label];
+              const isPulling = label === pullingGuard;
               return (
                 <div
                   key={label}
@@ -1816,7 +1951,9 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                     width: 48,
                     height: 56,
                     zIndex: 20,
-                    transition: 'left 1.4s cubic-bezier(0.22, 1, 0.36, 1), top 1.4s cubic-bezier(0.22, 1, 0.36, 1)',
+                    transition: isPulling
+                      ? 'left 4.5s ease-in-out, top 4.5s ease-in-out'
+                      : 'left 1.4s cubic-bezier(0.22, 1, 0.36, 1), top 1.4s cubic-bezier(0.22, 1, 0.36, 1)',
                   }}
                 >
                   <HelmetIcon label={label.replace('L', '').replace('R', '')} fill="#1a2744" stroke="#2a3f66" stripeColor="#2a3f66" stripeOpacity={0.5} maskColor="#4b5563" textColor="#9ca3af" facing="up" />
@@ -1878,17 +2015,32 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             </div>
           ))}
 
-          {/* QB */}
+          {/* QB — boot: 3-phase loop (fake → drop → boot out); PA no boot: fake → pocket; normal: drift back */}
           <div
             className="absolute"
             style={{
-              left: '50%',
-              top: postSnapRushing ? '79%' : '76%',
+              left: !scenario.boot ? '50%'
+                : qbBootPhase >= 3 ? (scenario.call_side === 'right' ? '35%' : '65%')
+                : qbBootPhase >= 2 ? '50%'
+                : qbBootPhase >= 1 ? (scenario.call_side === 'right' ? '54%' : '46%')
+                : '50%',
+              top: !scenario.boot ? (postSnapRushing ? '79%' : '76%')
+                : qbBootPhase >= 3 ? '87%'
+                : qbBootPhase >= 2 ? '87%'
+                : qbBootPhase >= 1 ? '82%'
+                : '76%',
               transform: 'translate(-50%, -50%)',
               width: 48,
               height: 56,
               zIndex: 25,
-              transition: 'top 1.8s ease-out',
+              transition: !postSnapRushing ? 'none'
+                : scenario.boot
+                  ? (qbBootPhase >= 3
+                    ? 'left 1.6s ease-in-out, top 1.6s ease-in-out'
+                    : qbBootPhase >= 2
+                      ? 'left 0.8s ease-in, top 0.8s ease-in'
+                      : 'left 0.8s ease-out, top 0.8s ease-out')
+                  : 'left 1s ease-out, top 1s ease-out',
             }}
           >
             <HelmetIcon label="QB" fill="#1a2744" stroke="#3a5f88" stripeColor="#3a5f88" stripeOpacity={0.5} maskColor="#4b5563" textColor="#d1d5db" facing="up" />
@@ -1966,21 +2118,31 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
               dl ? def.y :  // DL don't walk up
               36;           // LBs
             let offsetY = 0;
-            if (preSnapAnimating && def.walked_up) {
+            if (preSnapAnimating && def.walked_up && !disguised) {
               // Start at natural coverage depth, animate to walked-up position
               const walkDistance = Math.max(0, def.y - naturalDepth);
               offsetY = -(walkDistance / 100) * FIELD_H;
-            } else if (preSnapAnimating && def.blitz) {
+            } else if (preSnapAnimating && def.walked_up && disguised) {
+              // Disguised: walk up only partway (looks normal-ish)
+              const walkDistance = Math.max(0, def.y - naturalDepth);
+              const disguisePct = difficulty === 'elite' ? 0.15 : 0.4;
+              offsetY = -(walkDistance * (1 - disguisePct) / 100) * FIELD_H;
+            } else if (preSnapAnimating && def.blitz && !disguised) {
               // Smaller disguise offset — just slightly deeper than data position
               offsetY = secondary
                 ? -(8 / 100) * FIELD_H
                 : -(5 / 100) * FIELD_H;
+            } else if (preSnapAnimating && def.blitz && disguised) {
+              // Disguised blitzers stay at their natural depth
+              const blitzDistance = Math.max(0, def.y - naturalDepth);
+              offsetY = -(blitzDistance / 100) * FIELD_H;
             }
 
-            // Coverage rotation: non-blitzing secondary slides pre-snap after walk-up
+            // Coverage rotation + pre-snap noise
             const rotation = coverageRotation[def.id];
-            const rotX = (coverageSliding && rotation) ? rotation.dx : 0;
-            const rotY = (coverageSliding && rotation) ? rotation.dy : 0;
+            const noise = preSnapNoise[def.id];
+            const rotX = coverageSliding ? ((rotation?.dx || 0) + (noise?.dx || 0)) : 0;
+            const rotY = coverageSliding ? ((rotation?.dy || 0) + (noise?.dy || 0)) : 0;
 
             // Post-snap: two-phase rush targeting
             // Edge rushers bend deeper, interior guys stay shallow (mirrors OL pocket)
@@ -1988,6 +2150,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             const ENGAGEMENT_Y = 58 + edgeness * 4; // interior 58%, edge up to 62%
             const BREAKTHROUGH_Y = 70;  // past OL, approaching QB (76%)
             let rushOffsetY = 0;
+            let rushOffsetX = 0;
             let rushDuration = 0;
 
             const isCorrectTarget = def.id === scenario.correct_block_target;
@@ -2003,6 +2166,14 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                 rushOffsetY = TARGET_Y - def.y - rotY;
                 rushOffsetY = Math.max(0, rushOffsetY);
                 rushDuration = Math.max(0.8, rushOffsetY / speed);
+
+                // Wide blitzers (CBs, safeties) angle toward the pocket edge, not straight down
+                // Pocket edge is roughly x:35 (left) or x:65 (right)
+                const distFromCenter = def.x + rotX - 50;
+                if (Math.abs(distFromCenter) > 18) {
+                  const pocketEdge = distFromCenter > 0 ? 65 : 35;
+                  rushOffsetX = pocketEdge - (def.x + rotX);
+                }
               } else {
                 // Regular DL: engage at the line
                 rushOffsetY = ENGAGEMENT_Y - def.y - rotY;
@@ -2042,7 +2213,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                   isPreSnap ? 'cursor-default' : 'cursor-pointer animate-defender-idle hover:brightness-125'
                 } ${defendersHighlight ? 'animate-defender-highlight' : ''}`}
                 style={{
-                  left: `${def.x + rotX + (defenderNudges[def.id] || 0) + (postSnapRushing ? (crossDogOffsets[def.id] || 0) : 0)}%`,
+                  left: `${def.x + rotX + (defenderNudges[def.id] || 0) + (postSnapRushing ? (crossDogOffsets[def.id] || 0) + rushOffsetX : 0)}%`,
                   top: `${def.y + rotY + rushOffsetY}%`,
                   transform: `translate(-50%, -50%) scale(${
                     postSnapBreakthrough && (def.hot || isCorrectTarget) ? 1.14
@@ -2167,19 +2338,22 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           pointerEvents: isCallPhase ? 'none' as const : 'auto' as const,
         }}>
         {/* Front ID multiple choice — persists after answer to show result */}
-        {(isFrontId || frontIdResult) && (() => {
+        {(() => {
+          const active = isFrontId || !!frontIdResult;
           const pastFrontId = !isFrontId && !!frontIdResult;
           const waiting = isFrontId && !frontIdResult;
           const correctFamily = getScenarioFrontFamily(scenario);
           const visibleChoices = frontChoices;
           // During front_id: pull buttons up into the field (under QB/TB area)
           // After answer: slide back down to normal position below the field
+          // Always render to reserve space — hide with visibility when inactive
           return (
             <div
               className="relative z-50 grid grid-cols-3 gap-3 mb-4"
               style={{
                 transform: waiting ? 'translateY(-120px)' : 'translateY(0)',
                 transition: 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)',
+                visibility: active ? 'visible' : 'hidden',
               }}
             >
               {visibleChoices.map((choice, idx) => {
@@ -2208,7 +2382,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                     onClick={() => handleFrontAnswer(choice)}
                     disabled={!!frontIdResult}
                     className={`${waiting ? 'py-4 px-5 text-base' : 'py-3 px-4 text-sm'} rounded-lg font-bold uppercase tracking-wide transition-all ${btnClass} ${waiting ? 'animate-front-btn-active' : ''}`}
-                    style={waiting ? { animationDelay: `${idx * 0.08}s, ${0.35 + idx * 0.08}s` } : undefined}
+                    style={waiting ? { animationDelay: `0s, 0.7s` } : undefined}
                   >
                     {choice}
                   </button>
@@ -2343,9 +2517,10 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
           </div>
         )}
 
-        {/* Time */}
-        <div className="text-center text-sm text-gray-400 mb-6">
-          Response time: {(lastResult.responseTime / 1000).toFixed(1)}s
+        {/* Times */}
+        <div className="flex justify-center gap-6 text-sm text-gray-400 mb-6">
+          <span>Front ID: {(lastResult.frontResponseTime / 1000).toFixed(1)}s</span>
+          <span>Block Read: {(lastResult.responseTime / 1000).toFixed(1)}s</span>
         </div>
 
         {/* Next Button */}
@@ -2370,7 +2545,8 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
     const total = allResults.length;
     const totalPoints = blockCorrectCount + frontCorrectCount;
     const pct = total > 0 ? Math.round((totalPoints / (total * 2)) * 100) : 0;
-    const avgTime = total > 0 ? Math.round(allResults.reduce((s, r) => s + r.responseTime, 0) / total) : 0;
+    const avgBlockTime = total > 0 ? Math.round(allResults.reduce((s, r) => s + r.responseTime, 0) / total) : 0;
+    const avgFrontTime = total > 0 ? Math.round(allResults.reduce((s, r) => s + (r.frontResponseTime || 0), 0) / total) : 0;
 
     const tier = GRADE_TIERS.find(t => pct >= t.min) || GRADE_TIERS[GRADE_TIERS.length - 1];
 
@@ -2389,7 +2565,7 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-5 gap-3 mb-6">
           <div className="bg-gray-800 rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-[#00d4aa]">{blockCorrectCount}/{total}</div>
             <div className="text-xs text-gray-400 uppercase mt-1">Block Read</div>
@@ -2399,8 +2575,12 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
             <div className="text-xs text-gray-400 uppercase mt-1">Front ID</div>
           </div>
           <div className="bg-gray-800 rounded-lg p-4 text-center">
-            <div className="text-2xl font-bold text-[#00d4aa]">{(avgTime / 1000).toFixed(1)}s</div>
-            <div className="text-xs text-gray-400 uppercase mt-1">Avg Time</div>
+            <div className="text-2xl font-bold text-[#00d4aa]">{(avgFrontTime / 1000).toFixed(1)}s</div>
+            <div className="text-xs text-gray-400 uppercase mt-1">Avg Front</div>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-[#00d4aa]">{(avgBlockTime / 1000).toFixed(1)}s</div>
+            <div className="text-xs text-gray-400 uppercase mt-1">Avg Block</div>
           </div>
           <div className="bg-gray-800 rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-[#00d4aa]">{bestStreak}</div>
@@ -2417,15 +2597,16 @@ export function RBProtectionContent({ demoMode = false, demoScenarios }: RBProte
                 <span className="text-sm text-gray-300">
                   {r.scenario.protection_type} vs {r.scenario.coverage_name}
                 </span>
-                <span className="text-sm text-gray-400">{(r.responseTime / 1000).toFixed(1)}s</span>
               </div>
               <div className="flex items-center gap-4 text-xs">
                 <span className={r.frontCorrect ? 'text-green-400' : 'text-red-400'}>
                   {r.frontCorrect ? '✓' : '✗'} Front: {r.frontPicked || 'N/A'}
                 </span>
+                <span className="text-gray-500">{((r.frontResponseTime || 0) / 1000).toFixed(1)}s</span>
                 <span className={r.correct ? 'text-green-400' : 'text-red-400'}>
                   {r.correct ? '✓' : '✗'} Block: {r.userAnswer === 'TIMEOUT' ? 'N/A' : r.userAnswer}
                 </span>
+                <span className="text-gray-500">{(r.responseTime / 1000).toFixed(1)}s</span>
               </div>
             </div>
           ))}
