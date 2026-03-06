@@ -184,7 +184,7 @@ export const STOCK_SCENARIOS = [
     explanation: "Half slide left. The man side (right) has the guard and tackle locked on their DL. But Mike is blitzing through the A-gap on the man side — he's your tb_read 2. The right guard can't come off his man, so Mike comes free. Step up into the A-gap and cut him off.",
   },
 
-  // 6. Half Slide — Sam LB off the edge
+  // 6. Half Slide — Sam LB off the edge (man side)
   {
     id: "stock-hs-blitz-sam",
     coverage_name: "UNDER",
@@ -192,7 +192,7 @@ export const STOCK_SCENARIOS = [
     front_family: "Even",
     protection_type: "Half Slide",
     protection_concept: "half_slide",
-    call_side: "right",
+    call_side: "left",
     solid_call: false,
     free_release: false,
     play_action: false,
@@ -215,7 +215,7 @@ export const STOCK_SCENARIOS = [
       CB2: { x: 85, y: 38, label: "CB", rushing: false },
     },
     correct_block_target: "S",
-    explanation: "Half slide right handles the DL. On the left (man) side, the Sam linebacker is your tb_read 1 — the edge rusher. He's coming hard off the strong side and the OL can't account for him. Get to the edge quick and wall him off. Your eyes go edge first in half slide.",
+    explanation: "Half slide left handles the DL to that side. On the right (man) side, the Sam linebacker is your tb_read 1 — the edge rusher. The RG and RT have the two right-side DL locked up, but Sam is the 3rd man-side rusher and he's coming hard off the edge. Get outside quick and wall him off.",
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -257,7 +257,7 @@ export const STOCK_SCENARIOS = [
     explanation: "Base 3-4 with 3-man rush. The OL has each DL accounted for in man assignments. Scan inside-out: nobody's coming. Release into your route. In man protection against a base 3-man rush, you're almost always free — but never assume. Always check before you go.",
   },
 
-  // 8. Man Protect — Mike A-gap blitz
+  // 8. Man Protect — Mike A-gap blitz + Q edge blitz (6-man pressure)
   {
     id: "stock-mp-blitz-mike",
     coverage_name: "NICKEL",
@@ -281,14 +281,14 @@ export const STOCK_SCENARIOS = [
       T2: { x: 56, y: 56, label: "T", rushing: true },
       E2: { x: 66, y: 56, label: "E", rushing: true },
       M:  { x: 50, y: 48, label: "M", rushing: true, blitz: true, hot: true },
-      Q:  { x: 35, y: 44, label: "Q", rushing: false },
+      Q:  { x: 35, y: 44, label: "Q", rushing: true, blitz: true },
       SS: { x: 60, y: 32, label: "SS", rushing: false },
       FS: { x: 50, y: 22, label: "FS", rushing: false },
       CB1: { x: 15, y: 38, label: "CB", rushing: false },
       CB2: { x: 85, y: 38, label: "CB", rushing: false },
     },
     correct_block_target: "M",
-    explanation: "Nickel front with 4 DL. The Mike is blitzing straight through the A-gap as the 5th rusher. In man protection, each OL has their man — Mike is the one nobody has. Read inside-out: he's your first threat. Step up and meet him head on.",
+    explanation: "Nickel front with 6-man pressure — 4 DL plus Mike and the nickel (Q) both blitzing. The OL accounts for 4 DL and the center sorts to the nickel through his gap. That leaves Mike screaming through the A-gap as the free runner. Read inside-out: he's your first threat. Step up and meet him head on.",
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -326,7 +326,7 @@ export const STOCK_SCENARIOS = [
       CB2: { x: 85, y: 42, label: "CB", rushing: false },
     },
     correct_block_target: "SS",
-    explanation: "Cover 0 — 7-man pressure with no deep safety help. The OL slides right and picks up the 4 DL plus both A-gap linebackers. That leaves the SS coming off the edge unblocked. It's a numbers game: 7 rushers vs 6 blockers. You have the SS. Be decisive — there's no time to hesitate against cover 0.",
+    explanation: "Cover 0 — 7-man pressure with no deep safety help. The OL slides right and picks up the 4 DL plus one A-gap linebacker — 5 blockers for 5. The SS is coming off the strong edge as the 6th rusher and he's yours. The 7th rusher is the QB's problem (hot route). It's a numbers game: be decisive, there's no time to hesitate against cover 0.",
   },
 
   // 10. Fire Zone — DL drops, nickel comes free

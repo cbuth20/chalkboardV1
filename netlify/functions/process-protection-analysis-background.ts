@@ -435,17 +435,26 @@ Return a JSON object with a "scenarios" array. Each scenario should look like th
   ]
 }
 
-Important rules:
-- For protections where the TB has an assignment (full_slide, half_slide concepts), the correct answer is usually a specific defender
-- For free release protections (free_release=true, hoss=true), the correct answer is usually "RELEASE"
-- For play action (play_action concept), the TB typically fakes then releases or has late check responsibility
-- Mark defenders as "blitz": true if they're blitzing from a non-traditional rush position
-- Mark defenders as "hot": true if they're unblocked rushers the QB must deal with
-- Mark defenders as "walked_up": true if they've walked up to the LOS from a LB position
-- For half_slide protections, include "tb_read" numbers (1, 2, 3) on the defenders the TB must read through
-- ALWAYS include the full secondary (2 CBs, SS, FS) in every scenario so the field looks like a real defensive look. Mark their "rushing" as false if they are in coverage. Only mark "blitz": true, "rushing": true if they are actually blitzing.
-- Secondary positioning depth ranges: SS at y: 25-35 (near box), FS at y: 15-25 (deep), CB at y: 42-50 (near LOS, wide at x: 20-30 or x: 70-80 for outside corners, x: 30-38 or x: 62-70 for nickel/slot corners)
-- When a secondary defender blitzes, the TB's read changes — explain this clearly in the coaching explanation
+## Block target logic (CRITICAL — get this right)
+
+Read the playbook's blocking rules to determine who each OL blocks. The correct_block_target is whoever the OL CANNOT account for. Walk through it:
+1. Assign each OL based on the scheme (man assignments, slide direction, center point, sort rules).
+2. Is any rusher left without an OL blocker?
+3. If yes → correct_block_target = that defender (set hot: true on them).
+4. If all rushers are accounted for → correct_block_target = "RELEASE" (no hot defenders).
+
+Per concept:
+- **man_protect**: Each OL has a man. Check the center point — an uncovered C/G sorts to the declared LB (e.g., Will). That LB is then OL-accounted, NOT the RB's job. The RB only blocks a rusher the OL sort rules don't cover.
+- **full_slide**: OL slides to call_side. Backside OT anchors vs backside DE. Extra backside rusher beyond that DE = RB's target.
+- **half_slide**: Man side has 2 OL. ≤2 man-side rushers = check-release. 3+ = RB gets the extra. Use tb_read 1/2/3 for read progression.
+
+## Important rules
+- Mark "blitz": true if rushing from a non-traditional position (LB, DB)
+- Mark "hot": true ONLY on the correct_block_target defender (the one the RB must block). If RELEASE, no one is hot.
+- Mark "walked_up": true if they creep toward LOS pre-snap
+- For half_slide, include "tb_read" numbers (1, 2, 3) on defenders the TB reads through
+- ALWAYS include the full secondary (2 CBs, SS, FS). Mark "rushing": false if in coverage.
+- When a secondary defender blitzes, explain the read change in the coaching explanation
 
 Return ONLY the JSON object, no other text.`;
 
@@ -567,8 +576,25 @@ Return ONLY the JSON object, no other text.`;
         }
       }
 
+      // Block target consistency checks
+      const defs = s.defensive_positions as Record<string, any>;
+      if (s.correct_block_target === 'RELEASE') {
+        for (const d of Object.values(defs)) { if ((d as any).hot) (d as any).hot = false; }
+      } else {
+        const target = defs[s.correct_block_target];
+        if (target) {
+          if (!target.rushing) {
+            console.warn(`Block target ${s.correct_block_target} not rushing -> RELEASE`);
+            s.correct_block_target = 'RELEASE';
+            for (const d of Object.values(defs)) { if ((d as any).hot) (d as any).hot = false; }
+          } else {
+            for (const [k, d] of Object.entries(defs)) { (d as any).hot = (k === s.correct_block_target); }
+          }
+        }
+      }
+
       // Check secondary completeness
-      const labels = Object.values(s.defensive_positions as Record<string, any>).map((d: any) => d.label);
+      const labels = Object.values(defs).map((d: any) => d.label);
       if (!labels.includes('FS') || !labels.includes('SS') || !labels.includes('CB')) {
         console.warn(`Scenario "${s.coverage_name}" missing secondary, skipping`);
         return null;

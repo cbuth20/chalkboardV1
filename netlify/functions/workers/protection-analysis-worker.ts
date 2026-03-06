@@ -368,10 +368,18 @@ Return JSON: { "scenarios": [ ... ] }. Each scenario:
 
 Protection concepts: full_slide | half_slide | man_protect | max_protect | play_action | sprint_out | screen | draw | unknown
 
-The RB's read changes by concept — reflect this in explanations:
-- **full_slide**: RB reads opposite edge for leakers
-- **half_slide**: RB reads the man side, use tb_read 1/2/3 for read progression
-- **man_protect**: RB picks up the free runner inside-out
+## Block target logic (CRITICAL — get this right)
+
+Read the playbook's blocking rules to determine who each OL blocks. The correct_block_target is whoever the OL CANNOT account for. Walk through it:
+1. Assign each OL based on the scheme (man assignments, slide direction, center point, sort rules).
+2. Is any rusher left without an OL blocker?
+3. If yes → correct_block_target = that defender (set hot: true on them).
+4. If all rushers are accounted for → correct_block_target = "RELEASE" (no hot defenders).
+
+Per concept:
+- **man_protect**: Each OL has a man. Check the center point — an uncovered C/G sorts to the declared LB (e.g., Will). That LB is then OL-accounted, NOT the RB's job. The RB only blocks a rusher the OL sort rules don't cover.
+- **full_slide**: OL slides to call_side. Backside OT anchors vs backside DE. Extra backside rusher beyond that DE = RB's target.
+- **half_slide**: Man side has 2 OL. ≤2 man-side rushers = check-release. 3+ = RB gets the extra. Use tb_read 1/2/3 for read progression.
 
 ## Defender flags
 
@@ -566,8 +574,28 @@ Return ONLY the JSON object.`;
           }
         }
 
+        // Block target consistency checks
+        const defs = s.defensive_positions as Record<string, any>;
+        if (s.correct_block_target === 'RELEASE') {
+          // RELEASE = no one unblocked → clear any stale hot flags
+          for (const d of Object.values(defs)) { if (d.hot) d.hot = false; }
+        } else {
+          const target = defs[s.correct_block_target];
+          if (target) {
+            // Target must be rushing — can't block someone in coverage
+            if (!target.rushing) {
+              console.warn(`Block target ${s.correct_block_target} not rushing → RELEASE`);
+              s.correct_block_target = 'RELEASE';
+              for (const d of Object.values(defs)) { if (d.hot) d.hot = false; }
+            } else {
+              // Ensure hot flag matches the block target
+              for (const [k, d] of Object.entries(defs)) { (d as any).hot = (k === s.correct_block_target); }
+            }
+          }
+        }
+
         // Check secondary completeness — must have at least FS + SS + 1 CB
-        const labels = Object.values(s.defensive_positions as Record<string, any>).map((d: any) => d.label);
+        const labels = Object.values(defs).map((d: any) => d.label);
         if (!labels.includes('FS') || !labels.includes('SS') || !labels.includes('CB')) {
           console.warn(`Scenario "${s.coverage_name}" missing secondary (labels: ${labels.join(',')}), skipping`);
           return null;
